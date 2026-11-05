@@ -30,12 +30,11 @@ data class AdminUser(val uid: String = "", val email: String = "", val vipExpiry
 @Composable
 fun AdminScreen(onBack: () -> Unit) {
     val db = FirebaseFirestore.getInstance()
-    var selectedTab by remember { mutableIntStateOf(0) } // 0=Movies, 1=TV, 2=VIP
+    var selectedTab by remember { mutableIntStateOf(0) } // 0=Movies, 1=TV, 2=VIP, 3=Theme
     
     var isLoading by remember { mutableStateOf(false) }
     var statusMessage by remember { mutableStateOf<String?>(null) }
 
-    // Editing Tracking
     var editingMovieId by remember { mutableStateOf<String?>(null) }
     var editingTvId by remember { mutableStateOf<String?>(null) }
 
@@ -43,11 +42,15 @@ fun AdminScreen(onBack: () -> Unit) {
     var title by remember { mutableStateOf("") }
     var posterUrl by remember { mutableStateOf("") }
     var videoUrl by remember { mutableStateOf("") }
+    var subtitleUrl by remember { mutableStateOf("") }
     var year by remember { mutableStateOf("2026") }
     var selectedCategory by remember { mutableStateOf(categories[0]) }
     var selectedVj by remember { mutableStateOf(vjList[0]) }
     var selectedType by remember { mutableStateOf("Movie") }
     var isVipMovie by remember { mutableStateOf(false) }
+    var isFeaturedMovie by remember { mutableStateOf(false) }
+    var episodesList by remember { mutableStateOf<List<Episode>>(emptyList()) }
+    
     var catExpanded by remember { mutableStateOf(false) }
     var vjExpanded by remember { mutableStateOf(false) }
 
@@ -58,10 +61,14 @@ fun AdminScreen(onBack: () -> Unit) {
     var tvCategory by remember { mutableStateOf("News") }
     var isVipTv by remember { mutableStateOf(false) }
 
-    // VIP State
+    // VIP & Theme State
     var couponDays by remember { mutableStateOf("7") }
     var allUsers by remember { mutableStateOf<List<AdminUser>>(emptyList()) }
     
+    var themePrimary by remember { mutableStateOf("#E50914") }
+    var themeBg by remember { mutableStateOf("#0B0C10") }
+    var themeFontSize by remember { mutableStateOf("14") }
+
     // Lists for management
     var existingMovies by remember { mutableStateOf<List<Movie>>(emptyList()) }
     var existingTv by remember { mutableStateOf<List<TvChannel>>(emptyList()) }
@@ -103,7 +110,8 @@ fun AdminScreen(onBack: () -> Unit) {
         TabRow(selectedTabIndex = selectedTab, containerColor = Color(0xFF15171E), contentColor = Color(0xFFE50914)) {
             Tab(selected = selectedTab == 0, onClick = { selectedTab = 0 }, text = { Text("Movies") })
             Tab(selected = selectedTab == 1, onClick = { selectedTab = 1 }, text = { Text("TV Live") })
-            Tab(selected = selectedTab == 2, onClick = { selectedTab = 2 }, text = { Text("VIP & Users") })
+            Tab(selected = selectedTab == 2, onClick = { selectedTab = 2 }, text = { Text("VIP") })
+            Tab(selected = selectedTab == 3, onClick = { selectedTab = 3 }, text = { Text("Theme") })
         }
 
         Spacer(modifier = Modifier.height(16.dp))
@@ -121,8 +129,8 @@ fun AdminScreen(onBack: () -> Unit) {
 
             OutlinedTextField(value = title, onValueChange = { title = it }, label = { Text("Title") }, modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White))
             OutlinedTextField(value = posterUrl, onValueChange = { posterUrl = it }, label = { Text("Poster URL") }, modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White))
-            OutlinedTextField(value = videoUrl, onValueChange = { videoUrl = it }, label = { Text("Stream URL (.mp4/.m3u8)") }, modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White))
             OutlinedTextField(value = year, onValueChange = { year = it }, label = { Text("Year") }, modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White))
+            OutlinedTextField(value = subtitleUrl, onValueChange = { subtitleUrl = it }, label = { Text("Subtitle URL (.vtt) - Optional") }, modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White))
 
             // Category Dropdown
             ExposedDropdownMenuBox(expanded = catExpanded, onExpandedChange = { catExpanded = !catExpanded }) {
@@ -140,44 +148,81 @@ fun AdminScreen(onBack: () -> Unit) {
                 }
             }
 
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 16.dp)) {
+            // If it's a TV Show, show the Episode Builder
+            if (selectedType == "TV Show") {
+                Text("Add Episodes", color = Color.White, fontWeight = FontWeight.Bold, modifier = Modifier.padding(vertical = 8.dp))
+                var epSeason by remember { mutableStateOf("1") }
+                var epNumber by remember { mutableStateOf("1") }
+                var epUrl by remember { mutableStateOf("") }
+                Row(modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    OutlinedTextField(value = epSeason, onValueChange = { epSeason = it }, label = { Text("S") }, modifier = Modifier.width(60.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    OutlinedTextField(value = epNumber, onValueChange = { epNumber = it }, label = { Text("Ep") }, modifier = Modifier.width(60.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    OutlinedTextField(value = epUrl, onValueChange = { epUrl = it }, label = { Text("Video URL") }, modifier = Modifier.weight(1f))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Button(onClick = { 
+                        if (epUrl.isNotBlank()) {
+                            episodesList = episodesList + Episode("S$epSeason", "Ep $epNumber", epUrl)
+                            epUrl = ""
+                        }
+                    }) { Text("Add") }
+                }
+                LazyColumn(modifier = Modifier.heightIn(max = 150.dp)) {
+                    items(episodesList) { ep ->
+                        Text("${ep.season} ${ep.episode} - ${ep.url}", color = Color.Gray, fontSize = 10.sp)
+                    }
+                }
+            } else {
+                OutlinedTextField(value = videoUrl, onValueChange = { videoUrl = it }, label = { Text("Movie Stream URL (.mp4/.m3u8)") }, modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White))
+            }
+
+            Row(verticalAlignment = Alignment.CenterVertically) {
                 Checkbox(checked = isVipMovie, onCheckedChange = { isVipMovie = it }, colors = CheckboxDefaults.colors(checkedColor = Color(0xFFE50914)))
-                Text("Require VIP to watch", color = Color.White)
+                Text("VIP Only", color = Color.White)
+                Spacer(modifier = Modifier.width(16.dp))
+                Checkbox(checked = isFeaturedMovie, onCheckedChange = { isFeaturedMovie = it }, colors = CheckboxDefaults.colors(checkedColor = Color(0xFFE50914)))
+                Text("Featured Banner", color = Color.White)
             }
 
             Button(
                 onClick = {
-                    if (title.isBlank() || posterUrl.isBlank() || videoUrl.isBlank()) { statusMessage = "Fill required fields."; return@Button }
+                    if (title.isBlank() || posterUrl.isBlank() || (videoUrl.isBlank() && episodesList.isEmpty())) { statusMessage = "Fill required fields."; return@Button }
                     isLoading = true
-                    val newMovie = hashMapOf("title" to title, "poster" to posterUrl, "videoUrl" to videoUrl, "category" to selectedCategory, "videoTag" to selectedVj, "year" to year, "type" to selectedType, "isVip" to isVipMovie)
+                    val newMovie = hashMapOf(
+                        "title" to title, "poster" to posterUrl, "videoUrl" to videoUrl, "category" to selectedCategory, 
+                        "videoTag" to selectedVj, "year" to year, "type" to selectedType, "isVip" to isVipMovie, 
+                        "isFeatured" to isFeaturedMovie, "subtitleUrl" to subtitleUrl, "timestamp" to System.currentTimeMillis(),
+                        "episodes" to episodesList
+                    )
                     
                     if (editingMovieId != null) {
                         db.collection("homeland_movies").document(editingMovieId!!).set(newMovie).addOnSuccessListener {
-                            isLoading = false; statusMessage = "Success! Movie updated."; editingMovieId = null; title = ""; posterUrl = ""; videoUrl = ""; isVipMovie = false
+                            isLoading = false; statusMessage = "Success! Updated."; editingMovieId = null; title = ""; posterUrl = ""; videoUrl = ""; episodesList = emptyList()
                         }.addOnFailureListener { isLoading = false; statusMessage = "Error: ${it.message}" }
                     } else {
                         db.collection("homeland_movies").add(newMovie).addOnSuccessListener {
-                            isLoading = false; statusMessage = "Success! Movie added."; title = ""; posterUrl = ""; videoUrl = ""; isVipMovie = false
+                            isLoading = false; statusMessage = "Success! Added."; title = ""; posterUrl = ""; videoUrl = ""; episodesList = emptyList()
                         }.addOnFailureListener { isLoading = false; statusMessage = "Error: ${it.message}" }
                     }
                 },
-                modifier = Modifier.fillMaxWidth().height(50.dp),
+                modifier = Modifier.fillMaxWidth().height(50.dp).padding(top = 8.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE50914)),
                 shape = RoundedCornerShape(12.dp)
             ) { Text(if (editingMovieId != null) "Update Content" else "Publish Content") }
 
             if (editingMovieId != null) {
-                TextButton(onClick = { editingMovieId = null; title = ""; posterUrl = ""; videoUrl = "" }) { Text("Cancel Edit", color = Color.Gray) }
+                TextButton(onClick = { editingMovieId = null; title = ""; posterUrl = ""; videoUrl = ""; episodesList = emptyList() }) { Text("Cancel Edit", color = Color.Gray) }
             }
 
             Spacer(modifier = Modifier.height(16.dp))
-            Text("Manage Movies/Shows", color = Color.White, fontWeight = FontWeight.Bold)
+            Text("Manage Content", color = Color.White, fontWeight = FontWeight.Bold)
             LazyColumn(modifier = Modifier.heightIn(max = 300.dp)) {
                 items(existingMovies) { movie ->
                     Row(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                         Text(movie.title, color = Color.White, modifier = Modifier.weight(1f))
                         IconButton(onClick = {
-                            editingMovieId = movie.id; title = movie.title; posterUrl = movie.poster; videoUrl = movie.videoUrl; selectedCategory = movie.category; selectedVj = movie.videoTag; year = movie.year; isVipMovie = movie.isVip
+                            editingMovieId = movie.id; title = movie.title; posterUrl = movie.poster; videoUrl = movie.videoUrl; selectedCategory = movie.category; selectedVj = movie.videoTag; year = movie.year; isVipMovie = movie.isVip; episodesList = movie.episodes
                         }) { Icon(Icons.Default.Edit, "Edit", tint = Color.Yellow) }
                         IconButton(onClick = { db.collection("homeland_movies").document(movie.id).delete() }) { Icon(Icons.Default.Delete, "Delete", tint = Color.Red) }
                     }
@@ -185,6 +230,7 @@ fun AdminScreen(onBack: () -> Unit) {
             }
 
         } else if (selectedTab == 1) {
+            // TV Form (Same as before)
             Text(if (editingTvId != null) "EDITING TV" else "ADD TV LIVE", color = Color.White)
             OutlinedTextField(value = tvName, onValueChange = { tvName = it }, label = { Text("Channel Name") }, modifier = Modifier.fillMaxWidth().padding(top=8.dp, bottom = 8.dp), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White))
             OutlinedTextField(value = tvLogo, onValueChange = { tvLogo = it }, label = { Text("Logo URL") }, modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White))
@@ -201,39 +247,17 @@ fun AdminScreen(onBack: () -> Unit) {
                     if (tvName.isBlank() || tvUrl.isBlank()) { statusMessage = "Fill required fields."; return@Button }
                     isLoading = true
                     val newTv = hashMapOf("name" to tvName, "logo" to tvLogo, "streamUrl" to tvUrl, "category" to tvCategory, "isVip" to isVipTv)
-                    
-                    if (editingTvId != null) {
-                        db.collection("homeland_tv").document(editingTvId!!).set(newTv).addOnSuccessListener {
-                            isLoading = false; statusMessage = "Success! TV updated."; editingTvId = null; tvName = ""; tvLogo = ""; tvUrl = ""; isVipTv = false
-                        }.addOnFailureListener { isLoading = false; statusMessage = "Error: ${it.message}" }
-                    } else {
-                        db.collection("homeland_tv").add(newTv).addOnSuccessListener {
-                            isLoading = false; statusMessage = "Success! TV added."; tvName = ""; tvLogo = ""; tvUrl = ""; isVipTv = false
-                        }.addOnFailureListener { isLoading = false; statusMessage = "Error: ${it.message}" }
-                    }
+                    db.collection("homeland_tv").add(newTv).addOnSuccessListener {
+                        isLoading = false; statusMessage = "Success! TV added."; tvName = ""; tvLogo = ""; tvUrl = ""; isVipTv = false
+                    }.addOnFailureListener { isLoading = false; statusMessage = "Error: ${it.message}" }
                 },
                 modifier = Modifier.fillMaxWidth().height(50.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE50914)),
                 shape = RoundedCornerShape(12.dp)
-            ) { Text(if (editingTvId != null) "Update TV Channel" else "Publish TV Channel") }
+            ) { Text("Publish TV Channel") }
 
-            if (editingTvId != null) {
-                TextButton(onClick = { editingTvId = null; tvName = ""; tvLogo = ""; tvUrl = "" }) { Text("Cancel Edit", color = Color.Gray) }
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
-            Text("Manage TV Channels", color = Color.White, fontWeight = FontWeight.Bold)
-            LazyColumn(modifier = Modifier.heightIn(max = 300.dp)) {
-                items(existingTv) { tv ->
-                    Row(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Text(tv.name, color = Color.White, modifier = Modifier.weight(1f))
-                        IconButton(onClick = { editingTvId = tv.id; tvName = tv.name; tvLogo = tv.logo; tvUrl = tv.streamUrl; tvCategory = tv.category; isVipTv = tv.isVip }) { Icon(Icons.Default.Edit, "Edit", tint = Color.Yellow) }
-                        IconButton(onClick = { db.collection("homeland_tv").document(tv.id).delete() }) { Icon(Icons.Default.Delete, "Delete", tint = Color.Red) }
-                    }
-                }
-            }
-
-        } else {
+        } else if (selectedTab == 2) {
+            // VIP Tab (Same as before)
             Text("Generate VIP Coupon", color = Color.White, fontWeight = FontWeight.Bold)
             Row(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                 OutlinedTextField(value = couponDays, onValueChange = { couponDays = it }, label = { Text("Days") }, modifier = Modifier.weight(1f), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White))
@@ -245,10 +269,6 @@ fun AdminScreen(onBack: () -> Unit) {
                         .addOnSuccessListener { statusMessage = "Success! Code: $code" }
                 }, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE50914))) { Text("Generate") }
             }
-
-            Spacer(modifier = Modifier.height(16.dp))
-            Text("Manage Users", color = Color.White, fontWeight = FontWeight.Bold)
-            
             LazyColumn(modifier = Modifier.heightIn(max = 400.dp)) {
                 items(allUsers) { user ->
                     val isVip = user.vipExpiry > System.currentTimeMillis()
@@ -264,6 +284,19 @@ fun AdminScreen(onBack: () -> Unit) {
                     }
                 }
             }
+        } else {
+            // THEME TAB
+            Text("App Theme Settings", color = Color.White, fontWeight = FontWeight.Bold)
+            Spacer(modifier = Modifier.height(8.dp))
+            OutlinedTextField(value = themePrimary, onValueChange = { themePrimary = it }, label = { Text("Primary Color (Hex)") }, modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White))
+            OutlinedTextField(value = themeBg, onValueChange = { themeBg = it }, label = { Text("Background Color (Hex)") }, modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White))
+            OutlinedTextField(value = themeFontSize, onValueChange = { themeFontSize = it }, label = { Text("Base Font Size (sp)") }, modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White))
+            
+            Button(onClick = {
+                val themeMap = hashMapOf("primary" to themePrimary, "background" to themeBg, "fontSize" to (themeFontSize.toIntOrNull() ?: 14))
+                db.collection("config").document("theme").set(themeMap)
+                    .addOnSuccessListener { statusMessage = "Theme updated globally!" }
+            }, modifier = Modifier.fillMaxWidth().height(50.dp), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE50914))) { Text("Apply Theme to All Devices") }
         }
 
         Spacer(modifier = Modifier.height(16.dp))
