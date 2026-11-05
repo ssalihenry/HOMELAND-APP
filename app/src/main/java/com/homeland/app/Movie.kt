@@ -8,7 +8,8 @@ data class Movie(
     val category: String = "",
     val videoTag: String = "",
     val year: String = "",
-    val type: String = "Movie" // "Movie" or "TV Show"
+    val type: String = "Movie",
+    val isVip: Boolean = false // 🔥 VIP Flag
 )
 
 data class TvChannel(
@@ -16,5 +17,6 @@ data class TvChannel(
     val name: String = "",
     val logo: String = "",
     val streamUrl: String = "",
-    val category: String = ""
+    val category: String = "",
+    val isVip: Boolean = false // 🔥 VIP Flag
 )
