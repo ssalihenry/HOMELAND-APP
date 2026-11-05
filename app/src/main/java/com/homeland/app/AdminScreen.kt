@@ -100,13 +100,13 @@ fun AdminScreen(onBack: () -> Unit) {
             OutlinedTextField(value = videoUrl, onValueChange = { videoUrl = it }, label = { Text("Stream URL (.mp4/.m3u8)") }, modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White))
             OutlinedTextField(value = year, onValueChange = { year = it }, label = { Text("Year") }, modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White))
 
-            // Category Dropdown
+            // Category Dropdown (Corrected syntax)
             var catExpanded by remember { mutableStateOf(false) }
             ExposedDropdownMenuBox(expanded = catExpanded, onExpandedChange = { catExpanded = !catExpanded }) {
                 OutlinedTextField(
                     value = selectedCategory, onValueChange = {}, readOnly = true, label = { Text("Category") },
                     trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = catExpanded) },
-                    modifier = Modifier.fillMaxWidth().menuAnchor(type = MenuAnchorType.PrimaryNotEditable).padding(bottom = 8.dp),
+                    modifier = Modifier.fillMaxWidth().menuAnchor().padding(bottom = 8.dp),
                     colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White)
                 )
                 ExposedDropdownMenu(expanded = catExpanded, onDismissRequest = { catExpanded = false }) {
@@ -114,13 +114,13 @@ fun AdminScreen(onBack: () -> Unit) {
                 }
             }
 
-            // VJ Dropdown
+            // VJ Dropdown (Corrected syntax)
             var vjExpanded by remember { mutableStateOf(false) }
             ExposedDropdownMenuBox(expanded = vjExpanded, onExpandedChange = { vjExpanded = !vjExpanded }) {
                 OutlinedTextField(
                     value = selectedVj, onValueChange = {}, readOnly = true, label = { Text("VJ Tag") },
                     trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = vjExpanded) },
-                    modifier = Modifier.fillMaxWidth().menuAnchor(type = MenuAnchorType.PrimaryNotEditable).padding(bottom = 16.dp),
+                    modifier = Modifier.fillMaxWidth().menuAnchor().padding(bottom = 16.dp),
                     colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White)
                 )
                 ExposedDropdownMenu(expanded = vjExpanded, onDismissRequest = { vjExpanded = false }, modifier = Modifier.heightIn(max = 200.dp)) {
