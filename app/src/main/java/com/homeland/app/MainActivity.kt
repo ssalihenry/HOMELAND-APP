@@ -36,6 +36,7 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import coil.compose.AsyncImage
+import com.google.firebase.messaging.FirebaseMessaging
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
@@ -78,6 +79,16 @@ class MainActivity : ComponentActivity() {
 fun HomelandApp(auth: FirebaseAuth, onLogout: () -> Unit) {
     var selectedTab by remember { mutableStateOf(0) }
     var currentlyPlaying by remember { mutableStateOf<MediaPlaybackItem?>(null) }
+    
+    // 🔥 SUBSCRIBE TO TOPIC FOR REAL BROADCAST NOTIFICATIONS
+LaunchedEffect(Unit) {
+    FirebaseMessaging.getInstance().subscribeToTopic("homeland_updates")
+        .addOnCompleteListener { task ->
+            if (task.isSuccessful) {
+                println("Subscribed to homeland_updates topic")
+            }
+        }
+}
 
     // 🔥 BACK BUTTON HANDLER (Prevents app from closing instantly)
     BackHandler(enabled = currentlyPlaying != null || selectedTab != 0) {
