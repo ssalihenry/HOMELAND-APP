@@ -1,5 +1,12 @@
 package com.homeland.app
 
+data class Episode(
+    val season: String = "",
+    val episode: String = "",
+    val url: String = "",
+    val subtitleUrl: String = ""
+)
+
 data class Movie(
     val id: String = "",
     val title: String = "",
@@ -9,7 +16,11 @@ data class Movie(
     val videoTag: String = "",
     val year: String = "",
     val type: String = "Movie",
-    val isVip: Boolean = false // 🔥 VIP Flag
+    val isVip: Boolean = false,
+    val isFeatured: Boolean = false,
+    val subtitleUrl: String = "",
+    val timestamp: Long = System.currentTimeMillis(),
+    val episodes: List<Episode> = emptyList()
 )
 
 data class TvChannel(
@@ -18,5 +29,5 @@ data class TvChannel(
     val logo: String = "",
     val streamUrl: String = "",
     val category: String = "",
-    val isVip: Boolean = false // 🔥 VIP Flag
+    val isVip: Boolean = false
 )
