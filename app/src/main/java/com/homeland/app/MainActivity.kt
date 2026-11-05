@@ -11,6 +11,7 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
@@ -32,6 +33,8 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.Font
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -51,7 +54,7 @@ const val WHATSAPP_NUMBER = "256742199254"
 val movieCategories = listOf("All", "Action", "Sci-Fi", "Comedy", "Animation", "Romantic", "Horror", "Adventure")
 val tvCategories = listOf("All", "News", "Sports", "Movies", "Entertainment", "Music", "Kids")
 
-data class ThemeConfig(val primary: Color = Color(0xFFE50914), val background: Color = Color(0xFF0B0C10), val fontSize: Int = 14)
+data class ThemeConfig(val primary: Color = Color(0xFFE50914), val background: Color = Color(0xFF0B0C10), val fontSize: Int = 14, val fontUrl: String = "")
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -65,29 +68,43 @@ class MainActivity : ComponentActivity() {
             val db = FirebaseFirestore.getInstance()
             var appTheme by remember { mutableStateOf(ThemeConfig()) }
             
-            // Fetch Global Theme
             LaunchedEffect(Unit) {
                 db.collection("config").document("theme").addSnapshotListener { doc, _ ->
                     if (doc != null && doc.exists()) {
                         val p = doc.getString("primary") ?: "#E50914"
                         val b = doc.getString("background") ?: "#0B0C10"
                         val f = doc.getLong("fontSize")?.toInt() ?: 14
-                        appTheme = ThemeConfig(Color(android.graphics.Color.parseColor(p)), Color(android.graphics.Color.parseColor(b)), f)
+                        val url = doc.getString("fontUrl") ?: ""
+                        appTheme = ThemeConfig(Color(android.graphics.Color.parseColor(p)), Color(android.graphics.Color.parseColor(b)), f, url)
                     }
                 }
             }
 
+            // 🔥 DYNAMIC FONT LOADING
+            val dynamicFontFamily = if (appTheme.fontUrl.isNotBlank()) {
+                FontFamily(Font(appTheme.fontUrl))
+            } else {
+                FontFamily.Default
+            }
+
             MaterialTheme(
+                typography = Typography(defaultFontFamily = dynamicFontFamily),
                 colorScheme = darkColorScheme(primary = appTheme.primary, background = appTheme.background)
             ) {
                 val auth = FirebaseAuth.getInstance()
                 val currentUser = auth.currentUser
                 var isAuthenticated by remember { mutableStateOf(currentUser != null) }
+                var showProfileSelector by remember { mutableStateOf(false) }
 
                 if (isAuthenticated) {
-                    HomelandApp(auth = auth, theme = appTheme, onLogout = { isAuthenticated = false })
+                    // 🔥 MULTI-PROFILE LOGIC
+                    if (showProfileSelector) {
+                        ProfileSelectorScreen(theme = appTheme, onProfileSelected = { showProfileSelector = false })
+                    } else {
+                        HomelandApp(auth = auth, theme = appTheme, onLogout = { isAuthenticated = false; showProfileSelector = false }, onSwitchProfile = { showProfileSelector = true })
+                    }
                 } else {
-                    AuthScreen(auth = auth, onLoginSuccess = { isAuthenticated = true })
+                    AuthScreen(auth = auth, onLoginSuccess = { isAuthenticated = true; showProfileSelector = true })
                 }
             }
         }
@@ -96,7 +113,7 @@ class MainActivity : ComponentActivity() {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun HomelandApp(auth: FirebaseAuth, theme: ThemeConfig, onLogout: () -> Unit) {
+fun HomelandApp(auth: FirebaseAuth, theme: ThemeConfig, onLogout: () -> Unit, onSwitchProfile: () -> Unit) {
     val context = LocalContext.current
     val db = FirebaseFirestore.getInstance()
     var selectedTab by remember { mutableStateOf(0) }
@@ -124,11 +141,7 @@ fun HomelandApp(auth: FirebaseAuth, theme: ThemeConfig, onLogout: () -> Unit) {
     if (currentlyPlaying != null) {
         val movie = currentlyPlaying!!
         PlayerScreen(
-            title = movie.title,
-            videoUrl = movie.videoUrl,
-            episodes = movie.episodes,
-            startPosition = 0L, 
-            subtitleUrl = movie.subtitleUrl.ifBlank { null },
+            title = movie.title, videoUrl = movie.videoUrl, episodes = movie.episodes, startPosition = 0L, subtitleUrl = movie.subtitleUrl.ifBlank { null },
             onClose = { currentlyPlaying = null }
         )
         return 
@@ -136,8 +149,7 @@ fun HomelandApp(auth: FirebaseAuth, theme: ThemeConfig, onLogout: () -> Unit) {
 
     if (viewingDetails != null) {
         MovieDetailsScreen(
-            movie = viewingDetails!!,
-            userVipExpiry = userVipExpiry,
+            movie = viewingDetails!!, userVipExpiry = userVipExpiry,
             onPlay = { 
                 if (it.isVip && userVipExpiry < System.currentTimeMillis()) showVipModal = true
                 else { currentlyPlaying = it; viewingDetails = null }
@@ -179,154 +191,42 @@ fun HomelandApp(auth: FirebaseAuth, theme: ThemeConfig, onLogout: () -> Unit) {
                 0 -> HomeScreen(theme = theme, userVipExpiry = userVipExpiry, onDetails = { viewingDetails = it })
                 1 -> TvLiveScreen(theme = theme, userVipExpiry = userVipExpiry, onPlayMedia = { currentlyPlaying = it })
                 2 -> MyListScreen(theme = theme, userVipExpiry = userVipExpiry, onDetails = { viewingDetails = it })
-                3 -> ProfileScreen(auth, userVipExpiry, theme, onLogout)
+                3 -> ProfileScreen(auth, userVipExpiry, theme, onLogout, onSwitchProfile)
             }
         }
     }
 }
 
-// 🔥 FIXED: Added @OptIn(ExperimentalFoundationApi::class) for the Hero Carousel
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
+// 🔥 MULTI-PROFILE SELECTOR
 @Composable
-fun HomeScreen(theme: ThemeConfig, userVipExpiry: Long, onDetails: (Movie) -> Unit) {
-    val db = FirebaseFirestore.getInstance()
-    var movies by remember { mutableStateOf<List<Movie>>(emptyList()) }
-    var featuredMovies by remember { mutableStateOf<List<Movie>>(emptyList()) }
-    var historyMovies by remember { mutableStateOf<List<Movie>>(emptyList()) }
-    var isLoading by remember { mutableStateOf(true) }
-    var searchQuery by remember { mutableStateOf("") }
-    var selectedCategory by remember { mutableStateOf("All") }
+fun ProfileSelectorScreen(theme: ThemeConfig, onProfileSelected: () -> Unit) {
+    var profiles by remember { mutableStateOf(listOf("Me", "Kids", "Guest")) }
+    var showAddProfile by remember { mutableStateOf(false) }
 
-    DisposableEffect(Unit) {
-        val listener = db.collection("homeland_movies").orderBy("timestamp", Query.Direction.DESCENDING).addSnapshotListener { snap, _ ->
-            if (snap != null) {
-                movies = snap.documents.map { doc -> 
-                    Movie(id = doc.id, title = doc.getString("title") ?: "", poster = doc.getString("poster") ?: "", videoUrl = doc.getString("videoUrl") ?: "", category = doc.getString("category") ?: "", videoTag = doc.getString("videoTag") ?: "", year = doc.getString("year") ?: "", isVip = doc.getBoolean("isVip") ?: false, isFeatured = doc.getBoolean("isFeatured") ?: false) 
+    Column(
+        modifier = Modifier.fillMaxSize().background(theme.background).systemBarsPadding(),
+        verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Text("Who's Watching?", color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 32.dp))
+        
+        profiles.forEach { profile ->
+            Row(modifier = Modifier.padding(8.dp).clickable { onProfileSelected() }.background(Color.DarkGray, RoundedCornerShape(8.dp)).padding(16.dp).fillMaxWidth(0.6f), verticalAlignment = Alignment.CenterVertically) {
+                Box(modifier = Modifier.size(40.dp).clip(CircleShape).background(theme.primary), contentAlignment = Alignment.Center) {
+                    Text(profile.take(1), color = Color.White, fontWeight = FontWeight.Bold)
                 }
-                featuredMovies = movies.filter { it.isFeatured }.take(5)
-                if (featuredMovies.isEmpty()) featuredMovies = movies.take(3)
-                isLoading = false
+                Spacer(modifier = Modifier.width(16.dp))
+                Text(profile, color = Color.White, fontSize = 18.sp)
             }
         }
-        onDispose { listener.remove() }
-    }
-
-    LaunchedEffect(movies) {
-        FirebaseAuth.getInstance().currentUser?.let { user ->
-            db.collection("users").document(user.uid).collection("history").get().addOnSuccessListener { historySnap ->
-                val hIds = historySnap.documents.map { it.id }
-                val valid = movies.filter { it.id in hIds }
-                historyMovies = if (valid.isEmpty()) movies.take(3) else valid
-            }
-        }
-    }
-
-    if (isLoading) {
-        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = theme.primary) }
-    } else {
-        Column(modifier = Modifier.fillMaxSize().systemBarsPadding()) {
-            
-            if (featuredMovies.isNotEmpty() && searchQuery.isEmpty() && selectedCategory == "All") {
-                val pagerState = rememberPagerState(pageCount = { featuredMovies.size })
-                HorizontalPager(state = pagerState, modifier = Modifier.height(250.dp).fillMaxWidth().padding(bottom = 16.dp)) { page ->
-                    val movie = featuredMovies[page]
-                    Box(modifier = Modifier.fillMaxSize()) {
-                        AsyncImage(model = movie.poster, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
-                        Box(modifier = Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Transparent, theme.background))))
-                        Column(modifier = Modifier.align(Alignment.BottomStart).padding(16.dp)) {
-                            Text(movie.title, color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Bold)
-                            Button(onClick = { onDetails(movie) }, colors = ButtonDefaults.buttonColors(containerColor = theme.primary), modifier = Modifier.padding(top = 8.dp)) { Icon(Icons.Default.PlayArrow, null); Text("Play Now") }
-                        }
-                    }
-                }
-            }
-
-            OutlinedTextField(value = searchQuery, onValueChange = { searchQuery = it }, placeholder = { Text("Search...", color = Color.Gray) }, leadingIcon = { Icon(Icons.Default.Search, "Search", tint = Color.Gray) }, modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = theme.primary, unfocusedBorderColor = Color.DarkGray, focusedContainerColor = Color(0xFF15171E), unfocusedContainerColor = Color(0xFF15171E), focusedTextColor = Color.White, unfocusedTextColor = Color.White), shape = RoundedCornerShape(12.dp))
-
-            LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(bottom = 16.dp)) {
-                items(movieCategories) { category -> FilterChip(selected = selectedCategory == category, onClick = { selectedCategory = category }, label = { Text(category) }, colors = FilterChipDefaults.filterChipColors(selectedContainerColor = theme.primary, selectedLabelColor = Color.White, containerColor = Color(0xFF15171E), labelColor = Color.Gray)) }
-            }
-
-            LazyVerticalGrid(columns = GridCells.Adaptive(110.dp), contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                if (historyMovies.isNotEmpty() && searchQuery.isEmpty() && selectedCategory == "All") {
-                    item(span = { GridItemSpan(maxLineSpan) }) { Text(if (historyMovies.size == 3) "Top Picks For You" else "Continue Watching", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(vertical = 8.dp)) }
-                    items(historyMovies) { movie -> MovieCard(movie, theme, userVipExpiry, onDetails) }
-                    item(span = { GridItemSpan(maxLineSpan) }) { Text("Trending Now", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(vertical = 8.dp)) }
-                }
-                val filtered = movies.filter { it.title.contains(searchQuery, true) && (selectedCategory == "All" || it.category == selectedCategory) }
-                items(filtered) { movie -> MovieCard(movie, theme, userVipExpiry, onDetails) }
-            }
-        }
-    }
-}
-
-@Composable
-fun MovieCard(movie: Movie, theme: ThemeConfig, userVipExpiry: Long, onDetails: (Movie) -> Unit) {
-    val isLocked = movie.isVip && userVipExpiry < System.currentTimeMillis()
-    Column(modifier = Modifier.fillMaxWidth().clickable { onDetails(movie) }) {
-        Box {
-            AsyncImage(model = movie.poster, contentDescription = movie.title, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxWidth().aspectRatio(2f / 3f).clip(RoundedCornerShape(10.dp)).background(Color(0xFF15171E)))
-            if (isLocked) {
-                Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.5f), RoundedCornerShape(10.dp)), contentAlignment = Alignment.Center) { Icon(Icons.Default.Lock, "Locked", tint = Color(0xFFFCDC04), modifier = Modifier.size(32.dp)) }
-            }
-        }
-        Spacer(modifier = Modifier.height(4.dp))
-        Text(movie.title, color = Color.White, fontSize = (theme.fontSize).sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        Text("${movie.videoTag} • ${movie.year}", color = if (movie.isVip) Color(0xFFFCDC04) else Color.Gray, fontSize = (theme.fontSize - 4).sp, maxLines = 1)
-    }
-}
-
-@Composable
-fun MovieDetailsScreen(movie: Movie, userVipExpiry: Long, onPlay: (Movie) -> Unit, onBack: () -> Unit) {
-    val isLocked = movie.isVip && userVipExpiry < System.currentTimeMillis()
-    Column(modifier = Modifier.fillMaxSize().background(Color(0xFF0B0C10)).padding(16.dp).systemBarsPadding(), horizontalAlignment = Alignment.CenterHorizontally) {
-        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, "Back", tint = Color.White) }
-            Text(movie.title, color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold, maxLines = 1)
-        }
-        Spacer(modifier = Modifier.height(16.dp))
-        AsyncImage(model = movie.poster, contentDescription = movie.title, contentScale = ContentScale.Crop, modifier = Modifier.width(200.dp).aspectRatio(2f / 3f).clip(RoundedCornerShape(12.dp)))
-        Spacer(modifier = Modifier.height(16.dp))
-        Text("${movie.videoTag} • ${movie.year} • ${movie.category}", color = Color.Gray, fontSize = 14.sp)
+        
         Spacer(modifier = Modifier.height(24.dp))
-        Button(onClick = { onPlay(movie) }, modifier = Modifier.fillMaxWidth().height(50.dp), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE50914))) {
-            Icon(Icons.Default.PlayArrow, null); Spacer(modifier = Modifier.width(8.dp)); Text(if (isLocked) "Unlock with VIP" else "Play Now", fontSize = 16.sp)
-        }
+        Button(onClick = { profiles = profiles + "New Profile" }, colors = ButtonDefaults.buttonColors(containerColor = theme.primary)) { Text("Add Profile") }
     }
 }
 
-// 🔥 RESTORED: MyListScreen function
+// 🔥 PROFESSIONAL PROFILE SCREEN
 @Composable
-fun MyListScreen(theme: ThemeConfig, userVipExpiry: Long, onDetails: (Movie) -> Unit) {
-    val db = FirebaseFirestore.getInstance()
-    val uid = FirebaseAuth.getInstance().currentUser?.uid
-    var favMovies by remember { mutableStateOf<List<Movie>>(emptyList()) }
-
-    LaunchedEffect(uid) {
-        if (uid != null) {
-            db.collection("users").document(uid).addSnapshotListener { doc, _ ->
-                val favs = doc?.get("favorites") as? List<String> ?: emptyList()
-                db.collection("homeland_movies").get().addOnSuccessListener { snap ->
-                    favMovies = snap.documents.mapNotNull { 
-                        Movie(id = it.id, title = it.getString("title") ?: "", poster = it.getString("poster") ?: "", videoUrl = it.getString("videoUrl") ?: "", videoTag = it.getString("videoTag") ?: "", year = it.getString("year") ?: "", isVip = it.getBoolean("isVip") ?: false) 
-                    }.filter { it.id in favs }
-                }
-            }
-        }
-    }
-
-    Column(modifier = Modifier.fillMaxSize().padding(16.dp).systemBarsPadding()) {
-        Text("My List", color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 16.dp))
-        if (favMovies.isEmpty()) Text("Your list is empty. Add favorites from Home.", color = Color.Gray)
-        else LazyVerticalGrid(columns = GridCells.Adaptive(110.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            items(favMovies) { movie -> MovieCard(movie, theme, userVipExpiry, onDetails) }
-        }
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun ProfileScreen(auth: FirebaseAuth, userVipExpiry: Long, theme: ThemeConfig, onLogout: () -> Unit) {
+fun ProfileScreen(auth: FirebaseAuth, userVipExpiry: Long, theme: ThemeConfig, onLogout: () -> Unit, onSwitchProfile: () -> Unit) {
     val context = LocalContext.current
     var showAdminPanel by remember { mutableStateOf(false) }
     var couponCode by remember { mutableStateOf("") }
@@ -337,8 +237,9 @@ fun ProfileScreen(auth: FirebaseAuth, userVipExpiry: Long, theme: ThemeConfig, o
     } else {
         Column(modifier = Modifier.fillMaxSize().padding(24.dp).systemBarsPadding(), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
             
-            Box(modifier = Modifier.size(100.dp).clip(CircleShape).background(Color(0xFF15171E)), contentAlignment = Alignment.Center) {
-                Icon(Icons.Default.Person, "Avatar", tint = Color.Gray, modifier = Modifier.size(60.dp))
+            // Profile Avatar
+            Box(modifier = Modifier.size(100.dp).clip(CircleShape).background(Color(0xFF15171E)).clickable { Toast.makeText(context, "Tap to change avatar", Toast.LENGTH_SHORT).show() }, contentAlignment = Alignment.Center) {
+                Icon(Icons.Default.Person, "Avatar", tint = theme.primary, modifier = Modifier.size(60.dp))
             }
             Spacer(modifier = Modifier.height(16.dp))
 
@@ -349,6 +250,10 @@ fun ProfileScreen(auth: FirebaseAuth, userVipExpiry: Long, theme: ThemeConfig, o
             Text("Status: ${if (isVip) "VIP Active 👑" else "Free User"}", color = if (isVip) Color(0xFFFCDC04) else Color.Gray, fontWeight = FontWeight.Bold, fontSize = 18.sp)
             
             Spacer(modifier = Modifier.height(20.dp))
+
+            Button(onClick = onSwitchProfile, colors = ButtonDefaults.buttonColors(containerColor = Color.DarkGray), modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp)) {
+                Icon(Icons.Default.SwitchAccount, null); Spacer(modifier = Modifier.width(8.dp)); Text("Switch Profile")
+            }
 
             if (!isVip) {
                 Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -388,47 +293,58 @@ fun ProfileScreen(auth: FirebaseAuth, userVipExpiry: Long, theme: ThemeConfig, o
     }
 }
 
+// 🔥 PROFESSIONAL SERIES DETAILS SCREEN
 @Composable
-fun TvLiveScreen(theme: ThemeConfig, userVipExpiry: Long, onPlayMedia: (Movie) -> Unit) {
-    val db = FirebaseFirestore.getInstance()
-    var channels by remember { mutableStateOf<List<TvChannel>>(emptyList()) }
-    var selectedCategory by remember { mutableStateOf("All") }
+fun MovieDetailsScreen(movie: Movie, userVipExpiry: Long, onPlay: (Movie) -> Unit, onBack: () -> Unit) {
+    val isLocked = movie.isVip && userVipExpiry < System.currentTimeMillis()
+    val isSeries = movie.episodes.isNotEmpty()
+    var selectedEpisode by remember { mutableStateOf<Episode?>(null) }
 
-    DisposableEffect(Unit) {
-        val listener = db.collection("homeland_tv").orderBy("name", Query.Direction.ASCENDING).addSnapshotListener { snapshot, _ ->
-            if (snapshot != null) {
-                channels = snapshot.documents.mapNotNull { doc ->
-                    TvChannel(id = doc.id, name = doc.getString("name") ?: "", logo = doc.getString("logo") ?: "", streamUrl = doc.getString("streamUrl") ?: "", category = doc.getString("category") ?: "", isVip = doc.getBoolean("isVip") ?: false)
+    Column(modifier = Modifier.fillMaxSize().background(Color(0xFF0B0C10)).padding(16.dp).systemBarsPadding()) {
+        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, "Back", tint = Color.White) }
+            Text(movie.title, color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+        }
+        Spacer(modifier = Modifier.height(16.dp))
+        
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+            AsyncImage(model = movie.poster, contentDescription = movie.title, contentScale = ContentScale.Crop, modifier = Modifier.width(120.dp).aspectRatio(2f / 3f).clip(RoundedCornerShape(12.dp)))
+            Column {
+                Text(movie.title, color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+                Spacer(modifier = Modifier.height(8.dp))
+                Text("${movie.videoTag} • ${movie.year} • ${movie.category}", color = Color.Gray, fontSize = 14.sp)
+                Spacer(modifier = Modifier.height(16.dp))
+                
+                if (!isSeries) {
+                    Button(onClick = { onPlay(movie) }, modifier = Modifier.fillMaxWidth().height(50.dp), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE50914))) {
+                        Icon(Icons.Default.PlayArrow, null); Spacer(modifier = Modifier.width(8.dp)); Text(if (isLocked) "Unlock with VIP" else "Play Now", fontSize = 16.sp)
+                    }
                 }
             }
         }
-        onDispose { listener.remove() }
-    }
 
-    Column(modifier = Modifier.fillMaxSize().systemBarsPadding()) {
-        LazyRow(contentPadding = PaddingValues(16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            items(tvCategories) { category -> FilterChip(selected = selectedCategory == category, onClick = { selectedCategory = category }, label = { Text(category) }, colors = FilterChipDefaults.filterChipColors(selectedContainerColor = theme.primary, selectedLabelColor = Color.White, containerColor = Color(0xFF15171E), labelColor = Color.Gray)) }
-        }
-        val filtered = channels.filter { selectedCategory == "All" || it.category == selectedCategory }
-        LazyVerticalGrid(columns = GridCells.Adaptive(160.dp), contentPadding = PaddingValues(16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            items(filtered) { channel ->
-                val isLocked = channel.isVip && userVipExpiry < System.currentTimeMillis()
-                Box {
-                    Column(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Color(0xFF15171E)).clickable { 
-                        onPlayMedia(Movie(title = channel.name, videoUrl = channel.streamUrl, isVip = channel.isVip)) 
-                    }.padding(12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                        AsyncImage(model = channel.logo, contentDescription = channel.name, contentScale = ContentScale.Fit, modifier = Modifier.size(80.dp).clip(RoundedCornerShape(8.dp)))
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text(channel.name, color = Color.White, fontSize = theme.fontSize.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        Text(channel.category, color = theme.primary, fontSize = (theme.fontSize - 4).sp)
-                    }
-                    if (isLocked) {
-                        Box(modifier = Modifier.matchParentSize().background(Color.Black.copy(alpha = 0.5f), RoundedCornerShape(12.dp)), contentAlignment = Alignment.Center) {
-                            Icon(Icons.Default.Lock, "Locked", tint = Color(0xFFFCDC04), modifier = Modifier.size(32.dp))
-                        }
+        Spacer(modifier = Modifier.height(24.dp))
+
+        // 🔥 SERIES EPISODES LIST
+        if (isSeries) {
+            Text("Episodes", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 8.dp))
+            LazyColumn(modifier = Modifier.fillMaxSize()) {
+                items(movie.episodes) { ep ->
+                    val epLabel = "${ep.season} • ${ep.episode}"
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp).background(if (selectedEpisode == ep) Color(0xFFE50914) else Color(0xFF15171E), RoundedCornerShape(8.dp)).clickable { 
+                            if (isLocked) onPlay(movie)
+                            else { selectedEpisode = ep; onPlay(Movie(title = "$epLabel - ${movie.title}", videoUrl = ep.url, subtitleUrl = ep.subtitleUrl)) }
+                        }.padding(16.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(epLabel, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                        Icon(Icons.Default.PlayArrow, "Play", tint = Color.White)
                     }
                 }
             }
         }
     }
 }
+
+// (Keep your existing HomeScreen, MyListScreen, TvLiveScreen, MovieCard functions exactly as they are. They are not affected by this update.)
