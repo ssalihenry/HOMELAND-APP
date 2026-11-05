@@ -259,7 +259,7 @@ fun MyListScreen(onPlayMedia: (MediaPlaybackItem) -> Unit) {
     Column(modifier = Modifier.fillMaxSize().padding(16.dp).systemBarsPadding()) {
         Text("My List", color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 16.dp))
         if (favMovies.isEmpty()) Text("Your list is empty. Add favorites from Home.", color = Color.Gray)
-        else LazyVerticalGrid(columns = GridCells.Fixed(3), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        else LazyVerticalGrid(columns = GridCells.Adaptive(minSize = 110.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             items(favMovies) { movie -> MovieCard(movie, onPlayMedia) }
         }
     }
@@ -323,7 +323,7 @@ fun TvLiveScreen(onPlayMedia: (MediaPlaybackItem) -> Unit) {
             }
         }
         val filtered = channels.filter { selectedCategory == "All" || it.category == selectedCategory }
-        LazyVerticalGrid(columns = GridCells.Fixed(2), contentPadding = PaddingValues(16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        LazyVerticalGrid(columns = GridCells.Adaptive(minSize = 160.dp), contentPadding = PaddingValues(16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             items(filtered) { channel ->
                 Column(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Color(0xFF15171E)).clickable { onPlayMedia(MediaPlaybackItem(channel.name, channel.streamUrl, channel.id)) }.padding(12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                     AsyncImage(model = channel.logo, contentDescription = channel.name, contentScale = ContentScale.Fit, modifier = Modifier.size(80.dp).clip(RoundedCornerShape(8.dp)))
