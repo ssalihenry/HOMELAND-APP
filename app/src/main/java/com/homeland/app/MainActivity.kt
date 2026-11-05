@@ -22,6 +22,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -108,18 +109,32 @@ fun HomeScreen() {
     val db = FirebaseFirestore.getInstance()
     var movies by remember { mutableStateOf<List<Movie>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
 
-    // Fetch data from Firestore when the screen loads
     LaunchedEffect(Unit) {
         db.collection("movies").get()
             .addOnSuccessListener { result ->
-                val fetchedMovies = result.documents.mapNotNull { doc ->
-                    doc.toObject(Movie::class.java)?.copy(id = doc.id)
+                try {
+                    // Safely extract the data, converting everything to String
+                    val fetchedMovies = result.documents.mapNotNull { doc ->
+                        Movie(
+                            id = doc.id,
+                            title = doc.getString("title") ?: "Unknown",
+                            poster = doc.getString("poster") ?: "",
+                            videoUrl = doc.getString("videoUrl") ?: "",
+                            category = doc.getString("category") ?: "",
+                            videoTag = doc.getString("videoTag") ?: "",
+                            year = doc.get("year")?.toString() ?: ""
+                        )
+                    }
+                    movies = fetchedMovies
+                } catch (e: Exception) {
+                    errorMessage = "Error parsing data: ${e.message}"
                 }
-                movies = fetchedMovies
                 isLoading = false
             }
-            .addOnFailureListener {
+            .addOnFailureListener { e ->
+                errorMessage = "Database error: ${e.message}"
                 isLoading = false
             }
     }
@@ -127,6 +142,18 @@ fun HomeScreen() {
     if (isLoading) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             CircularProgressIndicator(color = Color(0xFFE50914))
+        }
+    } else if (errorMessage != null) {
+        Box(modifier = Modifier.fillMaxSize().padding(20.dp), contentAlignment = Alignment.Center) {
+            Text(
+                text = errorMessage ?: "Unknown error",
+                color = Color.Red,
+                textAlign = TextAlign.Center
+            )
+        }
+    } else if (movies.isEmpty()) {
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Text("No movies found in database", color = Color.White)
         }
     } else {
         Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
@@ -138,9 +165,8 @@ fun HomeScreen() {
                 modifier = Modifier.padding(bottom = 16.dp)
             )
             
-            // Native Grid for Movies
             LazyVerticalGrid(
-                columns = GridCells.Fixed(3), // 3 columns like the web version
+                columns = GridCells.Fixed(3), 
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
@@ -157,25 +183,21 @@ fun MovieCard(movie: Movie) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable { 
-                // We will add the Video Player click here in the next step
-            }
+            .clickable { }
     ) {
-        // Poster Image
         AsyncImage(
             model = movie.poster,
             contentDescription = movie.title,
             contentScale = ContentScale.Crop,
             modifier = Modifier
                 .fillMaxWidth()
-                .aspectRatio(2f / 3f) // 2:3 aspect ratio for posters
+                .aspectRatio(2f / 3f) 
                 .clip(RoundedCornerShape(10.dp))
                 .background(Color(0xFF15171E))
         )
         
         Spacer(modifier = Modifier.height(6.dp))
         
-        // Movie Title
         Text(
             text = movie.title,
             color = Color.White,
@@ -185,7 +207,6 @@ fun MovieCard(movie: Movie) {
             overflow = TextOverflow.Ellipsis
         )
         
-        // VJ Tag / Year
         Text(
             text = "${movie.videoTag} • ${movie.year}",
             color = Color.Gray,
