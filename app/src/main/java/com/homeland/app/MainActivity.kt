@@ -6,13 +6,16 @@ import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Tv
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -30,6 +33,8 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 
 const val ADMIN_EMAIL = "ssalihenry136@gmail.com"
+val movieCategories = listOf("All", "Action", "Sci-Fi", "Comedy", "Animation", "Romantic", "Horror", "Adventure")
+val tvCategories = listOf("All", "News", "Sports", "Movies", "Entertainment", "Music", "Kids")
 
 data class MediaPlaybackItem(val title: String, val url: String)
 
@@ -86,11 +91,15 @@ fun HomelandApp(auth: FirebaseAuth, onLogout: () -> Unit) {
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(onPlayMedia: (MediaPlaybackItem) -> Unit) {
     val db = FirebaseFirestore.getInstance()
     var movies by remember { mutableStateOf<List<Movie>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
+    
+    var searchQuery by remember { mutableStateOf("") }
+    var selectedCategory by remember { mutableStateOf("All") }
 
     DisposableEffect(Unit) {
         val listenerRegistration = db.collection("homeland_movies").addSnapshotListener { snapshot, error ->
@@ -108,13 +117,66 @@ fun HomeScreen(onPlayMedia: (MediaPlaybackItem) -> Unit) {
     if (isLoading) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = Color(0xFFE50914)) }
     } else {
-        Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-            Text("Homeland Originals", color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 16.dp))
-            if (movies.isEmpty()) {
-                Text("No content found. Use the Admin Panel to add movies!", color = Color.Gray)
+        Column(modifier = Modifier.fillMaxSize()) {
+            
+            // 🔥 SEARCH BAR
+            OutlinedTextField(
+                value = searchQuery,
+                onValueChange = { searchQuery = it },
+                placeholder = { Text("Search movies, VJs...", color = Color.Gray) },
+                leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Search", tint = Color.Gray) },
+                modifier = Modifier.fillMaxWidth().padding(16.dp),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = Color(0xFFE50914),
+                    unfocusedBorderColor = Color.DarkGray,
+                    focusedContainerColor = Color(0xFF15171E),
+                    unfocusedContainerColor = Color(0xFF15171E),
+                    focusedTextColor = Color.White,
+                    unfocusedTextColor = Color.White
+                ),
+                shape = RoundedCornerShape(12.dp)
+            )
+
+            // 🔥 CATEGORY FILTER CHIPS
+            LazyRow(
+                contentPadding = PaddingValues(horizontal = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.padding(bottom = 16.dp)
+            ) {
+                items(movieCategories) { category ->
+                    FilterChip(
+                        selected = selectedCategory == category,
+                        onClick = { selectedCategory = category },
+                        label = { Text(category) },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = Color(0xFFE50914),
+                            selectedLabelColor = Color.White,
+                            containerColor = Color(0xFF15171E),
+                            labelColor = Color.Gray
+                        )
+                    )
+                }
+            }
+
+            // Filter the list based on search and category
+            val filteredMovies = movies.filter { movie ->
+                val matchesSearch = movie.title.contains(searchQuery, ignoreCase = true) || movie.videoTag.contains(searchQuery, ignoreCase = true)
+                val matchesCategory = selectedCategory == "All" || movie.category == selectedCategory
+                matchesSearch && matchesCategory
+            }
+
+            if (filteredMovies.isEmpty()) {
+                Text("No content found.", color = Color.Gray, modifier = Modifier.padding(16.dp))
             } else {
-                LazyVerticalGrid(columns = GridCells.Fixed(3), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                    items(movies) { movie -> MovieCard(movie = movie, onClick = { onPlayMedia(MediaPlaybackItem(movie.title, movie.videoUrl)) }) }
+                LazyVerticalGrid(
+                    columns = GridCells.Fixed(3), 
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    items(filteredMovies) { movie -> 
+                        MovieCard(movie = movie, onClick = { onPlayMedia(MediaPlaybackItem(movie.title, movie.videoUrl)) }) 
+                    }
                 }
             }
         }
@@ -131,11 +193,13 @@ fun MovieCard(movie: Movie, onClick: () -> Unit) {
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TvLiveScreen(onPlayMedia: (MediaPlaybackItem) -> Unit) {
     val db = FirebaseFirestore.getInstance()
     var channels by remember { mutableStateOf<List<TvChannel>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
+    var selectedCategory by remember { mutableStateOf("All") }
 
     DisposableEffect(Unit) {
         val listener = db.collection("homeland_tv").addSnapshotListener { snapshot, error ->
@@ -152,13 +216,42 @@ fun TvLiveScreen(onPlayMedia: (MediaPlaybackItem) -> Unit) {
     if (isLoading) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = Color(0xFFE50914)) }
     } else {
-        Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-            Text("Homeland Live TV", color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 16.dp))
-            if (channels.isEmpty()) {
-                Text("No channels found. Add some in the Admin Panel!", color = Color.Gray)
+        Column(modifier = Modifier.fillMaxSize()) {
+            
+            // 🔥 TV CATEGORY FILTER CHIPS
+            LazyRow(
+                contentPadding = PaddingValues(16.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                items(tvCategories) { category ->
+                    FilterChip(
+                        selected = selectedCategory == category,
+                        onClick = { selectedCategory = category },
+                        label = { Text(category) },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = Color(0xFFE50914),
+                            selectedLabelColor = Color.White,
+                            containerColor = Color(0xFF15171E),
+                            labelColor = Color.Gray
+                        )
+                    )
+                }
+            }
+
+            val filteredChannels = channels.filter { channel ->
+                selectedCategory == "All" || channel.category == selectedCategory
+            }
+
+            if (filteredChannels.isEmpty()) {
+                Text("No channels found in this category.", color = Color.Gray, modifier = Modifier.padding(16.dp))
             } else {
-                LazyVerticalGrid(columns = GridCells.Fixed(2), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                    items(channels) { channel ->
+                LazyVerticalGrid(
+                    columns = GridCells.Fixed(2), 
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    items(filteredChannels) { channel ->
                         Column(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Color(0xFF15171E)).clickable { onPlayMedia(MediaPlaybackItem(channel.name, channel.streamUrl)) }.padding(12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                             AsyncImage(model = channel.logo, contentDescription = channel.name, contentScale = ContentScale.Fit, modifier = Modifier.size(80.dp).clip(RoundedCornerShape(8.dp)))
                             Spacer(modifier = Modifier.height(8.dp))
