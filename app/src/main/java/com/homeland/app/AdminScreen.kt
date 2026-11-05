@@ -30,7 +30,7 @@ data class AdminUser(val uid: String = "", val email: String = "", val vipExpiry
 @Composable
 fun AdminScreen(onBack: () -> Unit) {
     val db = FirebaseFirestore.getInstance()
-    var selectedTab by remember { mutableIntStateOf(0) } // 0=Movies, 1=TV, 2=VIP, 3=Theme
+    var selectedTab by remember { mutableIntStateOf(0) } 
     
     var isLoading by remember { mutableStateOf(false) }
     var statusMessage by remember { mutableStateOf<String?>(null) }
@@ -64,12 +64,8 @@ fun AdminScreen(onBack: () -> Unit) {
     // VIP & Theme State
     var couponDays by remember { mutableStateOf("7") }
     var allUsers by remember { mutableStateOf<List<AdminUser>>(emptyList()) }
-    
-    var themePrimary by remember { mutableStateOf("#E50914") }
-    var themeBg by remember { mutableStateOf("#0B0C10") }
-    var themeFontSize by remember { mutableStateOf("14") }
+    var themeFontUrl by remember { mutableStateOf("") }
 
-    // Lists for management
     var existingMovies by remember { mutableStateOf<List<Movie>>(emptyList()) }
     var existingTv by remember { mutableStateOf<List<TvChannel>>(emptyList()) }
 
@@ -132,7 +128,6 @@ fun AdminScreen(onBack: () -> Unit) {
             OutlinedTextField(value = year, onValueChange = { year = it }, label = { Text("Year") }, modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White))
             OutlinedTextField(value = subtitleUrl, onValueChange = { subtitleUrl = it }, label = { Text("Subtitle URL (.vtt) - Optional") }, modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White))
 
-            // Category Dropdown
             ExposedDropdownMenuBox(expanded = catExpanded, onExpandedChange = { catExpanded = !catExpanded }) {
                 OutlinedTextField(value = selectedCategory, onValueChange = {}, readOnly = true, label = { Text("Category") }, trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = catExpanded) }, modifier = Modifier.fillMaxWidth().menuAnchor().padding(bottom = 8.dp), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White))
                 ExposedDropdownMenu(expanded = catExpanded, onDismissRequest = { catExpanded = false }) {
@@ -140,7 +135,6 @@ fun AdminScreen(onBack: () -> Unit) {
                 }
             }
 
-            // VJ Dropdown
             ExposedDropdownMenuBox(expanded = vjExpanded, onExpandedChange = { vjExpanded = !vjExpanded }) {
                 OutlinedTextField(value = selectedVj, onValueChange = {}, readOnly = true, label = { Text("VJ Tag") }, trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = vjExpanded) }, modifier = Modifier.fillMaxWidth().menuAnchor().padding(bottom = 8.dp), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White))
                 ExposedDropdownMenu(expanded = vjExpanded, onDismissRequest = { vjExpanded = false }, modifier = Modifier.heightIn(max = 200.dp)) {
@@ -148,7 +142,6 @@ fun AdminScreen(onBack: () -> Unit) {
                 }
             }
 
-            // If it's a TV Show, show the Episode Builder
             if (selectedType == "TV Show") {
                 Text("Add Episodes", color = Color.White, fontWeight = FontWeight.Bold, modifier = Modifier.padding(vertical = 8.dp))
                 var epSeason by remember { mutableStateOf("1") }
@@ -230,7 +223,6 @@ fun AdminScreen(onBack: () -> Unit) {
             }
 
         } else if (selectedTab == 1) {
-            // TV Form (Same as before)
             Text(if (editingTvId != null) "EDITING TV" else "ADD TV LIVE", color = Color.White)
             OutlinedTextField(value = tvName, onValueChange = { tvName = it }, label = { Text("Channel Name") }, modifier = Modifier.fillMaxWidth().padding(top=8.dp, bottom = 8.dp), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White))
             OutlinedTextField(value = tvLogo, onValueChange = { tvLogo = it }, label = { Text("Logo URL") }, modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White))
@@ -257,7 +249,6 @@ fun AdminScreen(onBack: () -> Unit) {
             ) { Text("Publish TV Channel") }
 
         } else if (selectedTab == 2) {
-            // VIP Tab (Same as before)
             Text("Generate VIP Coupon", color = Color.White, fontWeight = FontWeight.Bold)
             Row(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                 OutlinedTextField(value = couponDays, onValueChange = { couponDays = it }, label = { Text("Days") }, modifier = Modifier.weight(1f), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White))
@@ -285,18 +276,15 @@ fun AdminScreen(onBack: () -> Unit) {
                 }
             }
         } else {
-            // THEME TAB
             Text("App Theme Settings", color = Color.White, fontWeight = FontWeight.Bold)
             Spacer(modifier = Modifier.height(8.dp))
-            OutlinedTextField(value = themePrimary, onValueChange = { themePrimary = it }, label = { Text("Primary Color (Hex)") }, modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White))
-            OutlinedTextField(value = themeBg, onValueChange = { themeBg = it }, label = { Text("Background Color (Hex)") }, modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White))
-            OutlinedTextField(value = themeFontSize, onValueChange = { themeFontSize = it }, label = { Text("Base Font Size (sp)") }, modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White))
+            OutlinedTextField(value = themeFontUrl, onValueChange = { themeFontUrl = it }, label = { Text("Custom Font URL (.ttf or .otf)") }, modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White))
             
             Button(onClick = {
-                val themeMap = hashMapOf("primary" to themePrimary, "background" to themeBg, "fontSize" to (themeFontSize.toIntOrNull() ?: 14))
-                db.collection("config").document("theme").set(themeMap)
-                    .addOnSuccessListener { statusMessage = "Theme updated globally!" }
-            }, modifier = Modifier.fillMaxWidth().height(50.dp), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE50914))) { Text("Apply Theme to All Devices") }
+                val themeMap = hashMapOf("fontUrl" to themeFontUrl)
+                db.collection("config").document("theme").set(themeMap, com.google.firebase.firestore.SetOptions.merge())
+                    .addOnSuccessListener { statusMessage = "Font updated globally!" }
+            }, modifier = Modifier.fillMaxWidth().height(50.dp), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE50914))) { Text("Apply Font to All Devices") }
         }
 
         Spacer(modifier = Modifier.height(16.dp))
