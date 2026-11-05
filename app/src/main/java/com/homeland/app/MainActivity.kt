@@ -45,7 +45,6 @@ const val WHATSAPP_NUMBER = "256742199254"
 val movieCategories = listOf("All", "Action", "Sci-Fi", "Comedy", "Animation", "Romantic", "Horror", "Adventure")
 val tvCategories = listOf("All", "News", "Sports", "Movies", "Entertainment", "Music", "Kids")
 
-// 🔥 ONE UNIFIED CLASS FOR PLAYBACK (Includes isVip)
 data class MediaPlaybackItem(val title: String, val url: String, val id: String, val isVip: Boolean = false)
 
 class MainActivity : ComponentActivity() {
