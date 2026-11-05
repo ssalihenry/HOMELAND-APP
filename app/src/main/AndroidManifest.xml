@@ -3,14 +3,20 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
-    <!-- 🔥 Permission for Notifications -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- 🔥 Permissions for Downloads -->
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
+
+    <!-- 🔥 TV Support -->
+    <uses-feature android:name="android.software.leanback" android:required="false" />
+    <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
 
     <application
         android:allowBackup="true"
         android:icon="@drawable/ic_launcher"
         android:label="Homeland"
         android:supportsRtl="true"
+        android:banner="@drawable/ic_launcher"
         android:theme="@android:style/Theme.Material.NoActionBar">
         
         <activity
@@ -21,11 +27,13 @@
             android:theme="@android:style/Theme.Material.NoActionBar">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
+                <!-- 🔥 Launcher for Phones/Tablets -->
                 <category android:name="android.intent.category.LAUNCHER" />
+                <!-- 🔥 Launcher for Android TV -->
+                <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
             </intent-filter>
         </activity>
 
-        <!-- 🔥 Register the Notification Service -->
         <service
             android:name=".MyFirebaseMessagingService"
             android:exported="false">
