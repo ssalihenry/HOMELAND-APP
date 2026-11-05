@@ -7,9 +7,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -30,7 +27,7 @@ data class AdminUser(val uid: String = "", val email: String = "", val vipExpiry
 @Composable
 fun AdminScreen(onBack: () -> Unit) {
     val db = FirebaseFirestore.getInstance()
-    var selectedTab by remember { mutableIntStateOf(0) } // 0=Movies, 1=TV, 2=VIP
+    var selectedTab by remember { mutableIntStateOf(0) } 
     
     var isLoading by remember { mutableStateOf(false) }
     var statusMessage by remember { mutableStateOf<String?>(null) }
@@ -38,6 +35,7 @@ fun AdminScreen(onBack: () -> Unit) {
     var editingMovieId by remember { mutableStateOf<String?>(null) }
     var editingTvId by remember { mutableStateOf<String?>(null) }
 
+    // Movie State
     var title by remember { mutableStateOf("") }
     var posterUrl by remember { mutableStateOf("") }
     var videoUrl by remember { mutableStateOf("") }
@@ -47,12 +45,14 @@ fun AdminScreen(onBack: () -> Unit) {
     var selectedType by remember { mutableStateOf("Movie") }
     var isVipMovie by remember { mutableStateOf(false) }
     
+    // TV State
     var tvName by remember { mutableStateOf("") }
     var tvLogo by remember { mutableStateOf("") }
     var tvUrl by remember { mutableStateOf("") }
     var tvCategory by remember { mutableStateOf("News") }
     var isVipTv by remember { mutableStateOf(false) }
 
+    // VIP State
     var couponDays by remember { mutableStateOf("7") }
     var allUsers by remember { mutableStateOf<List<AdminUser>>(emptyList()) }
 
