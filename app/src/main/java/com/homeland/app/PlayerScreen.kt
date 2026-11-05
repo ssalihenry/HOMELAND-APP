@@ -1,9 +1,16 @@
 package com.homeland.app
 
 import android.app.Activity
+import android.app.DownloadManager
+import android.content.Context
 import android.content.pm.ActivityInfo
+import android.net.Uri
+import android.os.Environment
+import android.os.Handler
+import android.os.Looper
 import android.view.ViewGroup
 import android.widget.FrameLayout
+import android.widget.Toast
 import androidx.annotation.OptIn
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
@@ -27,7 +34,6 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
-import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
@@ -53,12 +59,12 @@ fun PlayerScreen(
     var resizeMode by remember { mutableIntStateOf(AspectRatioFrameLayout.RESIZE_MODE_FIT) }
     var isLandscape by remember { mutableStateOf(false) }
 
-    // Dropdowns
+    // Menus
     var showSpeedMenu by remember { mutableStateOf(false) }
     var showQualityMenu by remember { mutableStateOf(false) }
     var showAspectMenu by remember { mutableStateOf(false) }
 
-    // Track Selector for Quality (HLS / Adaptive Streaming)
+    // Track Selector for Quality
     val trackSelector = remember { DefaultTrackSelector(context) }
     var currentQuality by remember { mutableStateOf("Auto") }
 
@@ -85,7 +91,6 @@ fun PlayerScreen(
         }
     }
 
-    // Auto-hide controls after 3 seconds
     LaunchedEffect(showControls, isPlaying) {
         if (showControls && isPlaying) {
             delay(3000)
@@ -106,7 +111,6 @@ fun PlayerScreen(
             .background(Color.Black)
             .clickable { showControls = !showControls }
     ) {
-        // The Video Surface (Edge-to-Edge)
         AndroidView(
             factory = { ctx ->
                 PlayerView(ctx).apply {
@@ -122,7 +126,6 @@ fun PlayerScreen(
             modifier = Modifier.fillMaxSize()
         )
 
-        // Custom UI Overlay (Padded for notches/cutouts)
         AnimatedVisibility(
             visible = showControls,
             enter = fadeIn(),
@@ -145,7 +148,6 @@ fun PlayerScreen(
                     }
                     Text(title, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f), maxLines = 1)
                     
-                    // 🔥 WATERMARK (Top Right)
                     Box(
                         modifier = Modifier
                             .background(Color.Black.copy(alpha = 0.4f), RoundedCornerShape(6.dp))
@@ -171,7 +173,7 @@ fun PlayerScreen(
                     )
                 }
 
-                // Bottom Bar (Seekbar & Controls)
+                // Bottom Bar
                 Column(
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
@@ -179,7 +181,6 @@ fun PlayerScreen(
                         .background(Color.Black.copy(alpha = 0.8f), RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp))
                         .padding(16.dp)
                 ) {
-                    // Time & Slider
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(formatTime(currentPosition), color = Color.White, fontSize = 12.sp)
                         Slider(
@@ -198,26 +199,26 @@ fun PlayerScreen(
                     
                     Spacer(modifier = Modifier.height(16.dp))
                     
-                    // 🔥 SEPARATED CONTROL ICONS
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceEvenly,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
+                        // 🔥 DOWNLOAD BUTTON
+                        IconButton(onClick = { 
+                            downloadVideo(context, videoUrl, title)
+                        }) {
+                            Icon(Icons.Default.Download, "Download", tint = Color.White)
+                        }
+
                         // Speed Menu
                         Box {
                             IconButton(onClick = { showSpeedMenu = !showSpeedMenu; showQualityMenu = false; showAspectMenu = false }) {
                                 Icon(Icons.Default.Speed, "Speed", tint = Color.White)
                             }
-                            DropdownMenu(
-                                expanded = showSpeedMenu,
-                                onDismissRequest = { showSpeedMenu = false },
-                                modifier = Modifier.background(Color(0xFF15171E))
-                            ) {
+                            DropdownMenu(expanded = showSpeedMenu, onDismissRequest = { showSpeedMenu = false }, modifier = Modifier.background(Color(0xFF15171E))) {
                                 listOf(0.5f, 1f, 1.5f, 2f).forEach { speed -> 
-                                    DropdownMenuItem(
-                                        text = { Text("${speed}x", color = if(playbackSpeed == speed) Color(0xFFE50914) else Color.White) }, 
-                                        onClick = { playbackSpeed = speed; showSpeedMenu = false }) 
+                                    DropdownMenuItem(text = { Text("${speed}x", color = if(playbackSpeed == speed) Color(0xFFE50914) else Color.White) }, onClick = { playbackSpeed = speed; showSpeedMenu = false }) 
                                 }
                             }
                         }
@@ -227,80 +228,70 @@ fun PlayerScreen(
                             IconButton(onClick = { showQualityMenu = !showQualityMenu; showSpeedMenu = false; showAspectMenu = false }) {
                                 Icon(Icons.Default.HighQuality, "Quality", tint = Color.White)
                             }
-                            DropdownMenu(
-                                expanded = showQualityMenu,
-                                onDismissRequest = { showQualityMenu = false },
-                                modifier = Modifier.background(Color(0xFF15171E))
-                            ) {
+                            DropdownMenu(expanded = showQualityMenu, onDismissRequest = { showQualityMenu = false }, modifier = Modifier.background(Color(0xFF15171E))) {
                                 listOf("Auto", "1080p", "720p", "480p").forEach { quality ->
-                                    DropdownMenuItem(
-                                        text = { Text(quality, color = if(currentQuality == quality) Color(0xFFE50914) else Color.White) }, 
-                                        onClick = { 
-                                            currentQuality = quality
-                                            showQualityMenu = false
-                                            
-                                            // Apply Quality constraint to ExoPlayer
-                                            val params = trackSelector.buildUponParameters()
-                                            if (quality == "Auto") { 
-                                                params.clearVideoSizeConstraints() 
-                                            } else if (quality == "1080p") { 
-                                                params.setMaxVideoSize(1920, 1080).setMaxVideoBitrate(5000000) 
-                                            } else if (quality == "720p") { 
-                                                params.setMaxVideoSize(1280, 720).setMaxVideoBitrate(2500000) 
-                                            } else if (quality == "480p") { 
-                                                params.setMaxVideoSize(854, 480).setMaxVideoBitrate(1000000) 
-                                            }
-                                            trackSelector.parameters = params.build()
-                                        }
-                                    )
+                                    DropdownMenuItem(text = { Text(quality, color = if(currentQuality == quality) Color(0xFFE50914) else Color.White) }, onClick = { 
+                                        currentQuality = quality
+                                        showQualityMenu = false
+                                        val params = trackSelector.buildUponParameters()
+                                        if (quality == "Auto") { params.clearVideoSizeConstraints() } 
+                                        else if (quality == "1080p") { params.setMaxVideoSize(1920, 1080).setMaxVideoBitrate(5000000) }
+                                        else if (quality == "720p") { params.setMaxVideoSize(1280, 720).setMaxVideoBitrate(2500000) }
+                                        else if (quality == "480p") { params.setMaxVideoSize(854, 480).setMaxVideoBitrate(1000000) }
+                                        trackSelector.parameters = params.build()
+                                    })
                                 }
                             }
                         }
 
-                        // Aspect Ratio Menu
+                        // Aspect Ratio
                         Box {
                             IconButton(onClick = { showAspectMenu = !showAspectMenu; showSpeedMenu = false; showQualityMenu = false }) {
                                 Icon(Icons.Default.AspectRatio, "Aspect", tint = Color.White)
                             }
-                            DropdownMenu(
-                                expanded = showAspectMenu,
-                                onDismissRequest = { showAspectMenu = false },
-                                modifier = Modifier.background(Color(0xFF15171E))
-                            ) {
+                            DropdownMenu(expanded = showAspectMenu, onDismissRequest = { showAspectMenu = false }, modifier = Modifier.background(Color(0xFF15171E))) {
                                 listOf("Fit", "Fill", "Zoom").forEach { aspect ->
-                                    DropdownMenuItem(
-                                        text = { Text(aspect, color = Color.White) }, 
-                                        onClick = { 
-                                            resizeMode = when(aspect) { 
-                                                "Fit" -> AspectRatioFrameLayout.RESIZE_MODE_FIT
-                                                "Fill" -> AspectRatioFrameLayout.RESIZE_MODE_FILL
-                                                else -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM 
-                                            }
-                                            showAspectMenu = false
-                                        }
-                                    )
+                                    DropdownMenuItem(text = { Text(aspect, color = Color.White) }, onClick = { 
+                                        resizeMode = when(aspect) { "Fit" -> AspectRatioFrameLayout.RESIZE_MODE_FIT; "Fill" -> AspectRatioFrameLayout.RESIZE_MODE_FILL; else -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM }
+                                        showAspectMenu = false
+                                    })
                                 }
                             }
                         }
 
-                        // Fullscreen / Rotate
+                        // Fullscreen
                         IconButton(onClick = {
-                            if (isLandscape) {
-                                activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
-                            } else {
-                                activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
-                            }
+                            if (isLandscape) activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                            else activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
                             isLandscape = !isLandscape
                         }) {
-                            Icon(
-                                imageVector = if (isLandscape) Icons.Default.FullscreenExit else Icons.Default.Fullscreen,
-                                contentDescription = "Rotate",
-                                tint = Color.White
-                            )
+                            Icon(if (isLandscape) Icons.Default.FullscreenExit else Icons.Default.Fullscreen, "Rotate", tint = Color.White)
                         }
                     }
                 }
             }
+        }
+    }
+}
+
+// 🔥 NATIVE DOWNLOAD LOGIC
+fun downloadVideo(context: Context, url: String, title: String) {
+    try {
+        val request = DownloadManager.Request(Uri.parse(url))
+        request.setTitle(title)
+        request.setDescription("Downloading Homeland content...")
+        request.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+        request.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, "$title.mp4")
+        
+        val downloadManager = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+        downloadManager.enqueue(request)
+        
+        Handler(Looper.getMainLooper()).post {
+            Toast.makeText(context, "Download started! Check your notifications.", Toast.LENGTH_LONG).show()
+        }
+    } catch (e: Exception) {
+        Handler(Looper.getMainLooper()).post {
+            Toast.makeText(context, "Download failed: ${e.message}", Toast.LENGTH_LONG).show()
         }
     }
 }
