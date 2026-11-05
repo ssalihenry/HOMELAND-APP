@@ -219,7 +219,6 @@ fun MovieCard(movie: Movie, userVipExpiry: Long, onPlayMedia: (MediaPlaybackItem
         Box {
             AsyncImage(model = movie.poster, contentDescription = movie.title, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxWidth().aspectRatio(2f / 3f).clip(RoundedCornerShape(10.dp)).background(Color(0xFF15171E)).clickable { 
                 if (uid != null && !isLocked) { db.collection("users").document(uid).collection("history").document(movie.id).set(mapOf("timestamp" to System.currentTimeMillis())) }
-                // Here we pass the unified MediaPlaybackItem
                 onPlayMedia(MediaPlaybackItem(movie.title, movie.videoUrl, movie.id, movie.isVip)) 
             })
             
