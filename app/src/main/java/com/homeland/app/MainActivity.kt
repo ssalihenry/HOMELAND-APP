@@ -41,11 +41,12 @@ import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.messaging.FirebaseMessaging
 
 const val ADMIN_EMAIL = "ssalihenry136@gmail.com"
-const val WHATSAPP_NUMBER = "256742199254" // Put your WhatsApp number here
+const val WHATSAPP_NUMBER = "256742199254" 
 val movieCategories = listOf("All", "Action", "Sci-Fi", "Comedy", "Animation", "Romantic", "Horror", "Adventure")
 val tvCategories = listOf("All", "News", "Sports", "Movies", "Entertainment", "Music", "Kids")
 
-data class MediaPlaybackItem(val title: String, val url: String, val id: String)
+// 🔥 ONE UNIFIED CLASS FOR PLAYBACK (Includes isVip)
+data class MediaPlaybackItem(val title: String, val url: String, val id: String, val isVip: Boolean = false)
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -74,13 +75,13 @@ class MainActivity : ComponentActivity() {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomelandApp(auth: FirebaseAuth, onLogout: () -> Unit) {
+    val context = LocalContext.current
     val db = FirebaseFirestore.getInstance()
     var selectedTab by remember { mutableStateOf(0) }
     var currentlyPlaying by remember { mutableStateOf<MediaPlaybackItem?>(null) }
     var userVipExpiry by remember { mutableLongStateOf(0L) }
     var showVipModal by remember { mutableStateOf(false) }
 
-    // Fetch VIP Status in real-time
     LaunchedEffect(auth.currentUser) {
         auth.currentUser?.uid?.let { uid ->
             db.collection("users").document(uid).addSnapshotListener { doc, _ ->
@@ -102,7 +103,6 @@ fun HomelandApp(auth: FirebaseAuth, onLogout: () -> Unit) {
         return 
     }
 
-    // VIP Upgrade Dialog
     if (showVipModal) {
         AlertDialog(
             onDismissRequest = { showVipModal = false },
@@ -111,9 +111,8 @@ fun HomelandApp(auth: FirebaseAuth, onLogout: () -> Unit) {
             confirmButton = {
                 Button(onClick = { 
                     showVipModal = false
-                    // Open WhatsApp
                     val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://wa.me/$WHATSAPP_NUMBER?text=Hi, I want to subscribe to Homeland VIP."))
-                    auth.currentUser?.let { /* Need Context, usually passed in. Using LocalContext instead */ }
+                    context.startActivity(intent)
                 }, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE50914))) { Text("Subscribe via WhatsApp") }
             },
             dismissButton = { TextButton(onClick = { showVipModal = false }) { Text("Cancel", color = Color.Gray) } },
@@ -148,11 +147,8 @@ fun HomelandApp(auth: FirebaseAuth, onLogout: () -> Unit) {
     }
 }
 
-// Update MediaPlaybackItem to include isVip so we can pass it to the click handler
-data class MediaPlaybackItemWithVip(val title: String, val url: String, val id: String, val isVip: Boolean)
-
 @Composable
-fun HomeScreen(userVipExpiry: Long, onPlayMedia: (MediaPlaybackItemWithVip) -> Unit) {
+fun HomeScreen(userVipExpiry: Long, onPlayMedia: (MediaPlaybackItem) -> Unit) {
     val db = FirebaseFirestore.getInstance()
     var movies by remember { mutableStateOf<List<Movie>>(emptyList()) }
     var historyMovies by remember { mutableStateOf<List<Movie>>(emptyList()) }
@@ -205,7 +201,7 @@ fun HomeScreen(userVipExpiry: Long, onPlayMedia: (MediaPlaybackItemWithVip) -> U
 }
 
 @Composable
-fun MovieCard(movie: Movie, userVipExpiry: Long, onPlayMedia: (MediaPlaybackItemWithVip) -> Unit) {
+fun MovieCard(movie: Movie, userVipExpiry: Long, onPlayMedia: (MediaPlaybackItem) -> Unit) {
     val db = FirebaseFirestore.getInstance()
     val uid = FirebaseAuth.getInstance().currentUser?.uid
     var isFav by remember { mutableStateOf(false) }
@@ -223,10 +219,10 @@ fun MovieCard(movie: Movie, userVipExpiry: Long, onPlayMedia: (MediaPlaybackItem
         Box {
             AsyncImage(model = movie.poster, contentDescription = movie.title, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxWidth().aspectRatio(2f / 3f).clip(RoundedCornerShape(10.dp)).background(Color(0xFF15171E)).clickable { 
                 if (uid != null && !isLocked) { db.collection("users").document(uid).collection("history").document(movie.id).set(mapOf("timestamp" to System.currentTimeMillis())) }
-                onPlayMedia(MediaPlaybackItemWithVip(movie.title, movie.videoUrl, movie.id, movie.isVip)) 
+                // Here we pass the unified MediaPlaybackItem
+                onPlayMedia(MediaPlaybackItem(movie.title, movie.videoUrl, movie.id, movie.isVip)) 
             })
             
-            // 🔥 VIP Badge Lock
             if (isLocked) {
                 Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.5f), RoundedCornerShape(10.dp)), contentAlignment = Alignment.Center) {
                     Icon(Icons.Default.Lock, "Locked", tint = Color(0xFFFCDC04), modifier = Modifier.size(32.dp))
@@ -250,7 +246,7 @@ fun MovieCard(movie: Movie, userVipExpiry: Long, onPlayMedia: (MediaPlaybackItem
 }
 
 @Composable
-fun MyListScreen(userVipExpiry: Long, onPlayMedia: (MediaPlaybackItemWithVip) -> Unit) {
+fun MyListScreen(userVipExpiry: Long, onPlayMedia: (MediaPlaybackItem) -> Unit) {
     val db = FirebaseFirestore.getInstance()
     val uid = FirebaseAuth.getInstance().currentUser?.uid
     var favMovies by remember { mutableStateOf<List<Movie>>(emptyList()) }
@@ -297,7 +293,6 @@ fun ProfileScreen(auth: FirebaseAuth, userVipExpiry: Long, onLogout: () -> Unit)
             
             Spacer(modifier = Modifier.height(20.dp))
 
-            // Redeem Coupon
             if (!isVip) {
                 Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     OutlinedTextField(value = couponCode, onValueChange = { couponCode = it }, placeholder = { Text("Coupon Code") }, modifier = Modifier.weight(1f), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White))
@@ -322,7 +317,6 @@ fun ProfileScreen(auth: FirebaseAuth, userVipExpiry: Long, onLogout: () -> Unit)
                 Spacer(modifier = Modifier.height(20.dp))
             }
 
-            // Subscribe Button
             if (!isVip) {
                 Button(onClick = { 
                     val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://wa.me/$WHATSAPP_NUMBER?text=Hi, I want to subscribe to Homeland VIP."))
@@ -341,7 +335,7 @@ fun ProfileScreen(auth: FirebaseAuth, userVipExpiry: Long, onLogout: () -> Unit)
 }
 
 @Composable
-fun TvLiveScreen(userVipExpiry: Long, onPlayMedia: (MediaPlaybackItemWithVip) -> Unit) {
+fun TvLiveScreen(userVipExpiry: Long, onPlayMedia: (MediaPlaybackItem) -> Unit) {
     val db = FirebaseFirestore.getInstance()
     var channels by remember { mutableStateOf<List<TvChannel>>(emptyList()) }
     var selectedCategory by remember { mutableStateOf("All") }
@@ -366,7 +360,7 @@ fun TvLiveScreen(userVipExpiry: Long, onPlayMedia: (MediaPlaybackItemWithVip) ->
             items(filtered) { channel ->
                 val isLocked = channel.isVip && userVipExpiry < System.currentTimeMillis()
                 Box {
-                    Column(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Color(0xFF15171E)).clickable { onPlayMedia(MediaPlaybackItemWithVip(channel.name, channel.streamUrl, channel.id, channel.isVip)) }.padding(12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Column(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Color(0xFF15171E)).clickable { onPlayMedia(MediaPlaybackItem(channel.name, channel.streamUrl, channel.id, channel.isVip)) }.padding(12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                         AsyncImage(model = channel.logo, contentDescription = channel.name, contentScale = ContentScale.Fit, modifier = Modifier.size(80.dp).clip(RoundedCornerShape(8.dp)))
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(channel.name, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
