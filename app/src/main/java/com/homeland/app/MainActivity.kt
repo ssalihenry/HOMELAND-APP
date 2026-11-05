@@ -31,6 +31,9 @@ import com.google.firebase.firestore.FirebaseFirestore
 
 const val ADMIN_EMAIL = "ssalihenry136@gmail.com"
 
+// Data class to hold what is currently playing
+data class MediaPlaybackItem(val title: String, val url: String)
+
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -54,6 +57,17 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun HomelandApp(auth: FirebaseAuth, onLogout: () -> Unit) {
     var selectedTab by remember { mutableStateOf(0) }
+    var currentlyPlaying by remember { mutableStateOf<MediaPlaybackItem?>(null) }
+
+    // If a video is selected, show the Player Screen fullscreen
+    if (currentlyPlaying != null) {
+        PlayerScreen(
+            title = currentlyPlaying!!.title,
+            videoUrl = currentlyPlaying!!.url,
+            onClose = { currentlyPlaying = null }
+        )
+        return // Stop rendering the rest of the app while playing
+    }
 
     Scaffold(
         bottomBar = {
@@ -106,8 +120,8 @@ fun HomelandApp(auth: FirebaseAuth, onLogout: () -> Unit) {
                 .background(Color(0xFF0B0C10)) 
         ) {
             when (selectedTab) {
-                0 -> HomeScreen()
-                1 -> TvLiveScreen()
+                0 -> HomeScreen(onPlayMedia = { currentlyPlaying = it })
+                1 -> TvLiveScreen(onPlayMedia = { currentlyPlaying = it })
                 2 -> ProfileScreen(auth, onLogout)
             }
         }
@@ -115,19 +129,15 @@ fun HomelandApp(auth: FirebaseAuth, onLogout: () -> Unit) {
 }
 
 @Composable
-fun HomeScreen() {
+fun HomeScreen(onPlayMedia: (MediaPlaybackItem) -> Unit) {
     val db = FirebaseFirestore.getInstance()
     var movies by remember { mutableStateOf<List<Movie>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
 
-    // 🔥 REAL-TIME SYNC TO HOMELAND MOVIES ONLY
     DisposableEffect(Unit) {
         val listenerRegistration = db.collection("homeland_movies")
             .addSnapshotListener { snapshot, error ->
-                if (error != null) {
-                    isLoading = false
-                    return@addSnapshotListener
-                }
+                if (error != null) { isLoading = false; return@addSnapshotListener }
                 if (snapshot != null) {
                     val fetchedMovies = snapshot.documents.mapNotNull { doc ->
                         Movie(
@@ -171,7 +181,9 @@ fun HomeScreen() {
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
                     items(movies) { movie ->
-                        MovieCard(movie)
+                        MovieCard(movie = movie, onClick = {
+                            onPlayMedia(MediaPlaybackItem(movie.title, movie.videoUrl))
+                        })
                     }
                 }
             }
@@ -180,11 +192,11 @@ fun HomeScreen() {
 }
 
 @Composable
-fun MovieCard(movie: Movie) {
+fun MovieCard(movie: Movie, onClick: () -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable { }
+            .clickable { onClick() }
     ) {
         AsyncImage(
             model = movie.poster,
@@ -219,12 +231,11 @@ fun MovieCard(movie: Movie) {
 }
 
 @Composable
-fun TvLiveScreen() {
+fun TvLiveScreen(onPlayMedia: (MediaPlaybackItem) -> Unit) {
     val db = FirebaseFirestore.getInstance()
     var channels by remember { mutableStateOf<List<TvChannel>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
 
-    // 🔥 REAL-TIME SYNC TO HOMELAND TV ONLY
     DisposableEffect(Unit) {
         val listener = db.collection("homeland_tv")
             .addSnapshotListener { snapshot, error ->
@@ -263,7 +274,7 @@ fun TvLiveScreen() {
                 Text("No channels found. Add some in the Admin Panel!", color = Color.Gray)
             } else {
                 LazyVerticalGrid(
-                    columns = GridCells.Fixed(2), // 2 columns for TV logos
+                    columns = GridCells.Fixed(2), 
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
@@ -273,6 +284,9 @@ fun TvLiveScreen() {
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(12.dp))
                                 .background(Color(0xFF15171E))
+                                .clickable { 
+                                    onPlayMedia(MediaPlaybackItem(channel.name, channel.streamUrl)) 
+                                }
                                 .padding(12.dp),
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
