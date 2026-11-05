@@ -65,6 +65,7 @@ dependencies {
     implementation platform('com.google.firebase:firebase-bom:32.7.2')
     implementation 'com.google.firebase:firebase-auth-ktx'
     implementation 'com.google.firebase:firebase-firestore-ktx'
+    implementation 'com.google.firebase:firebase-messaging-ktx'
 
     // Native Video Player (ExoPlayer for HLS/MP4)
     implementation 'androidx.media3:media3-exoplayer:1.2.1'
