@@ -342,21 +342,27 @@ fun HomeScreen(theme: ThemeConfig, userVipExpiry: Long, onDetails: (Movie) -> Un
         if (isFetchingMore || lastVisibleMovie == null) return
         isFetchingMore = true
         var query = db.collection("homeland_movies").orderBy("timestamp", Query.Direction.DESCENDING).limit(20)
-        if (lastVisibleMovie != null) query = query.startAfter(lastVisibleMovie)
+        if (lastVisibleMovie != null) {
+            query = query.startAfter(lastVisibleMovie)
+        }
         query.get().addOnSuccessListener { snap ->
             if (snap != null && !snap.isEmpty) {
                 val newMovies = snap.documents.map { doc -> 
                     Movie(id = doc.id, title = doc.getString("title") ?: "", poster = doc.getString("poster") ?: "", videoUrl = doc.getString("videoUrl") ?: "", category = doc.getString("category") ?: "", videoTag = doc.getString("videoTag") ?: "", year = doc.getString("year") ?: "", isVip = doc.getBoolean("isVip") ?: false, isFeatured = doc.getBoolean("isFeatured") ?: false) 
                 }
-                movies = movies + newMovies
+                // 🔥 PREVENT DUPLICATES HERE
+                movies = (movies + newMovies).distinctBy { it.id }
                 lastVisibleMovie = snap.documents.lastOrNull()
             }
+            isFetchingMore = false
+        }.addOnFailureListener {
             isFetchingMore = false
         }
     }
 
-    DisposableEffect(Unit) {
-        db.collection("homeland_movies").orderBy("timestamp", Query.Direction.DESCENDING).limit(20).addSnapshotListener { snap, _ ->
+    LaunchedEffect(Unit) {
+        // 🔥 CHANGED TO .get() TO PREVENT CONFLICTS WITH LOAD MORE
+        db.collection("homeland_movies").orderBy("timestamp", Query.Direction.DESCENDING).limit(20).get().addOnSuccessListener { snap ->
             if (snap != null) {
                 movies = snap.documents.map { doc -> 
                     Movie(id = doc.id, title = doc.getString("title") ?: "", poster = doc.getString("poster") ?: "", videoUrl = doc.getString("videoUrl") ?: "", category = doc.getString("category") ?: "", videoTag = doc.getString("videoTag") ?: "", year = doc.getString("year") ?: "", isVip = doc.getBoolean("isVip") ?: false, isFeatured = doc.getBoolean("isFeatured") ?: false) 
@@ -367,7 +373,6 @@ fun HomeScreen(theme: ThemeConfig, userVipExpiry: Long, onDetails: (Movie) -> Un
                 isLoading = false
             }
         }
-        onDispose { }
     }
 
     LaunchedEffect(movies) {
