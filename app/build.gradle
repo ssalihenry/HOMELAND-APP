@@ -20,6 +20,31 @@ android {
         }
     }
 
+    // 🔥 ADD THIS BLOCK
+    signingConfigs {
+        release {
+            storeFile file("${rootDir}/release.keystore")
+            storePassword System.getenv("KEYSTORE_PASSWORD")
+            keyAlias System.getenv("KEY_ALIAS")
+            keyPassword System.getenv("KEY_PASSWORD")
+        }
+    }
+
+    // 🔥 ADD THIS BLOCK
+    buildTypes {
+        release {
+            signingConfig signingConfigs.release
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+    // ... keep the rest of the file exactly as it is
+
     buildTypes {
         release {
             minifyEnabled false
