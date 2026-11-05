@@ -7,6 +7,7 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -126,7 +127,7 @@ fun HomelandApp(auth: FirebaseAuth, theme: ThemeConfig, onLogout: () -> Unit) {
             title = movie.title,
             videoUrl = movie.videoUrl,
             episodes = movie.episodes,
-            startPosition = 0L, // You can fetch actual history here later
+            startPosition = 0L, 
             subtitleUrl = movie.subtitleUrl.ifBlank { null },
             onClose = { currentlyPlaying = null }
         )
@@ -184,7 +185,8 @@ fun HomelandApp(auth: FirebaseAuth, theme: ThemeConfig, onLogout: () -> Unit) {
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+// 🔥 FIXED: Added @OptIn(ExperimentalFoundationApi::class) for the Hero Carousel
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun HomeScreen(theme: ThemeConfig, userVipExpiry: Long, onDetails: (Movie) -> Unit) {
     val db = FirebaseFirestore.getInstance()
@@ -196,7 +198,6 @@ fun HomeScreen(theme: ThemeConfig, userVipExpiry: Long, onDetails: (Movie) -> Un
     var selectedCategory by remember { mutableStateOf("All") }
 
     DisposableEffect(Unit) {
-        // Sort by timestamp DESCENDING (Newest first)
         val listener = db.collection("homeland_movies").orderBy("timestamp", Query.Direction.DESCENDING).addSnapshotListener { snap, _ ->
             if (snap != null) {
                 movies = snap.documents.map { doc -> 
@@ -215,7 +216,6 @@ fun HomeScreen(theme: ThemeConfig, userVipExpiry: Long, onDetails: (Movie) -> Un
             db.collection("users").document(user.uid).collection("history").get().addOnSuccessListener { historySnap ->
                 val hIds = historySnap.documents.map { it.id }
                 val valid = movies.filter { it.id in hIds }
-                // IF EMPTY, SHOW DEFAULT TRENDING MOVIES
                 historyMovies = if (valid.isEmpty()) movies.take(3) else valid
             }
         }
@@ -226,7 +226,6 @@ fun HomeScreen(theme: ThemeConfig, userVipExpiry: Long, onDetails: (Movie) -> Un
     } else {
         Column(modifier = Modifier.fillMaxSize().systemBarsPadding()) {
             
-            // 🔥 HERO CAROUSEL
             if (featuredMovies.isNotEmpty() && searchQuery.isEmpty() && selectedCategory == "All") {
                 val pagerState = rememberPagerState(pageCount = { featuredMovies.size })
                 HorizontalPager(state = pagerState, modifier = Modifier.height(250.dp).fillMaxWidth().padding(bottom = 16.dp)) { page ->
@@ -250,7 +249,7 @@ fun HomeScreen(theme: ThemeConfig, userVipExpiry: Long, onDetails: (Movie) -> Un
 
             LazyVerticalGrid(columns = GridCells.Adaptive(110.dp), contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 if (historyMovies.isNotEmpty() && searchQuery.isEmpty() && selectedCategory == "All") {
-                    item(span = { GridItemSpan(maxLineSpan) }) { Text(if (historyMovies.size == 3 && FirebaseAuth.getInstance().currentUser?.let { true } == true) "Top Picks For You" else "Continue Watching", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(vertical = 8.dp)) }
+                    item(span = { GridItemSpan(maxLineSpan) }) { Text(if (historyMovies.size == 3) "Top Picks For You" else "Continue Watching", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(vertical = 8.dp)) }
                     items(historyMovies) { movie -> MovieCard(movie, theme, userVipExpiry, onDetails) }
                     item(span = { GridItemSpan(maxLineSpan) }) { Text("Trending Now", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(vertical = 8.dp)) }
                 }
@@ -296,6 +295,35 @@ fun MovieDetailsScreen(movie: Movie, userVipExpiry: Long, onPlay: (Movie) -> Uni
     }
 }
 
+// 🔥 RESTORED: MyListScreen function
+@Composable
+fun MyListScreen(theme: ThemeConfig, userVipExpiry: Long, onDetails: (Movie) -> Unit) {
+    val db = FirebaseFirestore.getInstance()
+    val uid = FirebaseAuth.getInstance().currentUser?.uid
+    var favMovies by remember { mutableStateOf<List<Movie>>(emptyList()) }
+
+    LaunchedEffect(uid) {
+        if (uid != null) {
+            db.collection("users").document(uid).addSnapshotListener { doc, _ ->
+                val favs = doc?.get("favorites") as? List<String> ?: emptyList()
+                db.collection("homeland_movies").get().addOnSuccessListener { snap ->
+                    favMovies = snap.documents.mapNotNull { 
+                        Movie(id = it.id, title = it.getString("title") ?: "", poster = it.getString("poster") ?: "", videoUrl = it.getString("videoUrl") ?: "", videoTag = it.getString("videoTag") ?: "", year = it.getString("year") ?: "", isVip = it.getBoolean("isVip") ?: false) 
+                    }.filter { it.id in favs }
+                }
+            }
+        }
+    }
+
+    Column(modifier = Modifier.fillMaxSize().padding(16.dp).systemBarsPadding()) {
+        Text("My List", color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 16.dp))
+        if (favMovies.isEmpty()) Text("Your list is empty. Add favorites from Home.", color = Color.Gray)
+        else LazyVerticalGrid(columns = GridCells.Adaptive(110.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            items(favMovies) { movie -> MovieCard(movie, theme, userVipExpiry, onDetails) }
+        }
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ProfileScreen(auth: FirebaseAuth, userVipExpiry: Long, theme: ThemeConfig, onLogout: () -> Unit) {
@@ -309,7 +337,6 @@ fun ProfileScreen(auth: FirebaseAuth, userVipExpiry: Long, theme: ThemeConfig, o
     } else {
         Column(modifier = Modifier.fillMaxSize().padding(24.dp).systemBarsPadding(), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
             
-            // AVATAR
             Box(modifier = Modifier.size(100.dp).clip(CircleShape).background(Color(0xFF15171E)), contentAlignment = Alignment.Center) {
                 Icon(Icons.Default.Person, "Avatar", tint = Color.Gray, modifier = Modifier.size(60.dp))
             }
@@ -368,7 +395,6 @@ fun TvLiveScreen(theme: ThemeConfig, userVipExpiry: Long, onPlayMedia: (Movie) -
     var selectedCategory by remember { mutableStateOf("All") }
 
     DisposableEffect(Unit) {
-        // Sort ALPHABETICALLY
         val listener = db.collection("homeland_tv").orderBy("name", Query.Direction.ASCENDING).addSnapshotListener { snapshot, _ ->
             if (snapshot != null) {
                 channels = snapshot.documents.mapNotNull { doc ->
