@@ -27,6 +27,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 
 class MainActivity : ComponentActivity() {
@@ -34,7 +35,16 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         setContent {
             MaterialTheme {
-                HomelandApp()
+                // Check if user is already logged in
+                val auth = FirebaseAuth.getInstance()
+                val currentUser = auth.currentUser
+                var isAuthenticated by remember { mutableStateOf(currentUser != null) }
+
+                if (isAuthenticated) {
+                    HomelandApp(auth = auth, onLogout = { isAuthenticated = false })
+                } else {
+                    AuthScreen(auth = auth, onLoginSuccess = { isAuthenticated = true })
+                }
             }
         }
     }
@@ -42,7 +52,7 @@ class MainActivity : ComponentActivity() {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun HomelandApp() {
+fun HomelandApp(auth: FirebaseAuth, onLogout: () -> Unit) {
     var selectedTab by remember { mutableStateOf(0) }
 
     Scaffold(
@@ -98,7 +108,7 @@ fun HomelandApp() {
             when (selectedTab) {
                 0 -> HomeScreen()
                 1 -> TvLiveScreen()
-                2 -> ProfileScreen()
+                2 -> ProfileScreen(auth, onLogout)
             }
         }
     }
@@ -113,7 +123,6 @@ fun HomeScreen() {
     var debugInfo by remember { mutableStateOf("") }
 
     LaunchedEffect(Unit) {
-        // Get the actual project ID the app is connected to
         val projectId = FirebaseFirestore.getInstance().app.options.projectId
         
         db.collection("movies").get()
@@ -153,7 +162,6 @@ fun HomeScreen() {
         }
     } else {
         Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-            // 🔥 DEBUG TEXT TO SEE WHAT'S HAPPENING
             Text(
                 text = debugInfo,
                 color = Color.Yellow,
@@ -237,12 +245,32 @@ fun TvLiveScreen() {
 }
 
 @Composable
-fun ProfileScreen() {
+fun ProfileScreen(auth: FirebaseAuth, onLogout: () -> Unit) {
     Column(
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier.fillMaxSize().padding(24.dp),
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Text(text = "MY PROFILE", color = Color.White, fontSize = 30.sp, fontWeight = FontWeight.Bold)
+        
+        Spacer(modifier = Modifier.height(20.dp))
+        
+        Text(
+            text = "Logged in as: ${auth.currentUser?.email ?: "Unknown"}",
+            color = Color.Gray,
+            fontSize = 14.sp
+        )
+
+        Spacer(modifier = Modifier.height(40.dp))
+
+        Button(
+            onClick = {
+                auth.signOut()
+                onLogout()
+            },
+            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE50914))
+        ) {
+            Text("Log Out")
+        }
     }
 }
