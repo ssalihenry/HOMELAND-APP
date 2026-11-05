@@ -79,14 +79,58 @@ fun AdminScreen(onBack: () -> Unit) {
                 }
             }
         } else if (selectedTab == 1) {
-            db.collection("homeland_tv").addSnapshotListener { snap, _ ->
-                if (snap != null) {
-                    existingTv = snap.documents.map { doc ->
-                        TvChannel(id = doc.id, name = doc.getString("name") ?: "", logo = doc.getString("logo") ?: "", streamUrl = doc.getString("streamUrl") ?: "", category = doc.getString("category") ?: "", isVip = doc.getBoolean("isVip") ?: false)
-                    }
-                }
+    Text(if (editingTvId != null) "EDITING TV" else "ADD TV LIVE", color = Color.White)
+    OutlinedTextField(value = tvName, onValueChange = { tvName = it }, label = { Text("Channel Name") }, modifier = Modifier.fillMaxWidth().padding(top=8.dp, bottom = 8.dp), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White))
+    OutlinedTextField(value = tvLogo, onValueChange = { tvLogo = it }, label = { Text("Logo URL") }, modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White))
+    OutlinedTextField(value = tvUrl, onValueChange = { tvUrl = it }, label = { Text("Stream URL") }, modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White))
+    OutlinedTextField(value = tvCategory, onValueChange = { tvCategory = it }, label = { Text("Category") }, modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White))
+    
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 16.dp)) {
+        Checkbox(checked = isVipTv, onCheckedChange = { isVipTv = it }, colors = CheckboxDefaults.colors(checkedColor = Color(0xFFE50914)))
+        Text("Require VIP to watch", color = Color.White)
+    }
+
+    Button(
+        onClick = {
+            if (tvName.isBlank() || tvUrl.isBlank()) { statusMessage = "Fill required fields."; return@Button }
+            isLoading = true
+            val newTv = hashMapOf("name" to tvName, "logo" to tvLogo, "streamUrl" to tvUrl, "category" to tvCategory, "isVip" to isVipTv)
+            
+            if (editingTvId != null) {
+                db.collection("homeland_tv").document(editingTvId!!).set(newTv).addOnSuccessListener {
+                    isLoading = false; statusMessage = "Success! TV updated."; editingTvId = null; tvName = ""; tvLogo = ""; tvUrl = ""; isVipTv = false
+                }.addOnFailureListener { isLoading = false; statusMessage = "Error: ${it.message}" }
+            } else {
+                db.collection("homeland_tv").add(newTv).addOnSuccessListener {
+                    isLoading = false; statusMessage = "Success! TV added."; tvName = ""; tvLogo = ""; tvUrl = ""; isVipTv = false
+                }.addOnFailureListener { isLoading = false; statusMessage = "Error: ${it.message}" }
             }
-        } else if (selectedTab == 2) {
+        },
+        modifier = Modifier.fillMaxWidth().height(50.dp),
+        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE50914)),
+        shape = RoundedCornerShape(12.dp)
+    ) { Text(if (editingTvId != null) "Update TV Channel" else "Publish TV Channel") }
+
+    if (editingTvId != null) {
+        TextButton(onClick = { editingTvId = null; tvName = ""; tvLogo = ""; tvUrl = "" }) { Text("Cancel Edit", color = Color.Gray) }
+    }
+
+    // 🔥 THIS IS THE MISSING LIST
+    Spacer(modifier = Modifier.height(16.dp))
+    Text("Manage TV Channels", color = Color.White, fontWeight = FontWeight.Bold)
+    LazyColumn(modifier = Modifier.heightIn(max = 300.dp)) {
+        items(existingTv) { tv ->
+            Row(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(tv.name, color = Color.White, modifier = Modifier.weight(1f))
+                IconButton(onClick = { 
+                    editingTvId = tv.id; tvName = tv.name; tvLogo = tv.logo; tvUrl = tv.streamUrl; tvCategory = tv.category; isVipTv = tv.isVip 
+                }) { Icon(Icons.Default.Edit, "Edit", tint = Color.Yellow) }
+                IconButton(onClick = { db.collection("homeland_tv").document(tv.id).delete() }) { Icon(Icons.Default.Delete, "Delete", tint = Color.Red) }
+            }
+        }
+    }
+
+} else if (selectedTab == 2) {
             db.collection("users").addSnapshotListener { snap, _ ->
                 if (snap != null) {
                     allUsers = snap.documents.map { doc ->
