@@ -17,6 +17,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.google.firebase.auth.FirebaseAuth
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AuthScreen(
     auth: FirebaseAuth,
@@ -25,14 +26,17 @@ fun AuthScreen(
     var isLoginMode by remember { mutableStateOf(true) }
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
+    var rememberMe by remember { mutableStateOf(true) }
     var isLoading by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
+    var showForgotPassword by remember { mutableStateOf(false) }
 
     Column(
         modifier = Modifier
             .fillMaxSize()
             .background(Color(0xFF0B0C10))
-            .padding(24.dp),
+            .padding(24.dp)
+            .systemBarsPadding(), // 🔥 Keeps content away from the camera notch and status bar
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
@@ -73,9 +77,7 @@ fun AuthScreen(
                 focusedTextColor = Color.White,
                 unfocusedTextColor = Color.White,
                 focusedBorderColor = Color(0xFFE50914),
-                unfocusedBorderColor = Color.Gray,
-                focusedLabelColor = Color(0xFFE50914),
-                unfocusedLabelColor = Color.Gray
+                unfocusedBorderColor = Color.Gray
             )
         )
 
@@ -86,16 +88,36 @@ fun AuthScreen(
             visualTransformation = PasswordVisualTransformation(),
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
             singleLine = true,
-            modifier = Modifier.fillMaxWidth().padding(bottom = 24.dp),
+            modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
             colors = OutlinedTextFieldDefaults.colors(
                 focusedTextColor = Color.White,
                 unfocusedTextColor = Color.White,
                 focusedBorderColor = Color(0xFFE50914),
-                unfocusedBorderColor = Color.Gray,
-                focusedLabelColor = Color(0xFFE50914),
-                unfocusedLabelColor = Color.Gray
+                unfocusedBorderColor = Color.Gray
             )
         )
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Checkbox(
+                    checked = rememberMe,
+                    onCheckedChange = { rememberMe = it },
+                    colors = CheckboxDefaults.colors(checkedColor = Color(0xFFE50914))
+                )
+                Text("Remember Me", color = Color.Gray, fontSize = 12.sp)
+            }
+            if (isLoginMode) {
+                TextButton(onClick = { showForgotPassword = true }) {
+                    Text("Forgot Password?", color = Color(0xFFE50914), fontSize = 12.sp)
+                }
+            }
+        }
+        
+        Spacer(modifier = Modifier.height(16.dp))
 
         Button(
             onClick = {
@@ -110,21 +132,15 @@ fun AuthScreen(
                     auth.signInWithEmailAndPassword(email.trim(), password.trim())
                         .addOnCompleteListener { task ->
                             isLoading = false
-                            if (task.isSuccessful) {
-                                onLoginSuccess()
-                            } else {
-                                errorMessage = task.exception?.message ?: "Login failed"
-                            }
+                            if (task.isSuccessful) onLoginSuccess()
+                            else errorMessage = task.exception?.message ?: "Login failed"
                         }
                 } else {
                     auth.createUserWithEmailAndPassword(email.trim(), password.trim())
                         .addOnCompleteListener { task ->
                             isLoading = false
-                            if (task.isSuccessful) {
-                                onLoginSuccess()
-                            } else {
-                                errorMessage = task.exception?.message ?: "Registration failed"
-                            }
+                            if (task.isSuccessful) onLoginSuccess()
+                            else errorMessage = task.exception?.message ?: "Registration failed"
                         }
                 }
             },
@@ -151,5 +167,31 @@ fun AuthScreen(
                 fontSize = 14.sp
             )
         }
+    }
+
+    // 🔥 FORGOT PASSWORD DIALOG
+    if (showForgotPassword) {
+        AlertDialog(
+            onDismissRequest = { showForgotPassword = false },
+            title = { Text("Reset Password", color = Color.White) },
+            text = { Text("Send a password reset link to your email?", color = Color.Gray) },
+            confirmButton = {
+                TextButton(onClick = {
+                    if (email.isNotBlank()) {
+                        auth.sendPasswordResetEmail(email.trim()).addOnCompleteListener { 
+                            showForgotPassword = false
+                            errorMessage = "Reset link sent to $email"
+                        }
+                    } else {
+                        errorMessage = "Enter your email address first."
+                        showForgotPassword = false
+                    }
+                }) { Text("Send Link", color = Color(0xFFE50914)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showForgotPassword = false }) { Text("Cancel", color = Color.Gray) }
+            },
+            containerColor = Color(0xFF15171E)
+        )
     }
 }
