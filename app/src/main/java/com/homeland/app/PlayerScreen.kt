@@ -1,10 +1,10 @@
 package com.homeland.app
 
 import android.app.Activity
-import android.content.Context
 import android.content.pm.ActivityInfo
 import android.view.ViewGroup
 import android.widget.FrameLayout
+import androidx.annotation.OptIn
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -27,8 +27,10 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
+import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import kotlinx.coroutines.delay
@@ -49,15 +51,25 @@ fun PlayerScreen(
     var showControls by remember { mutableStateOf(true) }
     var playbackSpeed by remember { mutableFloatStateOf(1f) }
     var resizeMode by remember { mutableIntStateOf(AspectRatioFrameLayout.RESIZE_MODE_FIT) }
-    var showSettings by remember { mutableStateOf(false) }
     var isLandscape by remember { mutableStateOf(false) }
 
+    // Dropdowns
+    var showSpeedMenu by remember { mutableStateOf(false) }
+    var showQualityMenu by remember { mutableStateOf(false) }
+    var showAspectMenu by remember { mutableStateOf(false) }
+
+    // Track Selector for Quality (HLS / Adaptive Streaming)
+    val trackSelector = remember { DefaultTrackSelector(context) }
+    var currentQuality by remember { mutableStateOf("Auto") }
+
     val exoPlayer = remember {
-        ExoPlayer.Builder(context).build().apply {
-            setMediaItem(MediaItem.fromUri(videoUrl))
-            prepare()
-            playWhenReady = true
-        }
+        ExoPlayer.Builder(context)
+            .setTrackSelector(trackSelector)
+            .build().apply {
+                setMediaItem(MediaItem.fromUri(videoUrl))
+                prepare()
+                playWhenReady = true
+            }
     }
 
     LaunchedEffect(exoPlayer) {
@@ -73,6 +85,7 @@ fun PlayerScreen(
         }
     }
 
+    // Auto-hide controls after 3 seconds
     LaunchedEffect(showControls, isPlaying) {
         if (showControls && isPlaying) {
             delay(3000)
@@ -93,7 +106,7 @@ fun PlayerScreen(
             .background(Color.Black)
             .clickable { showControls = !showControls }
     ) {
-        // The Video Surface
+        // The Video Surface (Edge-to-Edge)
         AndroidView(
             factory = { ctx ->
                 PlayerView(ctx).apply {
@@ -109,71 +122,36 @@ fun PlayerScreen(
             modifier = Modifier.fillMaxSize()
         )
 
-        // 🔥 WATERMARK (Top Right)
-        Box(
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .padding(top = 70.dp, end = 16.dp)
-                .background(Color.Black.copy(alpha = 0.4f), RoundedCornerShape(6.dp))
-                .padding(horizontal = 10.dp, vertical = 4.dp)
-        ) {
-            Text(
-                text = "HOMELAND APP",
-                color = Color.White.copy(alpha = 0.7f),
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Bold,
-                letterSpacing = 1.sp
-            )
-        }
-
-        // Custom UI Overlay
+        // Custom UI Overlay (Padded for notches/cutouts)
         AnimatedVisibility(
             visible = showControls,
             enter = fadeIn(),
-            exit = fadeOut()
+            exit = fadeOut(),
+            modifier = Modifier.fillMaxSize()
         ) {
-            Box(modifier = Modifier.fillMaxSize()) {
+            Box(modifier = Modifier.fillMaxSize().safeDrawingPadding()) {
+                
                 // Top Bar
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .background(Color.Black.copy(alpha = 0.6f))
-                        .padding(16.dp)
+                        .background(Color.Black.copy(alpha = 0.6f), RoundedCornerShape(bottomStart = 16.dp, bottomEnd = 16.dp))
+                        .padding(horizontal = 16.dp, vertical = 12.dp)
                         .align(Alignment.TopCenter),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     IconButton(onClick = { exoPlayer.pause(); onClose() }) {
                         Icon(Icons.Default.Close, "Close", tint = Color.White)
                     }
-                    Text(title, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                    Text(title, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f), maxLines = 1)
                     
-                    IconButton(onClick = { showSettings = !showSettings }) {
-                        Icon(Icons.Default.Settings, "Settings", tint = Color.White)
-                    }
-                }
-
-                // Settings Dropdown
-                if (showSettings) {
-                    Column(
+                    // 🔥 WATERMARK (Top Right)
+                    Box(
                         modifier = Modifier
-                            .align(Alignment.TopEnd)
-                            .padding(top = 70.dp, end = 16.dp)
-                            .background(Color(0xFF15171E), shape = MaterialTheme.shapes.medium)
-                            .padding(8.dp)
+                            .background(Color.Black.copy(alpha = 0.4f), RoundedCornerShape(6.dp))
+                            .padding(horizontal = 8.dp, vertical = 4.dp)
                     ) {
-                        Text("Speed", color = Color.Gray, fontSize = 12.sp, modifier = Modifier.padding(8.dp))
-                        listOf(0.5f, 1f, 1.5f, 2f).forEach { speed ->
-                            Text(
-                                "${speed}x",
-                                color = if (playbackSpeed == speed) Color(0xFFE50914) else Color.White,
-                                modifier = Modifier.clickable { playbackSpeed = speed; showSettings = false }.padding(8.dp)
-                            )
-                        }
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text("Aspect Ratio", color = Color.Gray, fontSize = 12.sp, modifier = Modifier.padding(8.dp))
-                        Text("Fit", color = if (resizeMode == AspectRatioFrameLayout.RESIZE_MODE_FIT) Color(0xFFE50914) else Color.White, modifier = Modifier.clickable { resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT; showSettings = false }.padding(8.dp))
-                        Text("Fill", color = if (resizeMode == AspectRatioFrameLayout.RESIZE_MODE_FILL) Color(0xFFE50914) else Color.White, modifier = Modifier.clickable { resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FILL; showSettings = false }.padding(8.dp))
-                        Text("Zoom", color = if (resizeMode == AspectRatioFrameLayout.RESIZE_MODE_ZOOM) Color(0xFFE50914) else Color.White, modifier = Modifier.clickable { resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM; showSettings = false }.padding(8.dp))
+                        Text("HOMELAND APP", color = Color.White.copy(alpha = 0.7f), fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
                     }
                 }
 
@@ -198,9 +176,10 @@ fun PlayerScreen(
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
                         .fillMaxWidth()
-                        .background(Color.Black.copy(alpha = 0.6f))
+                        .background(Color.Black.copy(alpha = 0.8f), RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp))
                         .padding(16.dp)
                 ) {
+                    // Time & Slider
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(formatTime(currentPosition), color = Color.White, fontSize = 12.sp)
                         Slider(
@@ -217,10 +196,94 @@ fun PlayerScreen(
                         Text(formatTime(duration), color = Color.White, fontSize = 12.sp)
                     }
                     
-                    Spacer(modifier = Modifier.height(8.dp))
+                    Spacer(modifier = Modifier.height(16.dp))
                     
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                        // 🔥 FULLSCREEN / ROTATE BUTTON
+                    // 🔥 SEPARATED CONTROL ICONS
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceEvenly,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        // Speed Menu
+                        Box {
+                            IconButton(onClick = { showSpeedMenu = !showSpeedMenu; showQualityMenu = false; showAspectMenu = false }) {
+                                Icon(Icons.Default.Speed, "Speed", tint = Color.White)
+                            }
+                            DropdownMenu(
+                                expanded = showSpeedMenu,
+                                onDismissRequest = { showSpeedMenu = false },
+                                modifier = Modifier.background(Color(0xFF15171E))
+                            ) {
+                                listOf(0.5f, 1f, 1.5f, 2f).forEach { speed -> 
+                                    DropdownMenuItem(
+                                        text = { Text("${speed}x", color = if(playbackSpeed == speed) Color(0xFFE50914) else Color.White) }, 
+                                        onClick = { playbackSpeed = speed; showSpeedMenu = false }) 
+                                }
+                            }
+                        }
+
+                        // Quality Menu
+                        Box {
+                            IconButton(onClick = { showQualityMenu = !showQualityMenu; showSpeedMenu = false; showAspectMenu = false }) {
+                                Icon(Icons.Default.HighQuality, "Quality", tint = Color.White)
+                            }
+                            DropdownMenu(
+                                expanded = showQualityMenu,
+                                onDismissRequest = { showQualityMenu = false },
+                                modifier = Modifier.background(Color(0xFF15171E))
+                            ) {
+                                listOf("Auto", "1080p", "720p", "480p").forEach { quality ->
+                                    DropdownMenuItem(
+                                        text = { Text(quality, color = if(currentQuality == quality) Color(0xFFE50914) else Color.White) }, 
+                                        onClick = { 
+                                            currentQuality = quality
+                                            showQualityMenu = false
+                                            
+                                            // Apply Quality constraint to ExoPlayer
+                                            val params = trackSelector.buildUponParameters()
+                                            if (quality == "Auto") { 
+                                                params.clearVideoSizeConstraints() 
+                                            } else if (quality == "1080p") { 
+                                                params.setMaxVideoSize(1920, 1080).setMaxVideoBitrate(5000000) 
+                                            } else if (quality == "720p") { 
+                                                params.setMaxVideoSize(1280, 720).setMaxVideoBitrate(2500000) 
+                                            } else if (quality == "480p") { 
+                                                params.setMaxVideoSize(854, 480).setMaxVideoBitrate(1000000) 
+                                            }
+                                            trackSelector.parameters = params.build()
+                                        }
+                                    )
+                                }
+                            }
+                        }
+
+                        // Aspect Ratio Menu
+                        Box {
+                            IconButton(onClick = { showAspectMenu = !showAspectMenu; showSpeedMenu = false; showQualityMenu = false }) {
+                                Icon(Icons.Default.AspectRatio, "Aspect", tint = Color.White)
+                            }
+                            DropdownMenu(
+                                expanded = showAspectMenu,
+                                onDismissRequest = { showAspectMenu = false },
+                                modifier = Modifier.background(Color(0xFF15171E))
+                            ) {
+                                listOf("Fit", "Fill", "Zoom").forEach { aspect ->
+                                    DropdownMenuItem(
+                                        text = { Text(aspect, color = Color.White) }, 
+                                        onClick = { 
+                                            resizeMode = when(aspect) { 
+                                                "Fit" -> AspectRatioFrameLayout.RESIZE_MODE_FIT
+                                                "Fill" -> AspectRatioFrameLayout.RESIZE_MODE_FILL
+                                                else -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM 
+                                            }
+                                            showAspectMenu = false
+                                        }
+                                    )
+                                }
+                            }
+                        }
+
+                        // Fullscreen / Rotate
                         IconButton(onClick = {
                             if (isLandscape) {
                                 activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
