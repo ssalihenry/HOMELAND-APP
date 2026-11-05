@@ -22,7 +22,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -30,7 +29,7 @@ import coil.compose.AsyncImage
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 
-const val ADMIN_EMAIL = "ssalihenry136@gmail.com" // 🔥 Your Admin Email
+const val ADMIN_EMAIL = "ssalihenry136@gmail.com"
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -121,27 +120,32 @@ fun HomeScreen() {
     var movies by remember { mutableStateOf<List<Movie>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
 
-    LaunchedEffect(Unit) {
-        // 🔥 NOW LOOKING AT "homeland_movies"
-        db.collection("homeland_movies").get()
-            .addOnSuccessListener { result ->
-                val fetchedMovies = result.documents.mapNotNull { doc ->
-                    Movie(
-                        id = doc.id,
-                        title = doc.getString("title") ?: "Unknown",
-                        poster = doc.getString("poster") ?: "",
-                        videoUrl = doc.getString("videoUrl") ?: "",
-                        category = doc.getString("category") ?: "",
-                        videoTag = doc.getString("videoTag") ?: "",
-                        year = doc.get("year")?.toString() ?: ""
-                    )
+    // 🔥 REAL-TIME SYNC TO HOMELAND MOVIES ONLY
+    DisposableEffect(Unit) {
+        val listenerRegistration = db.collection("homeland_movies")
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) {
+                    isLoading = false
+                    return@addSnapshotListener
                 }
-                movies = fetchedMovies
-                isLoading = false
+                if (snapshot != null) {
+                    val fetchedMovies = snapshot.documents.mapNotNull { doc ->
+                        Movie(
+                            id = doc.id,
+                            title = doc.getString("title") ?: "Unknown",
+                            poster = doc.getString("poster") ?: "",
+                            videoUrl = doc.getString("videoUrl") ?: "",
+                            category = doc.getString("category") ?: "",
+                            videoTag = doc.getString("videoTag") ?: "",
+                            year = doc.get("year")?.toString() ?: "",
+                            type = doc.getString("type") ?: "Movie"
+                        )
+                    }
+                    movies = fetchedMovies
+                    isLoading = false
+                }
             }
-            .addOnFailureListener {
-                isLoading = false
-            }
+        onDispose { listenerRegistration.remove() }
     }
 
     if (isLoading) {
@@ -151,15 +155,15 @@ fun HomeScreen() {
     } else {
         Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
             Text(
-                text = "Homeland Movies",
+                text = "Homeland Originals",
                 color = Color.White,
-                fontSize = 22.sp,
+                fontSize = 24.sp,
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier.padding(bottom = 16.dp)
             )
             
             if (movies.isEmpty()) {
-                Text("No movies found. Use the Admin Panel to add some!", color = Color.Gray)
+                Text("No content found. Use the Admin Panel to add movies!", color = Color.Gray)
             } else {
                 LazyVerticalGrid(
                     columns = GridCells.Fixed(3), 
@@ -216,12 +220,90 @@ fun MovieCard(movie: Movie) {
 
 @Composable
 fun TvLiveScreen() {
-    Column(
-        modifier = Modifier.fillMaxSize(),
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Text(text = "TV LIVE", color = Color.White, fontSize = 30.sp, fontWeight = FontWeight.Bold)
+    val db = FirebaseFirestore.getInstance()
+    var channels by remember { mutableStateOf<List<TvChannel>>(emptyList()) }
+    var isLoading by remember { mutableStateOf(true) }
+
+    // 🔥 REAL-TIME SYNC TO HOMELAND TV ONLY
+    DisposableEffect(Unit) {
+        val listener = db.collection("homeland_tv")
+            .addSnapshotListener { snapshot, error ->
+                if (snapshot != null) {
+                    val fetchedChannels = snapshot.documents.mapNotNull { doc ->
+                        TvChannel(
+                            id = doc.id,
+                            name = doc.getString("name") ?: "Unknown",
+                            logo = doc.getString("logo") ?: "",
+                            streamUrl = doc.getString("streamUrl") ?: "",
+                            category = doc.getString("category") ?: ""
+                        )
+                    }
+                    channels = fetchedChannels
+                    isLoading = false
+                }
+            }
+        onDispose { listener.remove() }
+    }
+
+    if (isLoading) {
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            CircularProgressIndicator(color = Color(0xFFE50914))
+        }
+    } else {
+        Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+            Text(
+                text = "Homeland Live TV",
+                color = Color.White,
+                fontSize = 24.sp,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(bottom = 16.dp)
+            )
+            
+            if (channels.isEmpty()) {
+                Text("No channels found. Add some in the Admin Panel!", color = Color.Gray)
+            } else {
+                LazyVerticalGrid(
+                    columns = GridCells.Fixed(2), // 2 columns for TV logos
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    items(channels) { channel ->
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(Color(0xFF15171E))
+                                .padding(12.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            AsyncImage(
+                                model = channel.logo,
+                                contentDescription = channel.name,
+                                contentScale = ContentScale.Fit,
+                                modifier = Modifier
+                                    .size(80.dp)
+                                    .clip(RoundedCornerShape(8.dp))
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text = channel.name,
+                                color = Color.White,
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Text(
+                                text = channel.category,
+                                color = Color(0xFFE50914),
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -249,7 +331,6 @@ fun ProfileScreen(auth: FirebaseAuth, onLogout: () -> Unit) {
 
             Spacer(modifier = Modifier.height(40.dp))
 
-            // 🔥 SHOW ADMIN BUTTON ONLY IF YOU ARE LOGGED IN
             if (auth.currentUser?.email == ADMIN_EMAIL) {
                 Button(
                     onClick = { showAdminPanel = true },
