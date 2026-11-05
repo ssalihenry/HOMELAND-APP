@@ -110,12 +110,15 @@ fun HomeScreen() {
     var movies by remember { mutableStateOf<List<Movie>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
+    var debugInfo by remember { mutableStateOf("") }
 
     LaunchedEffect(Unit) {
+        // Get the actual project ID the app is connected to
+        val projectId = FirebaseFirestore.getInstance().app.options.projectId
+        
         db.collection("movies").get()
             .addOnSuccessListener { result ->
                 try {
-                    // Safely extract the data, converting everything to String
                     val fetchedMovies = result.documents.mapNotNull { doc ->
                         Movie(
                             id = doc.id,
@@ -128,6 +131,7 @@ fun HomeScreen() {
                         )
                     }
                     movies = fetchedMovies
+                    debugInfo = "Connected to: $projectId | Found: ${fetchedMovies.size} movies"
                 } catch (e: Exception) {
                     errorMessage = "Error parsing data: ${e.message}"
                 }
@@ -145,18 +149,18 @@ fun HomeScreen() {
         }
     } else if (errorMessage != null) {
         Box(modifier = Modifier.fillMaxSize().padding(20.dp), contentAlignment = Alignment.Center) {
-            Text(
-                text = errorMessage ?: "Unknown error",
-                color = Color.Red,
-                textAlign = TextAlign.Center
-            )
-        }
-    } else if (movies.isEmpty()) {
-        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text("No movies found in database", color = Color.White)
+            Text(text = errorMessage ?: "Unknown error", color = Color.Red, textAlign = TextAlign.Center)
         }
     } else {
         Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+            // 🔥 DEBUG TEXT TO SEE WHAT'S HAPPENING
+            Text(
+                text = debugInfo,
+                color = Color.Yellow,
+                fontSize = 10.sp,
+                modifier = Modifier.padding(bottom = 8.dp)
+            )
+
             Text(
                 text = "Trending Movies",
                 color = Color.White,
@@ -165,13 +169,17 @@ fun HomeScreen() {
                 modifier = Modifier.padding(bottom = 16.dp)
             )
             
-            LazyVerticalGrid(
-                columns = GridCells.Fixed(3), 
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
-                items(movies) { movie ->
-                    MovieCard(movie)
+            if (movies.isEmpty()) {
+                Text("No movies found in database", color = Color.White)
+            } else {
+                LazyVerticalGrid(
+                    columns = GridCells.Fixed(3), 
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    items(movies) { movie ->
+                        MovieCard(movie)
+                    }
                 }
             }
         }
@@ -224,12 +232,7 @@ fun TvLiveScreen() {
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Text(
-            text = "TV LIVE",
-            color = Color.White,
-            fontSize = 30.sp,
-            fontWeight = FontWeight.Bold
-        )
+        Text(text = "TV LIVE", color = Color.White, fontSize = 30.sp, fontWeight = FontWeight.Bold)
     }
 }
 
@@ -240,11 +243,6 @@ fun ProfileScreen() {
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Text(
-            text = "MY PROFILE",
-            color = Color.White,
-            fontSize = 30.sp,
-            fontWeight = FontWeight.Bold
-        )
+        Text(text = "MY PROFILE", color = Color.White, fontSize = 30.sp, fontWeight = FontWeight.Bold)
     }
 }
