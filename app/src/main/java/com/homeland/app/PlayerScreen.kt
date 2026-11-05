@@ -1,11 +1,10 @@
 package com.homeland.app
 
-import android.app.PictureInPictureParams
-import android.os.Build
-import android.util.Rational
+import android.app.Activity
+import android.content.Context
+import android.content.pm.ActivityInfo
 import android.view.ViewGroup
 import android.widget.FrameLayout
-import androidx.annotation.OptIn
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -13,13 +12,13 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -42,6 +41,7 @@ fun PlayerScreen(
     onClose: () -> Unit
 ) {
     val context = LocalContext.current
+    val activity = context as? Activity
     
     var isPlaying by remember { mutableStateOf(true) }
     var currentPosition by remember { mutableLongStateOf(0L) }
@@ -50,8 +50,8 @@ fun PlayerScreen(
     var playbackSpeed by remember { mutableFloatStateOf(1f) }
     var resizeMode by remember { mutableIntStateOf(AspectRatioFrameLayout.RESIZE_MODE_FIT) }
     var showSettings by remember { mutableStateOf(false) }
+    var isLandscape by remember { mutableStateOf(false) }
 
-    // Initialize ExoPlayer
     val exoPlayer = remember {
         ExoPlayer.Builder(context).build().apply {
             setMediaItem(MediaItem.fromUri(videoUrl))
@@ -60,7 +60,6 @@ fun PlayerScreen(
         }
     }
 
-    // Sync UI with Player
     LaunchedEffect(exoPlayer) {
         val listener = object : Player.Listener {
             override fun onIsPlayingChanged(playing: Boolean) { isPlaying = playing }
@@ -74,7 +73,6 @@ fun PlayerScreen(
         }
     }
 
-    // Auto-hide controls after 3 seconds
     LaunchedEffect(showControls, isPlaying) {
         if (showControls && isPlaying) {
             delay(3000)
@@ -83,7 +81,10 @@ fun PlayerScreen(
     }
 
     DisposableEffect(Unit) {
-        onDispose { exoPlayer.release() }
+        onDispose { 
+            exoPlayer.release()
+            activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+        }
     }
 
     Box(
@@ -97,7 +98,7 @@ fun PlayerScreen(
             factory = { ctx ->
                 PlayerView(ctx).apply {
                     player = exoPlayer
-                    useController = false // We are using our custom Compose controls
+                    useController = false 
                     layoutParams = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
                 }
             },
@@ -107,6 +108,23 @@ fun PlayerScreen(
             },
             modifier = Modifier.fillMaxSize()
         )
+
+        // 🔥 WATERMARK (Top Right)
+        Box(
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(top = 70.dp, end = 16.dp)
+                .background(Color.Black.copy(alpha = 0.4f), RoundedCornerShape(6.dp))
+                .padding(horizontal = 10.dp, vertical = 4.dp)
+        ) {
+            Text(
+                text = "HOMELAND APP",
+                color = Color.White.copy(alpha = 0.7f),
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 1.sp
+            )
+        }
 
         // Custom UI Overlay
         AnimatedVisibility(
@@ -131,17 +149,6 @@ fun PlayerScreen(
                     
                     IconButton(onClick = { showSettings = !showSettings }) {
                         Icon(Icons.Default.Settings, "Settings", tint = Color.White)
-                    }
-                    IconButton(onClick = { 
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                            val params = PictureInPictureParams.Builder()
-                                .setAspectRatio(Rational(16, 9))
-                                .build()
-                            // Note: Actual PiP requires activity context and onUserLeaveHint handling
-                            // We'll simulate it by closing and returning (requires MainActivity integration for real PiP)
-                        }
-                    }) {
-                        Icon(Icons.Default.PictureInPicture, "PiP", tint = Color.White)
                     }
                 }
 
@@ -194,7 +201,6 @@ fun PlayerScreen(
                         .background(Color.Black.copy(alpha = 0.6f))
                         .padding(16.dp)
                 ) {
-                    // Time & Slider
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(formatTime(currentPosition), color = Color.White, fontSize = 12.sp)
                         Slider(
@@ -209,6 +215,26 @@ fun PlayerScreen(
                             modifier = Modifier.weight(1f).padding(horizontal = 8.dp)
                         )
                         Text(formatTime(duration), color = Color.White, fontSize = 12.sp)
+                    }
+                    
+                    Spacer(modifier = Modifier.height(8.dp))
+                    
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                        // 🔥 FULLSCREEN / ROTATE BUTTON
+                        IconButton(onClick = {
+                            if (isLandscape) {
+                                activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                            } else {
+                                activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+                            }
+                            isLandscape = !isLandscape
+                        }) {
+                            Icon(
+                                imageVector = if (isLandscape) Icons.Default.FullscreenExit else Icons.Default.Fullscreen,
+                                contentDescription = "Rotate",
+                                tint = Color.White
+                            )
+                        }
                     }
                 }
             }
