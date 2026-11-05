@@ -30,12 +30,13 @@ import coil.compose.AsyncImage
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 
+const val ADMIN_EMAIL = "ssalihenry136@gmail.com" // 🔥 Your Admin Email
+
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
             MaterialTheme {
-                // Check if user is already logged in
                 val auth = FirebaseAuth.getInstance()
                 val currentUser = auth.currentUser
                 var isAuthenticated by remember { mutableStateOf(currentUser != null) }
@@ -119,35 +120,26 @@ fun HomeScreen() {
     val db = FirebaseFirestore.getInstance()
     var movies by remember { mutableStateOf<List<Movie>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
-    var errorMessage by remember { mutableStateOf<String?>(null) }
-    var debugInfo by remember { mutableStateOf("") }
 
     LaunchedEffect(Unit) {
-        val projectId = FirebaseFirestore.getInstance().app.options.projectId
-        
-        db.collection("movies").get()
+        // 🔥 NOW LOOKING AT "homeland_movies"
+        db.collection("homeland_movies").get()
             .addOnSuccessListener { result ->
-                try {
-                    val fetchedMovies = result.documents.mapNotNull { doc ->
-                        Movie(
-                            id = doc.id,
-                            title = doc.getString("title") ?: "Unknown",
-                            poster = doc.getString("poster") ?: "",
-                            videoUrl = doc.getString("videoUrl") ?: "",
-                            category = doc.getString("category") ?: "",
-                            videoTag = doc.getString("videoTag") ?: "",
-                            year = doc.get("year")?.toString() ?: ""
-                        )
-                    }
-                    movies = fetchedMovies
-                    debugInfo = "Connected to: $projectId | Found: ${fetchedMovies.size} movies"
-                } catch (e: Exception) {
-                    errorMessage = "Error parsing data: ${e.message}"
+                val fetchedMovies = result.documents.mapNotNull { doc ->
+                    Movie(
+                        id = doc.id,
+                        title = doc.getString("title") ?: "Unknown",
+                        poster = doc.getString("poster") ?: "",
+                        videoUrl = doc.getString("videoUrl") ?: "",
+                        category = doc.getString("category") ?: "",
+                        videoTag = doc.getString("videoTag") ?: "",
+                        year = doc.get("year")?.toString() ?: ""
+                    )
                 }
+                movies = fetchedMovies
                 isLoading = false
             }
-            .addOnFailureListener { e ->
-                errorMessage = "Database error: ${e.message}"
+            .addOnFailureListener {
                 isLoading = false
             }
     }
@@ -156,21 +148,10 @@ fun HomeScreen() {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             CircularProgressIndicator(color = Color(0xFFE50914))
         }
-    } else if (errorMessage != null) {
-        Box(modifier = Modifier.fillMaxSize().padding(20.dp), contentAlignment = Alignment.Center) {
-            Text(text = errorMessage ?: "Unknown error", color = Color.Red, textAlign = TextAlign.Center)
-        }
     } else {
         Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
             Text(
-                text = debugInfo,
-                color = Color.Yellow,
-                fontSize = 10.sp,
-                modifier = Modifier.padding(bottom = 8.dp)
-            )
-
-            Text(
-                text = "Trending Movies",
+                text = "Homeland Movies",
                 color = Color.White,
                 fontSize = 22.sp,
                 fontWeight = FontWeight.Bold,
@@ -178,7 +159,7 @@ fun HomeScreen() {
             )
             
             if (movies.isEmpty()) {
-                Text("No movies found in database", color = Color.White)
+                Text("No movies found. Use the Admin Panel to add some!", color = Color.Gray)
             } else {
                 LazyVerticalGrid(
                     columns = GridCells.Fixed(3), 
@@ -246,31 +227,49 @@ fun TvLiveScreen() {
 
 @Composable
 fun ProfileScreen(auth: FirebaseAuth, onLogout: () -> Unit) {
-    Column(
-        modifier = Modifier.fillMaxSize().padding(24.dp),
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Text(text = "MY PROFILE", color = Color.White, fontSize = 30.sp, fontWeight = FontWeight.Bold)
-        
-        Spacer(modifier = Modifier.height(20.dp))
-        
-        Text(
-            text = "Logged in as: ${auth.currentUser?.email ?: "Unknown"}",
-            color = Color.Gray,
-            fontSize = 14.sp
-        )
+    var showAdminPanel by remember { mutableStateOf(false) }
 
-        Spacer(modifier = Modifier.height(40.dp))
-
-        Button(
-            onClick = {
-                auth.signOut()
-                onLogout()
-            },
-            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE50914))
+    if (showAdminPanel) {
+        AdminScreen(onBack = { showAdminPanel = false })
+    } else {
+        Column(
+            modifier = Modifier.fillMaxSize().padding(24.dp),
+            verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Text("Log Out")
+            Text(text = "MY PROFILE", color = Color.White, fontSize = 30.sp, fontWeight = FontWeight.Bold)
+            
+            Spacer(modifier = Modifier.height(20.dp))
+            
+            Text(
+                text = "Logged in as: ${auth.currentUser?.email ?: "Unknown"}",
+                color = Color.Gray,
+                fontSize = 14.sp
+            )
+
+            Spacer(modifier = Modifier.height(40.dp))
+
+            // 🔥 SHOW ADMIN BUTTON ONLY IF YOU ARE LOGGED IN
+            if (auth.currentUser?.email == ADMIN_EMAIL) {
+                Button(
+                    onClick = { showAdminPanel = true },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE50914)),
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp)
+                ) {
+                    Text("Open Admin Panel")
+                }
+            }
+
+            Button(
+                onClick = {
+                    auth.signOut()
+                    onLogout()
+                },
+                colors = ButtonDefaults.buttonColors(containerColor = Color.DarkGray),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Log Out")
+            }
         }
     }
 }
