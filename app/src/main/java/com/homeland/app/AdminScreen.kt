@@ -7,6 +7,9 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -27,11 +30,12 @@ data class AdminUser(val uid: String = "", val email: String = "", val vipExpiry
 @Composable
 fun AdminScreen(onBack: () -> Unit) {
     val db = FirebaseFirestore.getInstance()
-    var selectedTab by remember { mutableIntStateOf(0) } 
+    var selectedTab by remember { mutableIntStateOf(0) } // 0=Movies, 1=TV, 2=VIP
     
     var isLoading by remember { mutableStateOf(false) }
     var statusMessage by remember { mutableStateOf<String?>(null) }
 
+    // Editing Tracking
     var editingMovieId by remember { mutableStateOf<String?>(null) }
     var editingTvId by remember { mutableStateOf<String?>(null) }
 
@@ -44,7 +48,9 @@ fun AdminScreen(onBack: () -> Unit) {
     var selectedVj by remember { mutableStateOf(vjList[0]) }
     var selectedType by remember { mutableStateOf("Movie") }
     var isVipMovie by remember { mutableStateOf(false) }
-    
+    var catExpanded by remember { mutableStateOf(false) }
+    var vjExpanded by remember { mutableStateOf(false) }
+
     // TV State
     var tvName by remember { mutableStateOf("") }
     var tvLogo by remember { mutableStateOf("") }
@@ -55,17 +61,33 @@ fun AdminScreen(onBack: () -> Unit) {
     // VIP State
     var couponDays by remember { mutableStateOf("7") }
     var allUsers by remember { mutableStateOf<List<AdminUser>>(emptyList()) }
+    
+    // Lists for management
+    var existingMovies by remember { mutableStateOf<List<Movie>>(emptyList()) }
+    var existingTv by remember { mutableStateOf<List<TvChannel>>(emptyList()) }
 
     LaunchedEffect(selectedTab) {
-        if (selectedTab == 2) {
+        if (selectedTab == 0) {
+            db.collection("homeland_movies").addSnapshotListener { snap, _ ->
+                if (snap != null) {
+                    existingMovies = snap.documents.map { doc ->
+                        Movie(id = doc.id, title = doc.getString("title") ?: "", poster = doc.getString("poster") ?: "", videoUrl = doc.getString("videoUrl") ?: "", category = doc.getString("category") ?: "", videoTag = doc.getString("videoTag") ?: "", year = doc.getString("year") ?: "", isVip = doc.getBoolean("isVip") ?: false)
+                    }
+                }
+            }
+        } else if (selectedTab == 1) {
+            db.collection("homeland_tv").addSnapshotListener { snap, _ ->
+                if (snap != null) {
+                    existingTv = snap.documents.map { doc ->
+                        TvChannel(id = doc.id, name = doc.getString("name") ?: "", logo = doc.getString("logo") ?: "", streamUrl = doc.getString("streamUrl") ?: "", category = doc.getString("category") ?: "", isVip = doc.getBoolean("isVip") ?: false)
+                    }
+                }
+            }
+        } else if (selectedTab == 2) {
             db.collection("users").addSnapshotListener { snap, _ ->
                 if (snap != null) {
                     allUsers = snap.documents.map { doc ->
-                        AdminUser(
-                            uid = doc.id,
-                            email = doc.getString("email") ?: "Unknown",
-                            vipExpiry = doc.getLong("vipExpiry") ?: 0L
-                        )
+                        AdminUser(uid = doc.id, email = doc.getString("email") ?: "Unknown", vipExpiry = doc.getLong("vipExpiry") ?: 0L)
                     }
                 }
             }
@@ -102,6 +124,22 @@ fun AdminScreen(onBack: () -> Unit) {
             OutlinedTextField(value = videoUrl, onValueChange = { videoUrl = it }, label = { Text("Stream URL (.mp4/.m3u8)") }, modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White))
             OutlinedTextField(value = year, onValueChange = { year = it }, label = { Text("Year") }, modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White))
 
+            // Category Dropdown
+            ExposedDropdownMenuBox(expanded = catExpanded, onExpandedChange = { catExpanded = !catExpanded }) {
+                OutlinedTextField(value = selectedCategory, onValueChange = {}, readOnly = true, label = { Text("Category") }, trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = catExpanded) }, modifier = Modifier.fillMaxWidth().menuAnchor().padding(bottom = 8.dp), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White))
+                ExposedDropdownMenu(expanded = catExpanded, onDismissRequest = { catExpanded = false }) {
+                    categories.forEach { cat -> DropdownMenuItem(text = { Text(cat) }, onClick = { selectedCategory = cat; catExpanded = false }) }
+                }
+            }
+
+            // VJ Dropdown
+            ExposedDropdownMenuBox(expanded = vjExpanded, onExpandedChange = { vjExpanded = !vjExpanded }) {
+                OutlinedTextField(value = selectedVj, onValueChange = {}, readOnly = true, label = { Text("VJ Tag") }, trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = vjExpanded) }, modifier = Modifier.fillMaxWidth().menuAnchor().padding(bottom = 8.dp), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White))
+                ExposedDropdownMenu(expanded = vjExpanded, onDismissRequest = { vjExpanded = false }, modifier = Modifier.heightIn(max = 200.dp)) {
+                    vjList.forEach { vj -> DropdownMenuItem(text = { Text(vj) }, onClick = { selectedVj = vj; vjExpanded = false }) }
+                }
+            }
+
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 16.dp)) {
                 Checkbox(checked = isVipMovie, onCheckedChange = { isVipMovie = it }, colors = CheckboxDefaults.colors(checkedColor = Color(0xFFE50914)))
                 Text("Require VIP to watch", color = Color.White)
@@ -128,11 +166,30 @@ fun AdminScreen(onBack: () -> Unit) {
                 shape = RoundedCornerShape(12.dp)
             ) { Text(if (editingMovieId != null) "Update Content" else "Publish Content") }
 
+            if (editingMovieId != null) {
+                TextButton(onClick = { editingMovieId = null; title = ""; posterUrl = ""; videoUrl = "" }) { Text("Cancel Edit", color = Color.Gray) }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+            Text("Manage Movies/Shows", color = Color.White, fontWeight = FontWeight.Bold)
+            LazyColumn(modifier = Modifier.heightIn(max = 300.dp)) {
+                items(existingMovies) { movie ->
+                    Row(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text(movie.title, color = Color.White, modifier = Modifier.weight(1f))
+                        IconButton(onClick = {
+                            editingMovieId = movie.id; title = movie.title; posterUrl = movie.poster; videoUrl = movie.videoUrl; selectedCategory = movie.category; selectedVj = movie.videoTag; year = movie.year; isVipMovie = movie.isVip
+                        }) { Icon(Icons.Default.Edit, "Edit", tint = Color.Yellow) }
+                        IconButton(onClick = { db.collection("homeland_movies").document(movie.id).delete() }) { Icon(Icons.Default.Delete, "Delete", tint = Color.Red) }
+                    }
+                }
+            }
+
         } else if (selectedTab == 1) {
             Text(if (editingTvId != null) "EDITING TV" else "ADD TV LIVE", color = Color.White)
             OutlinedTextField(value = tvName, onValueChange = { tvName = it }, label = { Text("Channel Name") }, modifier = Modifier.fillMaxWidth().padding(top=8.dp, bottom = 8.dp), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White))
             OutlinedTextField(value = tvLogo, onValueChange = { tvLogo = it }, label = { Text("Logo URL") }, modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White))
             OutlinedTextField(value = tvUrl, onValueChange = { tvUrl = it }, label = { Text("Stream URL") }, modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White))
+            OutlinedTextField(value = tvCategory, onValueChange = { tvCategory = it }, label = { Text("Category") }, modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White))
             
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 16.dp)) {
                 Checkbox(checked = isVipTv, onCheckedChange = { isVipTv = it }, colors = CheckboxDefaults.colors(checkedColor = Color(0xFFE50914)))
@@ -144,14 +201,37 @@ fun AdminScreen(onBack: () -> Unit) {
                     if (tvName.isBlank() || tvUrl.isBlank()) { statusMessage = "Fill required fields."; return@Button }
                     isLoading = true
                     val newTv = hashMapOf("name" to tvName, "logo" to tvLogo, "streamUrl" to tvUrl, "category" to tvCategory, "isVip" to isVipTv)
-                    db.collection("homeland_tv").add(newTv).addOnSuccessListener {
-                        isLoading = false; statusMessage = "Success! TV Channel added."; tvName = ""; tvLogo = ""; tvUrl = ""; isVipTv = false
-                    }.addOnFailureListener { isLoading = false; statusMessage = "Error: ${it.message}" }
+                    
+                    if (editingTvId != null) {
+                        db.collection("homeland_tv").document(editingTvId!!).set(newTv).addOnSuccessListener {
+                            isLoading = false; statusMessage = "Success! TV updated."; editingTvId = null; tvName = ""; tvLogo = ""; tvUrl = ""; isVipTv = false
+                        }.addOnFailureListener { isLoading = false; statusMessage = "Error: ${it.message}" }
+                    } else {
+                        db.collection("homeland_tv").add(newTv).addOnSuccessListener {
+                            isLoading = false; statusMessage = "Success! TV added."; tvName = ""; tvLogo = ""; tvUrl = ""; isVipTv = false
+                        }.addOnFailureListener { isLoading = false; statusMessage = "Error: ${it.message}" }
+                    }
                 },
                 modifier = Modifier.fillMaxWidth().height(50.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE50914)),
                 shape = RoundedCornerShape(12.dp)
-            ) { Text("Publish TV Channel") }
+            ) { Text(if (editingTvId != null) "Update TV Channel" else "Publish TV Channel") }
+
+            if (editingTvId != null) {
+                TextButton(onClick = { editingTvId = null; tvName = ""; tvLogo = ""; tvUrl = "" }) { Text("Cancel Edit", color = Color.Gray) }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+            Text("Manage TV Channels", color = Color.White, fontWeight = FontWeight.Bold)
+            LazyColumn(modifier = Modifier.heightIn(max = 300.dp)) {
+                items(existingTv) { tv ->
+                    Row(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text(tv.name, color = Color.White, modifier = Modifier.weight(1f))
+                        IconButton(onClick = { editingTvId = tv.id; tvName = tv.name; tvLogo = tv.logo; tvUrl = tv.streamUrl; tvCategory = tv.category; isVipTv = tv.isVip }) { Icon(Icons.Default.Edit, "Edit", tint = Color.Yellow) }
+                        IconButton(onClick = { db.collection("homeland_tv").document(tv.id).delete() }) { Icon(Icons.Default.Delete, "Delete", tint = Color.Red) }
+                    }
+                }
+            }
 
         } else {
             Text("Generate VIP Coupon", color = Color.White, fontWeight = FontWeight.Bold)
