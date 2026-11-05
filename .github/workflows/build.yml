@@ -1,4 +1,4 @@
-name: Build Native APK
+name: Build Release APK
 
 on:
   push:
@@ -19,16 +19,25 @@ jobs:
         java-version: '17'
         distribution: 'temurin'
 
+    # 🔥 DECODE THE KEYSTORE
+    - name: Decode Keystore
+      run: echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > ${{ github.workspace }}/release.keystore
+
     - name: Setup Gradle
       uses: gradle/actions/setup-gradle@v3
       with:
         gradle-version: '8.4'
 
-    - name: Build Debug APK
-      run: gradle assembleDebug
+    # 🔥 BUILD THE RELEASE APK
+    - name: Build Release APK
+      run: gradle assembleRelease
+      env:
+        KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+        KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+        KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
 
     - name: Upload APK
       uses: actions/upload-artifact@v4
       with:
-        name: Homeland-Native-App
-        path: app/build/outputs/apk/debug/app-debug.apk
+        name: Homeland-Release-App
+        path: app/build/outputs/apk/release/app-release.apk
