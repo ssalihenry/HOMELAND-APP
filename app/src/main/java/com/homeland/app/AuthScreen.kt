@@ -105,15 +105,37 @@ fun AuthScreen(
                         if (email.isBlank() || password.isBlank()) { errorMessage = "Please fill in all fields."; return@Button }
                         isLoading = true; errorMessage = null
                         if (isLoginMode) {
-                            auth.signInWithEmailAndPassword(email.trim(), password.trim()).addOnCompleteListener { task ->
-                                isLoading = false
-                                if (task.isSuccessful) onLoginSuccess() else errorMessage = task.exception?.message ?: "Login failed"
-                            }
-                        } else {
-                            auth.createUserWithEmailAndPassword(email.trim(), password.trim()).addOnCompleteListener { task ->
-                                isLoading = false
-                                if (task.isSuccessful) onLoginSuccess() else errorMessage = task.exception?.message ?: "Registration failed"
-                            }
+    auth.signInWithEmailAndPassword(email.trim(), password.trim()).addOnCompleteListener { task ->
+        isLoading = false
+        if (task.isSuccessful) onLoginSuccess() else errorMessage = task.exception?.message ?: "Login failed"
+    }
+} else {
+    auth.createUserWithEmailAndPassword(email.trim(), password.trim()).addOnCompleteListener { task ->
+        if (task.isSuccessful) {
+            // 🔥 CREATE USER PROFILE IN DATABASE
+            val user = task.result?.user
+            if (user != null) {
+                val db = com.google.firebase.firestore.FirebaseFirestore.getInstance()
+                val userData = hashMapOf(
+                    "uid" to user.uid,
+                    "email" to user.email,
+                    "name" to (user.email?.split("@")?.get(0) ?: "User"),
+                    "vipExpiry" to 0L,
+                    "favorites" to emptyList<String>()
+                )
+                db.collection("users").document(user.uid).set(userData).addOnCompleteListener {
+                    isLoading = false
+                    onLoginSuccess()
+                }
+            } else {
+                isLoading = false
+                onLoginSuccess()
+            }
+        } else {
+            isLoading = false
+            errorMessage = task.exception?.message ?: "Registration failed"
+        }
+    }
                         }
                     },
                     modifier = Modifier.fillMaxWidth().height(50.dp),
