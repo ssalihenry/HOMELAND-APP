@@ -7,5 +7,14 @@ data class Movie(
     val videoUrl: String = "",
     val category: String = "",
     val videoTag: String = "",
-    val year: String = ""
+    val year: String = "",
+    val type: String = "Movie" // "Movie" or "TV Show"
+)
+
+data class TvChannel(
+    val id: String = "",
+    val name: String = "",
+    val logo: String = "",
+    val streamUrl: String = "",
+    val category: String = ""
 )
