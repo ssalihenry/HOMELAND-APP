@@ -360,9 +360,12 @@ fun HomeScreen(theme: ThemeConfig, userVipExpiry: Long, onDetails: (Movie) -> Un
         }
     }
 
-    LaunchedEffect(Unit) {
-        // 🔥 CHANGED TO .get() TO PREVENT CONFLICTS WITH LOAD MORE
-        db.collection("homeland_movies").orderBy("timestamp", Query.Direction.DESCENDING).limit(20).get().addOnSuccessListener { snap ->
+    var errorMessage by remember { mutableStateOf<String?>(null) }
+
+LaunchedEffect(Unit) {
+    // 🔥 CHANGED TO .get() TO PREVENT CONFLICTS WITH LOAD MORE
+    db.collection("homeland_movies").orderBy("timestamp", Query.Direction.DESCENDING).limit(20).get()
+        .addOnSuccessListener { snap ->
             if (snap != null) {
                 movies = snap.documents.map { doc -> 
                     Movie(id = doc.id, title = doc.getString("title") ?: "", poster = doc.getString("poster") ?: "", videoUrl = doc.getString("videoUrl") ?: "", category = doc.getString("category") ?: "", videoTag = doc.getString("videoTag") ?: "", year = doc.getString("year") ?: "", isVip = doc.getBoolean("isVip") ?: false, isFeatured = doc.getBoolean("isFeatured") ?: false) 
@@ -373,7 +376,11 @@ fun HomeScreen(theme: ThemeConfig, userVipExpiry: Long, onDetails: (Movie) -> Un
                 isLoading = false
             }
         }
-    }
+        .addOnFailureListener { e ->
+            errorMessage = "Database error: ${e.message}"
+            isLoading = false
+        }
+}
 
     LaunchedEffect(movies) {
         FirebaseAuth.getInstance().currentUser?.let { user ->
@@ -386,8 +393,12 @@ fun HomeScreen(theme: ThemeConfig, userVipExpiry: Long, onDetails: (Movie) -> Un
     }
 
     if (isLoading) {
-        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = theme.primary) }
-    } else {
+    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = theme.primary) }
+} else if (errorMessage != null) {
+    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { 
+        Text(text = errorMessage!!, color = Color.Red, modifier = Modifier.padding(16.dp)) 
+    }
+} else {
         Column(modifier = Modifier.fillMaxSize().systemBarsPadding()) {
             if (featuredMovies.isNotEmpty() && searchQuery.isEmpty() && selectedCategory == "All") {
                 val pagerState = rememberPagerState(pageCount = { featuredMovies.size })
