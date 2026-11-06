@@ -37,6 +37,8 @@ fun CheckForUpdates(activity: Activity) {
                 val latestVersion: Long = doc.getLong("latest_version_code") ?: 1L
 val currentVersion: Long = BuildConfig.VERSION_CODE.toLong()
 
+Toast.makeText(activity, "App Version: $currentVersion | DB Version: $latestVersion", Toast.LENGTH_LONG).show()
+
 if (latestVersion > currentVersion) {
                     updateUrl = doc.getString("update_url") ?: ""
                     updateAvailable = true
