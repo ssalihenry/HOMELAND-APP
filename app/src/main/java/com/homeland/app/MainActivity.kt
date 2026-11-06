@@ -63,7 +63,6 @@ class MainActivity : ComponentActivity() {
         windowInsetsController.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
 
         setContent {
-            CheckForUpdates(this@MainActivity)
             val db = FirebaseFirestore.getInstance()
             var appTheme by remember { mutableStateOf(ThemeConfig()) }
             
@@ -80,8 +79,11 @@ class MainActivity : ComponentActivity() {
             }
 
             MaterialTheme(
-                colorScheme = darkColorScheme(primary = appTheme.primary, background = appTheme.background)
-            ) {
+    colorScheme = darkColorScheme(primary = appTheme.primary, background = appTheme.background)
+) {
+    CheckForUpdates(this@MainActivity) // 🔥 MOVE IT HERE
+    
+    val auth = FirebaseAuth.getInstance()
                 val auth = FirebaseAuth.getInstance()
                 val currentUser = auth.currentUser
                 var isAuthenticated by remember { mutableStateOf(currentUser != null) }
