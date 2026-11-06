@@ -1,5 +1,8 @@
 package com.homeland.app
 
+import android.content.pm.PackageManager
+import android.content.res.Configuration
+import androidx.compose.ui.platform.LocalContext
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
@@ -85,19 +88,36 @@ class MainActivity : ComponentActivity() {
                 CheckForUpdates(this@MainActivity)
                 
                 val auth = FirebaseAuth.getInstance()
-                val currentUser = auth.currentUser
-                var isAuthenticated by remember { mutableStateOf(currentUser != null) }
-                var showProfileSelector by remember { mutableStateOf(false) }
+val currentUser = auth.currentUser
+var isAuthenticated by remember { mutableStateOf(currentUser != null) }
+var showProfileSelector by remember { mutableStateOf(false) }
 
-                if (isAuthenticated) {
-                    if (showProfileSelector) {
-                        ProfileSelectorScreen(theme = appTheme, onProfileSelected = { showProfileSelector = false })
-                    } else {
-                        HomelandApp(auth = auth, theme = appTheme, onLogout = { isAuthenticated = false; showProfileSelector = false }, onSwitchProfile = { showProfileSelector = true })
-                    }
-                } else {
-                    AuthScreen(auth = auth, onLoginSuccess = { isAuthenticated = true; showProfileSelector = true })
-                }
+// 🔥 TV DETECTION LOGIC
+val context = LocalContext.current
+val isTv = context.packageManager.hasSystemFeature(PackageManager.FEATURE_LEANBACK) || 
+           (context.resources.configuration.uiMode and Configuration.UI_MODE_TYPE_MASK) == Configuration.UI_MODE_TYPE_TELEVISION
+
+if (isTv) {
+    // If it's a TV, show the QR Code screen. Once authorized, it goes to the app.
+    if (isAuthenticated) {
+        HomelandApp(auth = auth, theme = appTheme, onLogout = { isAuthenticated = false }, onSwitchProfile = { })
+    } else {
+        TvLoginScreen(onLoginSuccess = { 
+            isAuthenticated = true 
+        })
+    }
+} else {
+    // Normal phone logic
+    if (isAuthenticated) {
+        if (showProfileSelector) {
+            ProfileSelectorScreen(theme = appTheme, onProfileSelected = { showProfileSelector = false })
+        } else {
+            HomelandApp(auth = auth, theme = appTheme, onLogout = { isAuthenticated = false; showProfileSelector = false }, onSwitchProfile = { showProfileSelector = true })
+        }
+    } else {
+        AuthScreen(auth = auth, onLoginSuccess = { isAuthenticated = true; showProfileSelector = true })
+    }
+}
             }
         }
     }
