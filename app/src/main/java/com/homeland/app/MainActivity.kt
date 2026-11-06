@@ -53,6 +53,7 @@ val movieCategories = listOf("All", "Action", "Sci-Fi", "Comedy", "Animation", "
 val tvCategories = listOf("All", "News", "Sports", "Movies", "Entertainment", "Music", "Kids")
 
 data class ThemeConfig(val primary: Color = Color(0xFFE50914), val background: Color = Color(0xFF0B0C10), val fontSize: Int = 14, val fontUrl: String = "", val bgImageUrl: String = "")
+
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -69,11 +70,11 @@ class MainActivity : ComponentActivity() {
                 db.collection("config").document("theme").addSnapshotListener { doc, _ ->
                     if (doc != null && doc.exists()) {
                         val p = doc.getString("primary") ?: "#E50914"
-val b = doc.getString("background") ?: "#0B0C10"
-val f = doc.getLong("fontSize")?.toInt() ?: 14
-val url = doc.getString("fontUrl") ?: ""
-val bgImg = doc.getString("bgImageUrl") ?: ""
-appTheme = ThemeConfig(Color(android.graphics.Color.parseColor(p)), Color(android.graphics.Color.parseColor(b)), f, url, bgImg)
+                        val b = doc.getString("background") ?: "#0B0C10"
+                        val f = doc.getLong("fontSize")?.toInt() ?: 14
+                        val url = doc.getString("fontUrl") ?: ""
+                        val bgImg = doc.getString("bgImageUrl") ?: ""
+                        appTheme = ThemeConfig(Color(android.graphics.Color.parseColor(p)), Color(android.graphics.Color.parseColor(b)), f, url, bgImg)
                     }
                 }
             }
@@ -81,10 +82,8 @@ appTheme = ThemeConfig(Color(android.graphics.Color.parseColor(p)), Color(androi
             MaterialTheme(
                 colorScheme = darkColorScheme(primary = appTheme.primary, background = appTheme.background)
             ) {
-                // 🔥 THIS IS WHERE IT SHOULD BE
                 CheckForUpdates(this@MainActivity)
                 
-                // 🔥 ONLY ONE DECLARATION OF AUTH HERE
                 val auth = FirebaseAuth.getInstance()
                 val currentUser = auth.currentUser
                 var isAuthenticated by remember { mutableStateOf(currentUser != null) }
@@ -179,32 +178,34 @@ fun HomelandApp(auth: FirebaseAuth, theme: ThemeConfig, onLogout: () -> Unit, on
             }
         }
     ) { paddingValues ->
-    Box(modifier = Modifier.fillMaxSize().padding(paddingValues)) {
-        // 🔥 BACKGROUND LAYER
-        if (theme.bgImageUrl.isNotEmpty()) {
-            AsyncImage(
-                model = theme.bgImageUrl,
-                contentDescription = "App Background",
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize()
-            )
-            // Dark overlay so text stays readable
-            Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.75f)))
-        } else {
-            Box(modifier = Modifier.fillMaxSize().background(theme.background))
-        }
+        Box(modifier = Modifier.fillMaxSize().padding(paddingValues)) {
+            // 🔥 BACKGROUND LAYER
+            if (theme.bgImageUrl.isNotEmpty()) {
+                AsyncImage(
+                    model = theme.bgImageUrl,
+                    contentDescription = "App Background",
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize()
+                )
+                // Dark overlay so text stays readable
+                Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.75f)))
+            } else {
+                Box(modifier = Modifier.fillMaxSize().background(theme.background))
+            }
 
-        // 🔥 CONTENT LAYER
-        Box(modifier = Modifier.fillMaxSize()) {
-            when (selectedTab) {
-                0 -> HomeScreen(theme = theme, userVipExpiry = userVipExpiry, onDetails = { viewingDetails = it })
-                1 -> TvLiveScreen(theme = theme, userVipExpiry = userVipExpiry, onPlayMedia = { currentlyPlaying = it })
-                2 -> MyListScreen(theme = theme, userVipExpiry = userVipExpiry, onDetails = { viewingDetails = it })
-                3 -> ProfileScreen(auth, userVipExpiry, theme, onLogout, onSwitchProfile)
+            // 🔥 CONTENT LAYER
+            Box(modifier = Modifier.fillMaxSize()) {
+                when (selectedTab) {
+                    0 -> HomeScreen(theme = theme, userVipExpiry = userVipExpiry, onDetails = { viewingDetails = it })
+                    1 -> TvLiveScreen(theme = theme, userVipExpiry = userVipExpiry, onPlayMedia = { currentlyPlaying = it })
+                    2 -> MyListScreen(theme = theme, userVipExpiry = userVipExpiry, onDetails = { viewingDetails = it })
+                    3 -> ProfileScreen(auth, userVipExpiry, theme, onLogout, onSwitchProfile)
+                }
             }
         }
-    }
-    }
+    } // 🔥 THIS IS THE CLOSING BRACKET FOR THE SCAFFOLD
+} // 🔥 THIS IS THE CLOSING BRACKET FOR HOMELANDAPP
+
 
 @Composable
 fun ProfileSelectorScreen(theme: ThemeConfig, onProfileSelected: () -> Unit) {
@@ -370,7 +371,6 @@ fun HomeScreen(theme: ThemeConfig, userVipExpiry: Long, onDetails: (Movie) -> Un
                 val newMovies = snap.documents.map { doc -> 
                     Movie(id = doc.id, title = doc.getString("title") ?: "", poster = doc.getString("poster") ?: "", videoUrl = doc.getString("videoUrl") ?: "", category = doc.getString("category") ?: "", videoTag = doc.getString("videoTag") ?: "", year = doc.getString("year") ?: "", isVip = doc.getBoolean("isVip") ?: false, isFeatured = doc.getBoolean("isFeatured") ?: false) 
                 }
-                // 🔥 PREVENT DUPLICATES HERE
                 movies = (movies + newMovies).distinctBy { it.id }
                 lastVisibleMovie = snap.documents.lastOrNull()
             }
@@ -380,12 +380,8 @@ fun HomeScreen(theme: ThemeConfig, userVipExpiry: Long, onDetails: (Movie) -> Un
         }
     }
 
-    var errorMessage by remember { mutableStateOf<String?>(null) }
-
-LaunchedEffect(Unit) {
-    // 🔥 CHANGED TO .get() TO PREVENT CONFLICTS WITH LOAD MORE
-    db.collection("homeland_movies").orderBy("timestamp", Query.Direction.DESCENDING).limit(20).get()
-        .addOnSuccessListener { snap ->
+    LaunchedEffect(Unit) {
+        db.collection("homeland_movies").orderBy("timestamp", Query.Direction.DESCENDING).limit(20).get().addOnSuccessListener { snap ->
             if (snap != null) {
                 movies = snap.documents.map { doc -> 
                     Movie(id = doc.id, title = doc.getString("title") ?: "", poster = doc.getString("poster") ?: "", videoUrl = doc.getString("videoUrl") ?: "", category = doc.getString("category") ?: "", videoTag = doc.getString("videoTag") ?: "", year = doc.getString("year") ?: "", isVip = doc.getBoolean("isVip") ?: false, isFeatured = doc.getBoolean("isFeatured") ?: false) 
@@ -396,11 +392,7 @@ LaunchedEffect(Unit) {
                 isLoading = false
             }
         }
-        .addOnFailureListener { e ->
-            errorMessage = "Database error: ${e.message}"
-            isLoading = false
-        }
-}
+    }
 
     LaunchedEffect(movies) {
         FirebaseAuth.getInstance().currentUser?.let { user ->
@@ -413,12 +405,8 @@ LaunchedEffect(Unit) {
     }
 
     if (isLoading) {
-    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = theme.primary) }
-} else if (errorMessage != null) {
-    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { 
-        Text(text = errorMessage!!, color = Color.Red, modifier = Modifier.padding(16.dp)) 
-    }
-} else {
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = theme.primary) }
+    } else {
         Column(modifier = Modifier.fillMaxSize().systemBarsPadding()) {
             if (featuredMovies.isNotEmpty() && searchQuery.isEmpty() && selectedCategory == "All") {
                 val pagerState = rememberPagerState(pageCount = { featuredMovies.size })
