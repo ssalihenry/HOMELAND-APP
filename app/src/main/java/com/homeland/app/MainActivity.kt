@@ -1,8 +1,5 @@
 package com.homeland.app
 
-import android.content.pm.PackageManager
-import android.content.res.Configuration
-import androidx.compose.ui.platform.LocalContext
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
@@ -49,13 +46,21 @@ import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
 import com.google.firebase.messaging.FirebaseMessaging
+import android.content.pm.PackageManager
+import android.content.res.Configuration
 
 const val ADMIN_EMAIL = "ssalihenry136@gmail.com"
 const val WHATSAPP_NUMBER = "256742199254" 
 val movieCategories = listOf("All", "Action", "Sci-Fi", "Comedy", "Animation", "Romantic", "Horror", "Adventure")
 val tvCategories = listOf("All", "News", "Sports", "Movies", "Entertainment", "Music", "Kids")
 
-data class ThemeConfig(val primary: Color = Color(0xFFE50914), val background: Color = Color(0xFF0B0C10), val fontSize: Int = 14, val fontUrl: String = "", val bgImageUrl: String = "")
+data class ThemeConfig(
+    val primary: Color = Color(0xFFE50914), 
+    val background: Color = Color(0xFF0B0C10), 
+    val fontSize: Int = 14, 
+    val fontUrl: String = "", 
+    val bgImageUrl: String = ""
+)
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -88,44 +93,34 @@ class MainActivity : ComponentActivity() {
                 CheckForUpdates(this@MainActivity)
                 
                 val auth = FirebaseAuth.getInstance()
-val currentUser = auth.currentUser
-var isAuthenticated by remember { mutableStateOf(currentUser != null) }
-var showProfileSelector by remember { mutableStateOf(false) }
+                val currentUser = auth.currentUser
+                var isAuthenticated by remember { mutableStateOf(currentUser != null) }
+                var showProfileSelector by remember { mutableStateOf(false) }
+                
+                // 🔥 TV DETECTION LOGIC
+                val context = LocalContext.current
+                val isTv = context.packageManager.hasSystemFeature(PackageManager.FEATURE_LEANBACK) || 
+                           (context.resources.configuration.uiMode and Configuration.UI_MODE_TYPE_MASK) == Configuration.UI_MODE_TYPE_TELEVISION
 
-// 🔥 TV DETECTION LOGIC
-val context = LocalContext.current
-val isTv = context.packageManager.hasSystemFeature(PackageManager.FEATURE_LEANBACK) || 
-           (context.resources.configuration.uiMode and Configuration.UI_MODE_TYPE_MASK) == Configuration.UI_MODE_TYPE_TELEVISION
-
-if (isTv) {
-    // 🔥 CHECK IF TV IS ALREADY LOGGED IN
-    val prefs = context.getSharedPreferences("homeland", android.content.Context.MODE_PRIVATE)
-    var isTvLoggedIn by remember { mutableStateOf(prefs.getBoolean("is_tv_logged_in", false)) }
-
-    if (isTvLoggedIn) {
-        HomelandApp(auth = auth, theme = appTheme, onLogout = { 
-            // If they log out on TV, clear the memory
-            prefs.edit().remove("is_tv_logged_in").apply()
-            isTvLoggedIn = false 
-        }, onSwitchProfile = { })
-    } else {
-        TvLoginScreen(onLoginSuccess = { 
-            isTvLoggedIn = true 
-        })
-    }
-} else {
-} else {
-    // Normal phone logic
-    if (isAuthenticated) {
-        if (showProfileSelector) {
-            ProfileSelectorScreen(theme = appTheme, onProfileSelected = { showProfileSelector = false })
-        } else {
-            HomelandApp(auth = auth, theme = appTheme, onLogout = { isAuthenticated = false; showProfileSelector = false }, onSwitchProfile = { showProfileSelector = true })
-        }
-    } else {
-        AuthScreen(auth = auth, onLoginSuccess = { isAuthenticated = true; showProfileSelector = true })
-    }
-}
+                if (isTv) {
+                    if (isAuthenticated) {
+                        HomelandApp(auth = auth, theme = appTheme, onLogout = { isAuthenticated = false }, onSwitchProfile = { })
+                    } else {
+                        TvLoginScreen(onLoginSuccess = { 
+                            isAuthenticated = true 
+                        })
+                    }
+                } else {
+                    if (isAuthenticated) {
+                        if (showProfileSelector) {
+                            ProfileSelectorScreen(theme = appTheme, onProfileSelected = { showProfileSelector = false })
+                        } else {
+                            HomelandApp(auth = auth, theme = appTheme, onLogout = { isAuthenticated = false; showProfileSelector = false }, onSwitchProfile = { showProfileSelector = true })
+                        }
+                    } else {
+                        AuthScreen(auth = auth, onLoginSuccess = { isAuthenticated = true; showProfileSelector = true })
+                    }
+                }
             }
         }
     }
@@ -215,7 +210,6 @@ fun HomelandApp(auth: FirebaseAuth, theme: ThemeConfig, onLogout: () -> Unit, on
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize()
                 )
-                // Dark overlay so text stays readable
                 Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.75f)))
             } else {
                 Box(modifier = Modifier.fillMaxSize().background(theme.background))
@@ -231,9 +225,8 @@ fun HomelandApp(auth: FirebaseAuth, theme: ThemeConfig, onLogout: () -> Unit, on
                 }
             }
         }
-    } // 🔥 THIS IS THE CLOSING BRACKET FOR THE SCAFFOLD
-} // 🔥 THIS IS THE CLOSING BRACKET FOR HOMELANDAPP
-
+    }
+}
 
 @Composable
 fun ProfileSelectorScreen(theme: ThemeConfig, onProfileSelected: () -> Unit) {
@@ -265,7 +258,6 @@ fun ProfileScreen(auth: FirebaseAuth, userVipExpiry: Long, theme: ThemeConfig, o
     var couponCode by remember { mutableStateOf("") }
     val isVip = userVipExpiry > System.currentTimeMillis()
 
-    // 🔥 TV LOGIN STATE
     var showTvDialog by remember { mutableStateOf(false) }
     var tvCodeInput by remember { mutableStateOf("") }
 
@@ -288,7 +280,6 @@ fun ProfileScreen(auth: FirebaseAuth, userVipExpiry: Long, theme: ThemeConfig, o
                 Icon(Icons.Default.SwitchAccount, null); Spacer(modifier = Modifier.width(8.dp)); Text("Switch Profile")
             }
 
-            // 🔥 LOGIN ON TV BUTTON
             Button(onClick = { showTvDialog = true }, colors = ButtonDefaults.buttonColors(containerColor = Color.DarkGray), modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp)) {
                 Icon(Icons.Default.Tv, null); Spacer(modifier = Modifier.width(8.dp)); Text("Login on TV")
             }
@@ -330,7 +321,6 @@ fun ProfileScreen(auth: FirebaseAuth, userVipExpiry: Long, theme: ThemeConfig, o
         }
     }
 
-    // 🔥 TV LOGIN DIALOG (This is now perfectly placed at the bottom)
     if (showTvDialog) {
         AlertDialog(
             onDismissRequest = { showTvDialog = false },
