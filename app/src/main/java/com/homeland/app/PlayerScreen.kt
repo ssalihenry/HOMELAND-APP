@@ -10,6 +10,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusable // 🔥 FIXED IMPORT HERE
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -21,9 +22,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.focus.focusable
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.key.*
+import androidx.compose.ui.input.key.* // Imports Key, KeyEvent, onKeyEvent
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -134,8 +134,8 @@ fun PlayerScreen(
             .background(Color.Black)
             .focusRequester(focusRequester)
             .focusable()
-            // 🔥 HANDLE TV REMOTE BUTTONS HERE 🔥
-            .onKeyEvent { keyEvent ->
+            // 🔥 HANDLE TV REMOTE BUTTONS HERE (Explicit KeyEvent type added)
+            .onKeyEvent { keyEvent: KeyEvent ->
                 if (keyEvent.type == KeyEventType.KeyDown) {
                     when (keyEvent.key) {
                         Key.MediaPlayPause, Key.Spacebar, Key.Enter, Key.DirectionCenter -> {
@@ -211,8 +211,6 @@ fun PlayerScreen(
                         if (subtitleUrl != null) {
                             IconButton(onClick = { 
                                 subtitlesEnabled = !subtitlesEnabled
-                                val trackGroupArray = exoPlayer.currentTracks
-                                // Simple toggle logic for subtitle rendering
                             }) { 
                                 Icon(Icons.Default.ClosedCaption, "CC", tint = if (subtitlesEnabled) Color(0xFFE50914) else Color.White) 
                             }
