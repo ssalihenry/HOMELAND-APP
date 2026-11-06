@@ -5,13 +5,11 @@ import android.app.DownloadManager
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
-import android.os.Build
 import android.os.Environment
 import android.widget.Toast
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
@@ -29,25 +27,31 @@ fun CheckForUpdates(activity: Activity) {
     var downloadProgress by remember { mutableStateOf(0) }
     var downloadId by remember { mutableStateOf(-1L) }
 
-    // Check Firestore for the latest version
     LaunchedEffect(Unit) {
+        Toast.makeText(activity, "Update Check Started...", Toast.LENGTH_SHORT).show()
+
         val db = FirebaseFirestore.getInstance()
-        db.collection("config").document("app_version").get().addOnSuccessListener { doc ->
-            if (doc.exists()) {
-                val latestVersion: Long = doc.getLong("latest_version_code") ?: 1L
-val currentVersion: Long = BuildConfig.VERSION_CODE.toLong()
-
-Toast.makeText(activity, "App Version: $currentVersion | DB Version: $latestVersion", Toast.LENGTH_LONG).show()
-
-if (latestVersion > currentVersion) {
-                    updateUrl = doc.getString("update_url") ?: ""
-                    updateAvailable = true
+        db.collection("config").document("app_version").get()
+            .addOnSuccessListener { doc ->
+                if (doc.exists()) {
+                    val latestVersion: Long = doc.getLong("latest_version_code") ?: 1L
+                    val currentVersion: Long = BuildConfig.VERSION_CODE.toLong()
+                    
+                    Toast.makeText(activity, "App: $currentVersion | DB: $latestVersion", Toast.LENGTH_LONG).show()
+                    
+                    if (latestVersion > currentVersion) {
+                        updateUrl = doc.getString("update_url") ?: ""
+                        updateAvailable = true
+                    }
+                } else {
+                    Toast.makeText(activity, "Config document not found in DB", Toast.LENGTH_LONG).show()
                 }
             }
-        }
+            .addOnFailureListener { e ->
+                Toast.makeText(activity, "DB Error: ${e.message}", Toast.LENGTH_LONG).show()
+            }
     }
 
-    // Handle the download progress
     if (isDownloading) {
         LaunchedEffect(downloadId) {
             val downloadManager = activity.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
@@ -78,10 +82,9 @@ if (latestVersion > currentVersion) {
         }
     }
 
-    // The un-closable popup
     if (updateAvailable) {
         AlertDialog(
-            onDismissRequest = { /* Cannot dismiss by tapping outside */ },
+            onDismissRequest = { },
             title = { Text("Update Required", color = Color.White, fontSize = 20.sp) },
             text = { 
                 Column {
@@ -132,7 +135,6 @@ private fun installApk(activity: Activity, downloadId: Long) {
         }
         activity.startActivity(intent)
     } else {
-        // Fallback for FileProvider
         val file = File(activity.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), "homeland_update.apk")
         if (file.exists()) {
             val apkUri = FileProvider.getUriForFile(activity, "${activity.packageName}.fileprovider", file)
