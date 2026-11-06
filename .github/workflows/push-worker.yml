@@ -1,0 +1,35 @@
+name: Push Notification Worker
+
+on:
+  # Allows you to run this workflow manually from the Actions tab
+  workflow_dispatch:
+  
+  # Runs automatically every 5 minutes
+  schedule:
+    - cron: '*/5 * * * *'
+
+jobs:
+  send-push:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+
+    - name: Install Dependencies
+      run: |
+        cd push-server
+        npm install
+
+    - name: Run Push Worker Script
+      run: |
+        cd push-server
+        node index.js
+      env:
+        # This pulls the Base64 secret we saved earlier and passes it to the script
+        FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
