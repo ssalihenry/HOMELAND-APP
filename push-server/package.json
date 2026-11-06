@@ -1,0 +1,9 @@
+{
+  "name": "homeland-push-server",
+  "version": "1.0.0",
+  "description": "Server to send push notifications for Homeland",
+  "main": "index.js",
+  "dependencies": {
+    "firebase-admin": "^12.0.0"
+  }
+}
