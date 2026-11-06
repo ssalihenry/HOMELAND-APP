@@ -106,9 +106,9 @@ class MainActivity : ComponentActivity() {
                     if (isAuthenticated) {
                         HomelandApp(auth = auth, theme = appTheme, onLogout = { isAuthenticated = false }, onSwitchProfile = { })
                     } else {
-                        TVLoginScreen(onLoginSuccess = { 
-                            isAuthenticated = true 
-                        })
+    TVLoginScreen(theme = appTheme, onLoginSuccess = { 
+        isAuthenticated = true 
+    })
                     }
                 } else {
                     if (isAuthenticated) {
