@@ -52,8 +52,7 @@ const val WHATSAPP_NUMBER = "256742199254"
 val movieCategories = listOf("All", "Action", "Sci-Fi", "Comedy", "Animation", "Romantic", "Horror", "Adventure")
 val tvCategories = listOf("All", "News", "Sports", "Movies", "Entertainment", "Music", "Kids")
 
-data class ThemeConfig(val primary: Color = Color(0xFFE50914), val background: Color = Color(0xFF0B0C10), val fontSize: Int = 14, val fontUrl: String = "")
-
+data class ThemeConfig(val primary: Color = Color(0xFFE50914), val background: Color = Color(0xFF0B0C10), val fontSize: Int = 14, val fontUrl: String = "", val bgImageUrl: String = "")
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -70,10 +69,11 @@ class MainActivity : ComponentActivity() {
                 db.collection("config").document("theme").addSnapshotListener { doc, _ ->
                     if (doc != null && doc.exists()) {
                         val p = doc.getString("primary") ?: "#E50914"
-                        val b = doc.getString("background") ?: "#0B0C10"
-                        val f = doc.getLong("fontSize")?.toInt() ?: 14
-                        val url = doc.getString("fontUrl") ?: ""
-                        appTheme = ThemeConfig(Color(android.graphics.Color.parseColor(p)), Color(android.graphics.Color.parseColor(b)), f, url)
+val b = doc.getString("background") ?: "#0B0C10"
+val f = doc.getLong("fontSize")?.toInt() ?: 14
+val url = doc.getString("fontUrl") ?: ""
+val bgImg = doc.getString("bgImageUrl") ?: ""
+appTheme = ThemeConfig(Color(android.graphics.Color.parseColor(p)), Color(android.graphics.Color.parseColor(b)), f, url, bgImg)
                     }
                 }
             }
