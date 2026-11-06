@@ -257,6 +257,10 @@ fun ProfileScreen(auth: FirebaseAuth, userVipExpiry: Long, theme: ThemeConfig, o
     var couponCode by remember { mutableStateOf("") }
     val isVip = userVipExpiry > System.currentTimeMillis()
 
+    // 🔥 TV LOGIN STATE
+    var showTvDialog by remember { mutableStateOf(false) }
+    var tvCodeInput by remember { mutableStateOf("") }
+
     if (showAdminPanel) {
         AdminScreen(onBack = { showAdminPanel = false })
     } else {
@@ -274,6 +278,11 @@ fun ProfileScreen(auth: FirebaseAuth, userVipExpiry: Long, theme: ThemeConfig, o
             Spacer(modifier = Modifier.height(20.dp))
             Button(onClick = onSwitchProfile, colors = ButtonDefaults.buttonColors(containerColor = Color.DarkGray), modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp)) {
                 Icon(Icons.Default.SwitchAccount, null); Spacer(modifier = Modifier.width(8.dp)); Text("Switch Profile")
+            }
+
+            // 🔥 LOGIN ON TV BUTTON
+            Button(onClick = { showTvDialog = true }, colors = ButtonDefaults.buttonColors(containerColor = Color.DarkGray), modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp)) {
+                Icon(Icons.Default.Tv, null); Spacer(modifier = Modifier.width(8.dp)); Text("Login on TV")
             }
 
             if (!isVip) {
@@ -311,6 +320,55 @@ fun ProfileScreen(auth: FirebaseAuth, userVipExpiry: Long, theme: ThemeConfig, o
             }
             Button(onClick = { auth.signOut(); onLogout() }, colors = ButtonDefaults.buttonColors(containerColor = Color.DarkGray), modifier = Modifier.fillMaxWidth()) { Text("Log Out") }
         }
+    }
+
+    // 🔥 TV LOGIN DIALOG (This is now perfectly placed at the bottom)
+    if (showTvDialog) {
+        AlertDialog(
+            onDismissRequest = { showTvDialog = false },
+            title = { Text("Login on TV", color = Color.White) },
+            text = { 
+                Column {
+                    Text("Enter the 4-digit code shown on your TV screen.", color = Color.Gray)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = tvCodeInput, 
+                        onValueChange = { tvCodeInput = it }, 
+                        placeholder = { Text("e.g. 8452") },
+                        colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White)
+                    )
+                }
+            },
+            confirmButton = {
+                Button(onClick = {
+                    if (tvCodeInput.length == 4) {
+                        val db = FirebaseFirestore.getInstance()
+                        db.collection("tv_logins").document(tvCodeInput).get().addOnSuccessListener { doc ->
+                            if (doc.exists()) {
+                                db.collection("tv_logins").document(tvCodeInput).update(
+                                    "status", "authorized",
+                                    "email", auth.currentUser?.email ?: "User",
+                                    "vipExpiry", userVipExpiry
+                                )
+                                Toast.makeText(context, "TV Authorized!", Toast.LENGTH_SHORT).show()
+                                showTvDialog = false
+                                tvCodeInput = ""
+                            } else {
+                                Toast.makeText(context, "Invalid code. Try again.", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    } else {
+                        Toast.makeText(context, "Please enter 4 digits", Toast.LENGTH_SHORT).show()
+                    }
+                }, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE50914))) {
+                    Text("Authorize")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showTvDialog = false }) { Text("Cancel", color = Color.Gray) }
+            },
+            containerColor = Color(0xFF15171E)
+        )
     }
 }
 
