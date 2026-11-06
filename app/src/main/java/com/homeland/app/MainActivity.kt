@@ -107,9 +107,9 @@ class MainActivity : ComponentActivity() {
                     if (isAuthenticated) {
                         HomelandApp(auth = auth, theme = appTheme, onLogout = { isAuthenticated = false }, onSwitchProfile = { })
                     } else {
-    TVLoginScreen(theme = appTheme, onLoginSuccess = { 
-        isAuthenticated = true 
-    })
+                        TVLoginScreen(theme = appTheme, onLoginSuccess = { 
+                            isAuthenticated = true 
+                        })
                     }
                 } else {
                     if (isAuthenticated) {
@@ -323,69 +323,70 @@ fun ProfileScreen(auth: FirebaseAuth, userVipExpiry: Long, theme: ThemeConfig, o
     }
 
     if (showTvDialog) {
-    var passwordInput by remember { mutableStateOf("") }
-    
-    AlertDialog(
-        onDismissRequest = { showTvDialog = false },
-        title = { Text("Login on TV", color = Color.White) },
-        text = { 
-            Column {
-                Text("Enter the 6-digit code from your TV and your password to authorize.", color = Color.Gray)
-                Spacer(modifier = Modifier.height(8.dp))
-                OutlinedTextField(
-                    value = tvCodeInput, 
-                    onValueChange = { tvCodeInput = it }, 
-                    placeholder = { Text("e.g. 603061") },
-                    colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White)
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                OutlinedTextField(
-                    value = passwordInput, 
-                    onValueChange = { passwordInput = it }, 
-                    placeholder = { Text("Your Account Password") },
-                    visualTransformation = PasswordVisualTransformation(),
-                    colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White)
-                )
-            }
-        },
-        confirmButton = {
-            Button(onClick = {
-                if (tvCodeInput.length == 6 && passwordInput.isNotEmpty()) {
-                    val userEmail = auth.currentUser?.email
-                    if (userEmail != null) {
-                        // 1. Verify the password with Firebase first
-                        auth.signInWithEmailAndPassword(userEmail, passwordInput).addOnCompleteListener { task ->
-                            if (task.isSuccessful) {
-                                // 2. Password is correct! Send it to the TV.
-                                val db = FirebaseFirestore.getInstance()
-                                db.collection("tv_login_codes").document(tvCodeInput).update(
-                                    "status", "approved",
-                                    "email", userEmail,
-                                    "password", passwordInput // Send valid details to TV
-                                ).addOnSuccessListener {
-                                    Toast.makeText(context, "TV Authorized successfully!", Toast.LENGTH_SHORT).show()
-                                    showTvDialog = false
-                                    tvCodeInput = ""
-                                    passwordInput = ""
+        var passwordInput by remember { mutableStateOf("") }
+        
+        AlertDialog(
+            onDismissRequest = { showTvDialog = false },
+            title = { Text("Login on TV", color = Color.White) },
+            text = { 
+                Column {
+                    Text("Enter the 6-digit code from your TV and your password to authorize.", color = Color.Gray)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = tvCodeInput, 
+                        onValueChange = { tvCodeInput = it }, 
+                        placeholder = { Text("e.g. 603061") },
+                        colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White)
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = passwordInput, 
+                        onValueChange = { passwordInput = it }, 
+                        placeholder = { Text("Your Account Password") },
+                        visualTransformation = PasswordVisualTransformation(),
+                        colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White)
+                    )
+                }
+            },
+            confirmButton = {
+                Button(onClick = {
+                    if (tvCodeInput.length == 6 && passwordInput.isNotEmpty()) {
+                        val userEmail = auth.currentUser?.email
+                        if (userEmail != null) {
+                            // 1. Verify the password with Firebase first
+                            auth.signInWithEmailAndPassword(userEmail, passwordInput).addOnCompleteListener { task ->
+                                if (task.isSuccessful) {
+                                    // 2. Password is correct! Send it to the TV.
+                                    val db = FirebaseFirestore.getInstance()
+                                    db.collection("tv_login_codes").document(tvCodeInput).update(
+                                        "status", "approved",
+                                        "email", userEmail,
+                                        "password", passwordInput // Send valid details to TV
+                                    ).addOnSuccessListener {
+                                        Toast.makeText(context, "TV Authorized successfully!", Toast.LENGTH_SHORT).show()
+                                        showTvDialog = false
+                                        tvCodeInput = ""
+                                        passwordInput = ""
+                                    }
+                                } else {
+                                    Toast.makeText(context, "Incorrect password. Please try again.", Toast.LENGTH_SHORT).show()
                                 }
-                            } else {
-                                Toast.makeText(context, "Incorrect password. Please try again.", Toast.LENGTH_SHORT).show()
                             }
                         }
+                    } else {
+                        Toast.makeText(context, "Please enter 6 digits and your password", Toast.LENGTH_SHORT).show()
                     }
-                } else {
-                    Toast.makeText(context, "Please enter 6 digits and your password", Toast.LENGTH_SHORT).show()
+                }, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE50914))) {
+                    Text("Authorize")
                 }
-            }, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE50914))) {
-                Text("Authorize")
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = { showTvDialog = false }) { Text("Cancel", color = Color.Gray) }
-        },
-        containerColor = Color(0xFF15171E)
-    )
+            },
+            dismissButton = {
+                TextButton(onClick = { showTvDialog = false }) { Text("Cancel", color = Color.Gray) }
+            },
+            containerColor = Color(0xFF15171E)
+        )
     }
+} // <--- THIS IS THE BRACE THAT WAS MISSING TO CLOSE ProfileScreen
 
 @Composable
 fun MovieDetailsScreen(movie: Movie, userVipExpiry: Long, onPlay: (Movie) -> Unit, onBack: () -> Unit) {
