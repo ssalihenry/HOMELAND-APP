@@ -64,6 +64,7 @@ fun AdminScreen(onBack: () -> Unit) {
     var couponDays by remember { mutableStateOf("7") }
     var allUsers by remember { mutableStateOf<List<AdminUser>>(emptyList()) }
     var themeFontUrl by remember { mutableStateOf("") }
+    var themeBgImageUrl by remember { mutableStateOf("") }
     var pushTitle by remember { mutableStateOf("") }
     var pushMessage by remember { mutableStateOf("") }
 
@@ -306,12 +307,14 @@ fun AdminScreen(onBack: () -> Unit) {
             Text("App Theme Settings", color = Color.White, fontWeight = FontWeight.Bold)
             Spacer(modifier = Modifier.height(8.dp))
             OutlinedTextField(value = themeFontUrl, onValueChange = { themeFontUrl = it }, label = { Text("Custom Font URL (.ttf or .otf)") }, modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White))
+            OutlinedTextField(value = themeBgImageUrl, onValueChange = { themeBgImageUrl = it }, label = { Text("Custom Background Image URL (Optional)") }, modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White))
             
             Button(onClick = {
-                val themeMap = hashMapOf("fontUrl" to themeFontUrl)
-                db.collection("config").document("theme").set(themeMap, com.google.firebase.firestore.SetOptions.merge())
-                    .addOnSuccessListener { statusMessage = "Font updated globally!" }
-            }, modifier = Modifier.fillMaxWidth().height(50.dp), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE50914))) { Text("Apply Font to All Devices") }
+    // 🔥 ADD bgImageUrl HERE
+    val themeMap = hashMapOf("fontUrl" to themeFontUrl, "bgImageUrl" to themeBgImageUrl)
+    db.collection("config").document("theme").set(themeMap, com.google.firebase.firestore.SetOptions.merge())
+        .addOnSuccessListener { statusMessage = "Theme updated globally!" }
+}, modifier = Modifier.fillMaxWidth().height(50.dp), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE50914))) { Text("Apply Theme to All Devices") }
         } else {
             // 🔥 PUSH NOTIFICATION TAB
             Text("Send Push Notification", color = Color.White, fontWeight = FontWeight.Bold)
