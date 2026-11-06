@@ -63,6 +63,7 @@ class MainActivity : ComponentActivity() {
         windowInsetsController.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
 
         setContent {
+            CheckForUpdates(this@MainActivity)
             val db = FirebaseFirestore.getInstance()
             var appTheme by remember { mutableStateOf(ThemeConfig()) }
             
