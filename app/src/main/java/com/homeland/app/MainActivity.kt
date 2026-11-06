@@ -98,14 +98,22 @@ val isTv = context.packageManager.hasSystemFeature(PackageManager.FEATURE_LEANBA
            (context.resources.configuration.uiMode and Configuration.UI_MODE_TYPE_MASK) == Configuration.UI_MODE_TYPE_TELEVISION
 
 if (isTv) {
-    // If it's a TV, show the QR Code screen. Once authorized, it goes to the app.
-    if (isAuthenticated) {
-        HomelandApp(auth = auth, theme = appTheme, onLogout = { isAuthenticated = false }, onSwitchProfile = { })
+    // 🔥 CHECK IF TV IS ALREADY LOGGED IN
+    val prefs = context.getSharedPreferences("homeland", android.content.Context.MODE_PRIVATE)
+    var isTvLoggedIn by remember { mutableStateOf(prefs.getBoolean("is_tv_logged_in", false)) }
+
+    if (isTvLoggedIn) {
+        HomelandApp(auth = auth, theme = appTheme, onLogout = { 
+            // If they log out on TV, clear the memory
+            prefs.edit().remove("is_tv_logged_in").apply()
+            isTvLoggedIn = false 
+        }, onSwitchProfile = { })
     } else {
         TvLoginScreen(onLoginSuccess = { 
-            isAuthenticated = true 
+            isTvLoggedIn = true 
         })
     }
+} else {
 } else {
     // Normal phone logic
     if (isAuthenticated) {
