@@ -34,10 +34,10 @@ fun CheckForUpdates(activity: Activity) {
         val db = FirebaseFirestore.getInstance()
         db.collection("config").document("app_version").get().addOnSuccessListener { doc ->
             if (doc.exists()) {
-                val latestVersion = doc.getLong("latest_version_code") ?: 1L
-                val currentVersion = BuildConfig.VERSION_CODE.toLong()
-                
-                if (latestVersion > currentVersion) {
+                val latestVersion: Long = doc.getLong("latest_version_code") ?: 1L
+val currentVersion: Long = BuildConfig.VERSION_CODE.toLong()
+
+if (latestVersion > currentVersion) {
                     updateUrl = doc.getString("update_url") ?: ""
                     updateAvailable = true
                 }
