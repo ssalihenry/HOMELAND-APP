@@ -1,6 +1,5 @@
 package com.homeland.app
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -61,10 +60,12 @@ fun AdminScreen(onBack: () -> Unit) {
     var tvCategory by remember { mutableStateOf("News") }
     var isVipTv by remember { mutableStateOf(false) }
 
-    // VIP & Theme State
+    // VIP & Theme & Push State
     var couponDays by remember { mutableStateOf("7") }
     var allUsers by remember { mutableStateOf<List<AdminUser>>(emptyList()) }
     var themeFontUrl by remember { mutableStateOf("") }
+    var pushTitle by remember { mutableStateOf("") }
+    var pushMessage by remember { mutableStateOf("") }
 
     var existingMovies by remember { mutableStateOf<List<Movie>>(emptyList()) }
     var existingTv by remember { mutableStateOf<List<TvChannel>>(emptyList()) }
@@ -108,6 +109,7 @@ fun AdminScreen(onBack: () -> Unit) {
             Tab(selected = selectedTab == 1, onClick = { selectedTab = 1 }, text = { Text("TV Live") })
             Tab(selected = selectedTab == 2, onClick = { selectedTab = 2 }, text = { Text("VIP") })
             Tab(selected = selectedTab == 3, onClick = { selectedTab = 3 }, text = { Text("Theme") })
+            Tab(selected = selectedTab == 4, onClick = { selectedTab = 4 }, text = { Text("Push") })
         }
 
         Spacer(modifier = Modifier.height(16.dp))
@@ -300,7 +302,7 @@ fun AdminScreen(onBack: () -> Unit) {
                     }
                 }
             }
-        } else {
+        } else if (selectedTab == 3) {
             Text("App Theme Settings", color = Color.White, fontWeight = FontWeight.Bold)
             Spacer(modifier = Modifier.height(8.dp))
             OutlinedTextField(value = themeFontUrl, onValueChange = { themeFontUrl = it }, label = { Text("Custom Font URL (.ttf or .otf)") }, modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White))
@@ -310,6 +312,34 @@ fun AdminScreen(onBack: () -> Unit) {
                 db.collection("config").document("theme").set(themeMap, com.google.firebase.firestore.SetOptions.merge())
                     .addOnSuccessListener { statusMessage = "Font updated globally!" }
             }, modifier = Modifier.fillMaxWidth().height(50.dp), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE50914))) { Text("Apply Font to All Devices") }
+        } else {
+            // 🔥 PUSH NOTIFICATION TAB
+            Text("Send Push Notification", color = Color.White, fontWeight = FontWeight.Bold)
+            Spacer(modifier = Modifier.height(8.dp))
+            OutlinedTextField(value = pushTitle, onValueChange = { pushTitle = it }, label = { Text("Notification Title") }, modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White))
+            OutlinedTextField(value = pushMessage, onValueChange = { pushMessage = it }, label = { Text("Notification Message") }, modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White))
+            
+            Button(onClick = {
+                if (pushTitle.isBlank() || pushMessage.isBlank()) { statusMessage = "Fill in both fields."; return@Button }
+                isLoading = true
+                val notifData = hashMapOf(
+                    "title" to pushTitle,
+                    "message" to pushMessage,
+                    "status" to "pending",
+                    "timestamp" to System.currentTimeMillis()
+                )
+                db.collection("push_notifications").add(notifData).addOnSuccessListener {
+                    isLoading = false
+                    statusMessage = "Success! Notification queued."
+                    pushTitle = ""
+                    pushMessage = ""
+                }.addOnFailureListener {
+                    isLoading = false
+                    statusMessage = "Error: ${it.message}"
+                }
+            }, modifier = Modifier.fillMaxWidth().height(50.dp), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE50914))) {
+                if (isLoading) CircularProgressIndicator(color = Color.White, modifier = Modifier.size(24.dp)) else Text("Send to All Users")
+            }
         }
 
         Spacer(modifier = Modifier.height(16.dp))
