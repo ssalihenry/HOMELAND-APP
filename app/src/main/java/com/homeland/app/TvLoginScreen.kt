@@ -10,9 +10,11 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import coil.compose.AsyncImage
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import kotlin.random.Random
@@ -42,7 +44,6 @@ fun TVLoginScreen(theme: ThemeConfig, onLoginSuccess: () -> Unit) {
                 if (snapshot != null && snapshot.exists()) {
                     val status = snapshot.getString("status")
                     
-                    // 🔥 THIS IS THE BLOCK YOU NEED
                     if (status == "approved") {
                         val email = snapshot.getString("email")
                         val password = snapshot.getString("password")
@@ -51,7 +52,6 @@ fun TVLoginScreen(theme: ThemeConfig, onLoginSuccess: () -> Unit) {
                             auth.signInWithEmailAndPassword(email, password).addOnCompleteListener { task ->
                                 if (task.isSuccessful) {
                                     onLoginSuccess()
-                                    // Delete the document so the password is gone from Firestore
                                     db.collection("tv_login_codes").document(code).delete()
                                 } else {
                                     statusMessage = "Error: ${task.exception?.message}"
@@ -64,54 +64,67 @@ fun TVLoginScreen(theme: ThemeConfig, onLoginSuccess: () -> Unit) {
         }
     }
 
-    if (showManualLogin) {
-        Box(modifier = Modifier.fillMaxSize()) {
-            AuthScreen(auth = auth, onLoginSuccess = onLoginSuccess)
-            
-            IconButton(
-                onClick = { showManualLogin = false },
-                modifier = Modifier
-                    .align(Alignment.TopStart)
-                    .padding(16.dp)
-                    .background(Color.Black.copy(alpha = 0.5f), shape = RoundedCornerShape(50))
-            ) {
-                Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = Color.White)
+    // 🔥 WRAP IN BOX TO ADD BACKGROUND
+    Box(modifier = Modifier.fillMaxSize().background(theme.background)) {
+        if (theme.bgImageUrl.isNotEmpty()) {
+            AsyncImage(
+                model = theme.bgImageUrl,
+                contentDescription = "App Background",
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
+            )
+        }
+
+        if (showManualLogin) {
+            Box(modifier = Modifier.fillMaxSize()) {
+                AuthScreen(auth = auth, onLoginSuccess = onLoginSuccess)
+                
+                IconButton(
+                    onClick = { showManualLogin = false },
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(16.dp)
+                        .background(Color.Black.copy(alpha = 0.5f), shape = RoundedCornerShape(50))
+                ) {
+                    Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = Color.White)
+                }
             }
-        }
-        return
-    }
+        } else {
+            Column(
+                modifier = Modifier.fillMaxSize(),
+                verticalArrangement = Arrangement.Center,
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text("HOMELAND TV", color = theme.primary, fontSize = 40.sp, fontWeight = FontWeight.Black)
+                Spacer(modifier = Modifier.height(32.dp))
+                Text("Go to the Homeland app on your phone", color = Color.White, fontSize = 20.sp)
+                Text("Go to Profile -> Login on TV", color = Color.LightGray, fontSize = 18.sp)
+                Spacer(modifier = Modifier.height(16.dp))
+                Text("Enter this code:", color = Color.White, fontSize = 18.sp)
+                Spacer(modifier = Modifier.height(24.dp))
+                
+                Box(
+                    modifier = Modifier
+                        // 🔥 MADE TRANSLUCENT
+                        .background(Color.Black.copy(alpha = 0.6f), shape = RoundedCornerShape(12.dp))
+                        .padding(horizontal = 48.dp, vertical = 24.dp)
+                ) {
+                    Text(text = loginCode, color = theme.primary, fontSize = 56.sp, fontWeight = FontWeight.Black, letterSpacing = 8.sp)
+                }
 
-    Column(
-        modifier = Modifier.fillMaxSize().background(theme.background),
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Text("HOMELAND TV", color = theme.primary, fontSize = 40.sp, fontWeight = FontWeight.Black)
-        Spacer(modifier = Modifier.height(32.dp))
-        Text("Go to the Homeland app on your phone", color = Color.White, fontSize = 20.sp)
-        Text("Go to Profile -> Login on TV", color = Color.Gray, fontSize = 18.sp)
-        Spacer(modifier = Modifier.height(16.dp))
-        Text("Enter this code:", color = Color.White, fontSize = 18.sp)
-        Spacer(modifier = Modifier.height(24.dp))
-        
-        Box(
-            modifier = Modifier
-                .background(Color(0xFF15171E), shape = RoundedCornerShape(12.dp))
-                .padding(horizontal = 48.dp, vertical = 24.dp)
-        ) {
-            Text(text = loginCode, color = theme.primary, fontSize = 56.sp, fontWeight = FontWeight.Black, letterSpacing = 8.sp)
-        }
+                Spacer(modifier = Modifier.height(32.dp))
+                Text(statusMessage, color = Color.White, fontSize = 16.sp)
 
-        Spacer(modifier = Modifier.height(32.dp))
-        Text(statusMessage, color = Color.Gray, fontSize = 16.sp)
-
-        Spacer(modifier = Modifier.height(64.dp))
-        Button(
-            onClick = { showManualLogin = true },
-            colors = ButtonDefaults.buttonColors(containerColor = Color.DarkGray),
-            shape = RoundedCornerShape(8.dp)
-        ) {
-            Text("Log in manually with Email/Password", fontSize = 16.sp)
+                Spacer(modifier = Modifier.height(64.dp))
+                Button(
+                    onClick = { showManualLogin = true },
+                    // 🔥 MADE TRANSLUCENT
+                    colors = ButtonDefaults.buttonColors(containerColor = Color.Black.copy(alpha = 0.6f)),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Text("Log in manually with Email/Password", fontSize = 16.sp)
+                }
+            }
         }
     }
 }
