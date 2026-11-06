@@ -179,7 +179,23 @@ fun HomelandApp(auth: FirebaseAuth, theme: ThemeConfig, onLogout: () -> Unit, on
             }
         }
     ) { paddingValues ->
-        Box(modifier = Modifier.fillMaxSize().padding(paddingValues).background(theme.background)) {
+    Box(modifier = Modifier.fillMaxSize().padding(paddingValues)) {
+        // 🔥 BACKGROUND LAYER
+        if (theme.bgImageUrl.isNotEmpty()) {
+            AsyncImage(
+                model = theme.bgImageUrl,
+                contentDescription = "App Background",
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
+            )
+            // Dark overlay so text stays readable
+            Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.75f)))
+        } else {
+            Box(modifier = Modifier.fillMaxSize().background(theme.background))
+        }
+
+        // 🔥 CONTENT LAYER
+        Box(modifier = Modifier.fillMaxSize()) {
             when (selectedTab) {
                 0 -> HomeScreen(theme = theme, userVipExpiry = userVipExpiry, onDetails = { viewingDetails = it })
                 1 -> TvLiveScreen(theme = theme, userVipExpiry = userVipExpiry, onPlayMedia = { currentlyPlaying = it })
@@ -188,7 +204,7 @@ fun HomelandApp(auth: FirebaseAuth, theme: ThemeConfig, onLogout: () -> Unit, on
             }
         }
     }
-}
+    }
 
 @Composable
 fun ProfileSelectorScreen(theme: ThemeConfig, onProfileSelected: () -> Unit) {
