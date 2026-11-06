@@ -1,5 +1,6 @@
 package com.homeland.app
 
+import android.content.Context
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
@@ -7,6 +8,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -16,8 +18,9 @@ import com.google.firebase.firestore.FirebaseFirestore
 import kotlin.random.Random
 
 @Composable
-fun TvLoginScreen(onLoginSuccess: (String) -> Unit) {
+fun TvLoginScreen(onLoginSuccess: () -> Unit) {
     val db = FirebaseFirestore.getInstance()
+    val context = LocalContext.current
     // Generate a random 4-digit code
     val tvCode by remember { mutableStateOf(Random.nextInt(1000, 9999).toString()) }
 
@@ -31,9 +34,11 @@ fun TvLoginScreen(onLoginSuccess: (String) -> Unit) {
         db.collection("tv_logins").document(tvCode).addSnapshotListener { doc, _ ->
             if (doc != null && doc.exists()) {
                 val status = doc.getString("status")
-                val userEmail = doc.getString("email")
-                if (status == "authorized" && userEmail != null) {
-                    onLoginSuccess(userEmail)
+                if (status == "authorized") {
+                    // 🔥 SAVE THE LOGIN STATE TO THE DEVICE
+                    val prefs = context.getSharedPreferences("homeland", Context.MODE_PRIVATE)
+                    prefs.edit().putBoolean("is_tv_logged_in", true).apply()
+                    onLoginSuccess()
                 }
             }
         }
@@ -46,11 +51,10 @@ fun TvLoginScreen(onLoginSuccess: (String) -> Unit) {
     ) {
         Text("Welcome to Homeland", color = Color.White, fontSize = 32.sp, fontWeight = FontWeight.Bold)
         Spacer(modifier = Modifier.height(16.dp))
-        Text("Scan the QR code or go to Profile > Login on TV on your phone to enter the code.", color = Color.Gray, textAlign = TextAlign.Center, fontSize = 18.sp)
+        Text("Go to Profile > Login on TV on your phone to enter this code.", color = Color.Gray, textAlign = TextAlign.Center, fontSize = 18.sp)
         
         Spacer(modifier = Modifier.height(48.dp))
 
-        // Display the QR Code using a free API
         AsyncImage(
             model = "https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=$tvCode",
             contentDescription = "QR Code",
