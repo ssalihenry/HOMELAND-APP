@@ -148,10 +148,18 @@ fun HomelandApp(auth: FirebaseAuth, theme: ThemeConfig, onLogout: () -> Unit, on
 
     LaunchedEffect(Unit) { FirebaseMessaging.getInstance().subscribeToTopic("homeland_updates") }
 
-    BackHandler(enabled = currentlyPlaying != null || viewingDetails != null || selectedTab != 0) {
-        if (currentlyPlaying != null) currentlyPlaying = null
-        else if (viewingDetails != null) viewingDetails = null
-        else selectedTab = 0
+    BackHandler(enabled = true) {
+    if (currentlyPlaying != null) {
+        currentlyPlaying = null // Close Player
+    } else if (viewingDetails != null) {
+        viewingDetails = null // Close Details
+    } else if (showVipModal) {
+        showVipModal = false // Close VIP popup
+    } else if (selectedTab != 0) {
+        selectedTab = 0 // Go back to Home tab
+    } else {
+        (context as? androidx.activity.ComponentActivity)?.finish()
+    }
     }
 
     if (currentlyPlaying != null) {
@@ -192,32 +200,48 @@ fun HomelandApp(auth: FirebaseAuth, theme: ThemeConfig, onLogout: () -> Unit, on
         )
     }
 
-    Scaffold(
-        bottomBar = {
-            NavigationBar(containerColor = Color(0xFF15171E)) {
-                NavigationBarItem(selected = selectedTab == 0, onClick = { selectedTab = 0 }, icon = { Icon(Icons.Default.Home, "Home") }, label = { Text("Home") }, colors = NavigationBarItemDefaults.colors(selectedIconColor = theme.primary, selectedTextColor = theme.primary, unselectedIconColor = Color.Gray, unselectedTextColor = Color.Gray))
-                NavigationBarItem(selected = selectedTab == 1, onClick = { selectedTab = 1 }, icon = { Icon(Icons.Default.Tv, "TV Live") }, label = { Text("TV Live") }, colors = NavigationBarItemDefaults.colors(selectedIconColor = theme.primary, selectedTextColor = theme.primary, unselectedIconColor = Color.Gray, unselectedTextColor = Color.Gray))
-                NavigationBarItem(selected = selectedTab == 2, onClick = { selectedTab = 2 }, icon = { Icon(Icons.Default.Favorite, "My List") }, label = { Text("My List") }, colors = NavigationBarItemDefaults.colors(selectedIconColor = theme.primary, selectedTextColor = theme.primary, unselectedIconColor = Color.Gray, unselectedTextColor = Color.Gray))
-                NavigationBarItem(selected = selectedTab == 3, onClick = { selectedTab = 3 }, icon = { Icon(Icons.Default.Person, "Profile") }, label = { Text("Profile") }, colors = NavigationBarItemDefaults.colors(selectedIconColor = theme.primary, selectedTextColor = theme.primary, unselectedIconColor = Color.Gray, unselectedTextColor = Color.Gray))
-            }
-        }
-    ) { paddingValues ->
-        Box(modifier = Modifier.fillMaxSize().padding(paddingValues)) {
-            // 🔥 BACKGROUND LAYER
-            if (theme.bgImageUrl.isNotEmpty()) {
-                AsyncImage(
-                    model = theme.bgImageUrl,
-                    contentDescription = "App Background",
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize()
-                )
-                Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.75f)))
-            } else {
-                Box(modifier = Modifier.fillMaxSize().background(theme.background))
+        // Check if we are on TV
+    val isTv = context.packageManager.hasSystemFeature(PackageManager.FEATURE_LEANBACK) || 
+               (context.resources.configuration.uiMode and Configuration.UI_MODE_TYPE_MASK) == Configuration.UI_MODE_TYPE_TELEVISION
+
+    if (isTv) {
+        // 🔥 TV LAYOUT (Left Sidebar + Wide Screen)
+        Row(modifier = Modifier.fillMaxSize().background(theme.background)) {
+            // Navigation Rail on the Left
+            NavigationRail(
+                containerColor = Color(0xFF15171E),
+                modifier = Modifier.fillMaxHeight()
+            ) {
+                Spacer(modifier = Modifier.height(32.dp))
+                NavigationRailItem(selected = selectedTab == 0, onClick = { selectedTab = 0 }, icon = { Icon(Icons.Default.Home, "Home") }, label = { Text("Home") }, colors = NavigationRailItemDefaults.colors(selectedIconColor = theme.primary, selectedTextColor = theme.primary, unselectedIconColor = Color.Gray))
+                NavigationRailItem(selected = selectedTab == 1, onClick = { selectedTab = 1 }, icon = { Icon(Icons.Default.Tv, "TV Live") }, label = { Text("TV") }, colors = NavigationRailItemDefaults.colors(selectedIconColor = theme.primary, selectedTextColor = theme.primary, unselectedIconColor = Color.Gray))
+                NavigationRailItem(selected = selectedTab == 2, onClick = { selectedTab = 2 }, icon = { Icon(Icons.Default.Favorite, "My List") }, label = { Text("List") }, colors = NavigationRailItemDefaults.colors(selectedIconColor = theme.primary, selectedTextColor = theme.primary, unselectedIconColor = Color.Gray))
+                NavigationRailItem(selected = selectedTab == 3, onClick = { selectedTab = 3 }, icon = { Icon(Icons.Default.Person, "Profile") }, label = { Text("Profile") }, colors = NavigationRailItemDefaults.colors(selectedIconColor = theme.primary, selectedTextColor = theme.primary, unselectedIconColor = Color.Gray))
             }
 
-            // 🔥 CONTENT LAYER
+            // Main Content Area
             Box(modifier = Modifier.fillMaxSize()) {
+                when (selectedTab) {
+                    0 -> HomeScreen(theme = theme, userVipExpiry = userVipExpiry, onDetails = { viewingDetails = it })
+                    1 -> TvLiveScreen(theme = theme, userVipExpiry = userVipExpiry, onPlayMedia = { currentlyPlaying = it })
+                    2 -> MyListScreen(theme = theme, userVipExpiry = userVipExpiry, onDetails = { viewingDetails = it })
+                    3 -> ProfileScreen(auth, userVipExpiry, theme, onLogout, onSwitchProfile)
+                }
+            }
+        }
+    } else {
+        // 📱 PHONE LAYOUT (Keep existing bottom bar)
+        Scaffold(
+            bottomBar = {
+                NavigationBar(containerColor = Color(0xFF15171E)) {
+                    NavigationBarItem(selected = selectedTab == 0, onClick = { selectedTab = 0 }, icon = { Icon(Icons.Default.Home, "Home") }, label = { Text("Home") }, colors = NavigationBarItemDefaults.colors(selectedIconColor = theme.primary, selectedTextColor = theme.primary, unselectedIconColor = Color.Gray, unselectedTextColor = Color.Gray))
+                    NavigationBarItem(selected = selectedTab == 1, onClick = { selectedTab = 1 }, icon = { Icon(Icons.Default.Tv, "TV Live") }, label = { Text("TV Live") }, colors = NavigationBarItemDefaults.colors(selectedIconColor = theme.primary, selectedTextColor = theme.primary, unselectedIconColor = Color.Gray, unselectedTextColor = Color.Gray))
+                    NavigationBarItem(selected = selectedTab == 2, onClick = { selectedTab = 2 }, icon = { Icon(Icons.Default.Favorite, "My List") }, label = { Text("My List") }, colors = NavigationBarItemDefaults.colors(selectedIconColor = theme.primary, selectedTextColor = theme.primary, unselectedIconColor = Color.Gray, unselectedTextColor = Color.Gray))
+                    NavigationBarItem(selected = selectedTab == 3, onClick = { selectedTab = 3 }, icon = { Icon(Icons.Default.Person, "Profile") }, label = { Text("Profile") }, colors = NavigationBarItemDefaults.colors(selectedIconColor = theme.primary, selectedTextColor = theme.primary, unselectedIconColor = Color.Gray, unselectedTextColor = Color.Gray))
+                }
+            }
+        ) { paddingValues ->
+            Box(modifier = Modifier.fillMaxSize().padding(paddingValues)) {
                 when (selectedTab) {
                     0 -> HomeScreen(theme = theme, userVipExpiry = userVipExpiry, onDetails = { viewingDetails = it })
                     1 -> TvLiveScreen(theme = theme, userVipExpiry = userVipExpiry, onPlayMedia = { currentlyPlaying = it })
