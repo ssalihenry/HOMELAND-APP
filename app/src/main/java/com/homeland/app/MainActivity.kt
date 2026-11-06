@@ -256,22 +256,44 @@ fun HomelandApp(auth: FirebaseAuth, theme: ThemeConfig, onLogout: () -> Unit, on
 @Composable
 fun ProfileSelectorScreen(theme: ThemeConfig, onProfileSelected: () -> Unit) {
     var profiles by remember { mutableStateOf(listOf("Me", "Kids", "Guest")) }
-    Column(
-        modifier = Modifier.fillMaxSize().background(theme.background).systemBarsPadding(),
-        verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Text("Who's Watching?", color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 32.dp))
-        profiles.forEach { profile ->
-            Row(modifier = Modifier.padding(8.dp).clickable { onProfileSelected() }.background(Color.DarkGray, RoundedCornerShape(8.dp)).padding(16.dp).fillMaxWidth(0.6f), verticalAlignment = Alignment.CenterVertically) {
-                Box(modifier = Modifier.size(40.dp).clip(CircleShape).background(theme.primary), contentAlignment = Alignment.Center) {
-                    Text(profile.take(1), color = Color.White, fontWeight = FontWeight.Bold)
-                }
-                Spacer(modifier = Modifier.width(16.dp))
-                Text(profile, color = Color.White, fontSize = 18.sp)
-            }
+    
+    // 🔥 WRAP IN BOX TO ADD BACKGROUND
+    Box(modifier = Modifier.fillMaxSize().background(theme.background)) {
+        if (theme.bgImageUrl.isNotEmpty()) {
+            AsyncImage(
+                model = theme.bgImageUrl,
+                contentDescription = "App Background",
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
+            )
         }
-        Spacer(modifier = Modifier.height(24.dp))
-        Button(onClick = { profiles = profiles + "New Profile" }, colors = ButtonDefaults.buttonColors(containerColor = theme.primary)) { Text("Add Profile") }
+        
+        Column(
+            modifier = Modifier.fillMaxSize().systemBarsPadding(),
+            verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text("Who's Watching?", color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 32.dp))
+            profiles.forEach { profile ->
+                Row(
+                    modifier = Modifier
+                        .padding(8.dp)
+                        .clickable { onProfileSelected() }
+                        // 🔥 MADE TRANSLUCENT
+                        .background(Color.Black.copy(alpha = 0.6f), RoundedCornerShape(8.dp))
+                        .padding(16.dp)
+                        .fillMaxWidth(0.6f), 
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(modifier = Modifier.size(40.dp).clip(CircleShape).background(theme.primary), contentAlignment = Alignment.Center) {
+                        Text(profile.take(1), color = Color.White, fontWeight = FontWeight.Bold)
+                    }
+                    Spacer(modifier = Modifier.width(16.dp))
+                    Text(profile, color = Color.White, fontSize = 18.sp)
+                }
+            }
+            Spacer(modifier = Modifier.height(24.dp))
+            Button(onClick = { profiles = profiles + "New Profile" }, colors = ButtonDefaults.buttonColors(containerColor = theme.primary)) { Text("Add Profile") }
+        }
     }
 }
 
