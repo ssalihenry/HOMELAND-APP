@@ -41,6 +41,8 @@ fun TVLoginScreen(theme: ThemeConfig, onLoginSuccess: () -> Unit) {
             db.collection("tv_login_codes").document(code).addSnapshotListener { snapshot, _ ->
                 if (snapshot != null && snapshot.exists()) {
                     val status = snapshot.getString("status")
+                    
+                    // 🔥 THIS IS THE BLOCK YOU NEED
                     if (status == "approved") {
                         val email = snapshot.getString("email")
                         val password = snapshot.getString("password")
@@ -49,6 +51,7 @@ fun TVLoginScreen(theme: ThemeConfig, onLoginSuccess: () -> Unit) {
                             auth.signInWithEmailAndPassword(email, password).addOnCompleteListener { task ->
                                 if (task.isSuccessful) {
                                     onLoginSuccess()
+                                    // Delete the document so the password is gone from Firestore
                                     db.collection("tv_login_codes").document(code).delete()
                                 } else {
                                     statusMessage = "Error: ${task.exception?.message}"
