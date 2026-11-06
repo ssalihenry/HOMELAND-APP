@@ -831,7 +831,7 @@ fun TvLiveScreen(theme: ThemeConfig, userVipExpiry: Long, onPlayMedia: (Movie) -
                         Text(channel.name, color = Color.White, fontSize = theme.fontSize.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         Text(channel.category, color = theme.primary, fontSize = (theme.fontSize - 4).sp)
                     }
-                    if (isLocked) {
+                                        if (isLocked) {
                         Box(modifier = Modifier.matchParentSize().background(Color.Black.copy(alpha = 0.5f), RoundedCornerShape(12.dp)), contentAlignment = Alignment.Center) {
                             Icon(Icons.Default.Lock, "Locked", tint = Color(0xFFFCDC04), modifier = Modifier.size(32.dp))
                         }
@@ -840,4 +840,4 @@ fun TvLiveScreen(theme: ThemeConfig, userVipExpiry: Long, onPlayMedia: (Movie) -
             }
         }
     }
-}
+} // <--- MAKE SURE THIS FINAL BRACE IS HERE! (Line 844)
