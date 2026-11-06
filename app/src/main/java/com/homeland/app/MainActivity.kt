@@ -38,6 +38,11 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.foundation.border
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.runtime.snapshotFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -578,10 +583,120 @@ fun HomeScreen(theme: ThemeConfig, userVipExpiry: Long, onDetails: (Movie) -> Un
                 val filtered = movies.filter { it.title.contains(searchQuery, true) && (selectedCategory == "All" || it.category == selectedCategory) }
                 items(filtered) { movie -> MovieCard(movie, theme, userVipExpiry, onDetails) }
                 
-                item(span = { GridItemSpan(maxLineSpan) }) {
-                    Box(modifier = Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) {
-                        if (isFetchingMore) CircularProgressIndicator(color = theme.primary, modifier = Modifier.size(24.dp))
-                        else Button(onClick = { loadMoreMovies() }, colors = ButtonDefaults.buttonColors(containerColor = Color.DarkGray)) { Text("Load More") }
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
+@Composable
+fun HomeScreen(theme: ThemeConfig, userVipExpiry: Long, onDetails: (Movie) -> Unit) {
+    val db = FirebaseFirestore.getInstance()
+    var movies by remember { mutableStateOf<List<Movie>>(emptyList()) }
+    var featuredMovies by remember { mutableStateOf<List<Movie>>(emptyList()) }
+    var historyMovies by remember { mutableStateOf<List<Movie>>(emptyList()) }
+    var isLoading by remember { mutableStateOf(true) }
+    var searchQuery by remember { mutableStateOf("") }
+    var selectedCategory by remember { mutableStateOf("All") }
+
+    var lastVisibleMovie by remember { mutableStateOf<com.google.firebase.firestore.DocumentSnapshot?>(null) }
+    var isFetchingMore by remember { mutableStateOf(false) }
+
+    // 🔥 ADDED FOR INFINITE SCROLL
+    val gridState = rememberLazyGridState()
+
+    fun loadMoreMovies() {
+        if (isFetchingMore || lastVisibleMovie == null) return
+        isFetchingMore = true
+        var query = db.collection("homeland_movies").orderBy("timestamp", Query.Direction.DESCENDING).limit(20)
+        if (lastVisibleMovie != null) {
+            query = query.startAfter(lastVisibleMovie)
+        }
+        query.get().addOnSuccessListener { snap ->
+            if (snap != null && !snap.isEmpty) {
+                val newMovies = snap.documents.map { doc -> 
+                    Movie(id = doc.id, title = doc.getString("title") ?: "", poster = doc.getString("poster") ?: "", videoUrl = doc.getString("videoUrl") ?: "", category = doc.getString("category") ?: "", videoTag = doc.getString("videoTag") ?: "", year = doc.getString("year") ?: "", isVip = doc.getBoolean("isVip") ?: false, isFeatured = doc.getBoolean("isFeatured") ?: false) 
+                }
+                movies = (movies + newMovies).distinctBy { it.id }
+                lastVisibleMovie = snap.documents.lastOrNull()
+            }
+            isFetchingMore = false
+        }.addOnFailureListener {
+            isFetchingMore = false
+        }
+    }
+
+    // 🔥 AUTO LOAD WHEN SCROLLING TO BOTTOM
+    LaunchedEffect(gridState) {
+        snapshotFlow { gridState.layoutInfo.visibleItemsInfo.lastOrNull()?.index }
+            .distinctUntilChanged()
+            .collect { index ->
+                if (index != null && index >= movies.size - 4) {
+                    loadMoreMovies()
+                }
+            }
+    }
+
+    LaunchedEffect(Unit) {
+        db.collection("homeland_movies").orderBy("timestamp", Query.Direction.DESCENDING).limit(20).get().addOnSuccessListener { snap ->
+            if (snap != null) {
+                movies = snap.documents.map { doc -> 
+                    Movie(id = doc.id, title = doc.getString("title") ?: "", poster = doc.getString("poster") ?: "", videoUrl = doc.getString("videoUrl") ?: "", category = doc.getString("category") ?: "", videoTag = doc.getString("videoTag") ?: "", year = doc.getString("year") ?: "", isVip = doc.getBoolean("isVip") ?: false, isFeatured = doc.getBoolean("isFeatured") ?: false) 
+                }
+                lastVisibleMovie = snap.documents.lastOrNull()
+                featuredMovies = movies.filter { it.isFeatured }.take(5)
+                if (featuredMovies.isEmpty()) featuredMovies = movies.take(3)
+                isLoading = false
+            }
+        }
+    }
+
+    LaunchedEffect(movies) {
+        FirebaseAuth.getInstance().currentUser?.let { user ->
+            db.collection("users").document(user.uid).collection("history").get().addOnSuccessListener { historySnap ->
+                val hIds = historySnap.documents.map { it.id }
+                val valid = movies.filter { it.id in hIds }
+                historyMovies = if (valid.isEmpty()) movies.take(3) else valid
+            }
+        }
+    }
+
+    if (isLoading) {
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = theme.primary) }
+    } else {
+        Column(modifier = Modifier.fillMaxSize().systemBarsPadding()) {
+            if (featuredMovies.isNotEmpty() && searchQuery.isEmpty() && selectedCategory == "All") {
+                val pagerState = rememberPagerState(pageCount = { featuredMovies.size })
+                HorizontalPager(state = pagerState, modifier = Modifier.height(250.dp).fillMaxWidth().padding(bottom = 16.dp)) { page ->
+                    val movie = featuredMovies[page]
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        AsyncImage(model = movie.poster, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+                        Box(modifier = Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Transparent, theme.background))))
+                        Column(modifier = Modifier.align(Alignment.BottomStart).padding(16.dp)) {
+                            Text(movie.title, color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Bold)
+                            Button(onClick = { onDetails(movie) }, colors = ButtonDefaults.buttonColors(containerColor = theme.primary), modifier = Modifier.padding(top = 8.dp)) { Icon(Icons.Default.PlayArrow, null); Text("Play Now") }
+                        }
+                    }
+                }
+            }
+
+            OutlinedTextField(value = searchQuery, onValueChange = { searchQuery = it }, placeholder = { Text("Search...", color = Color.Gray) }, leadingIcon = { Icon(Icons.Default.Search, "Search", tint = Color.Gray) }, modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = theme.primary, unfocusedBorderColor = Color.DarkGray, focusedContainerColor = Color(0xFF15171E), unfocusedContainerColor = Color(0xFF15171E), focusedTextColor = Color.White, unfocusedTextColor = Color.White), shape = RoundedCornerShape(12.dp))
+
+            LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(bottom = 16.dp)) {
+                items(movieCategories) { category -> FilterChip(selected = selectedCategory == category, onClick = { selectedCategory = category }, label = { Text(category) }, colors = FilterChipDefaults.filterChipColors(selectedContainerColor = theme.primary, selectedLabelColor = Color.White, containerColor = Color(0xFF15171E), labelColor = Color.Gray)) }
+            }
+
+            // 🔥 ADDED state = gridState HERE
+            LazyVerticalGrid(state = gridState, columns = GridCells.Adaptive(110.dp), contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                if (historyMovies.isNotEmpty() && searchQuery.isEmpty() && selectedCategory == "All") {
+                    item(span = { GridItemSpan(maxLineSpan) }) { Text(if (historyMovies.size == 3) "Top Picks For You" else "Continue Watching", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(vertical = 8.dp)) }
+                    items(historyMovies) { movie -> MovieCard(movie, theme, userVipExpiry, onDetails) }
+                    item(span = { GridItemSpan(maxLineSpan) }) { Text("Trending Now", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(vertical = 8.dp)) }
+                }
+                val filtered = movies.filter { it.title.contains(searchQuery, true) && (selectedCategory == "All" || it.category == selectedCategory) }
+                items(filtered) { movie -> MovieCard(movie, theme, userVipExpiry, onDetails) }
+                
+                // 🔥 REPLACED LOAD MORE BUTTON WITH AUTO-LOADING SPINNER
+                if (isFetchingMore) {
+                    item(span = { GridItemSpan(maxLineSpan) }) {
+                        Box(modifier = Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) {
+                            CircularProgressIndicator(color = theme.primary, modifier = Modifier.size(24.dp))
+                        }
                     }
                 }
             }
@@ -595,6 +710,9 @@ fun MovieCard(movie: Movie, theme: ThemeConfig, userVipExpiry: Long, onDetails: 
     val uid = FirebaseAuth.getInstance().currentUser?.uid
     var isFav by remember { mutableStateOf(false) }
     val isLocked = movie.isVip && userVipExpiry < System.currentTimeMillis()
+    
+    // 🔥 ADDED FOCUS STATE
+    var isFocused by remember { mutableStateOf(false) }
 
     LaunchedEffect(uid) {
         if (uid != null) {
@@ -604,9 +722,22 @@ fun MovieCard(movie: Movie, theme: ThemeConfig, userVipExpiry: Long, onDetails: 
         }
     }
 
-    Column(modifier = Modifier.fillMaxWidth().clickable { onDetails(movie) }) {
-        Box {
-            AsyncImage(model = movie.poster, contentDescription = movie.title, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxWidth().aspectRatio(2f / 3f).clip(RoundedCornerShape(10.dp)).background(Color(0xFF15171E)))
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .onFocusChanged { isFocused = it.isFocused } // 🔥 DETECTS REMOTE FOCUS
+            .clickable { onDetails(movie) }
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .aspectRatio(2f / 3f)
+                .clip(RoundedCornerShape(10.dp))
+                .background(Color(0xFF15171E))
+                // 🔥 ADDS WHITE BORDER WHEN FOCUSED
+                .border(if (isFocused) 3.dp else 0.dp, Color.White, RoundedCornerShape(10.dp))
+        ) {
+            AsyncImage(model = movie.poster, contentDescription = movie.title, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
             if (isLocked) {
                 Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.5f), RoundedCornerShape(10.dp)), contentAlignment = Alignment.Center) { Icon(Icons.Default.Lock, "Locked", tint = Color(0xFFFCDC04), modifier = Modifier.size(32.dp)) }
             }
@@ -679,10 +810,22 @@ fun TvLiveScreen(theme: ThemeConfig, userVipExpiry: Long, onPlayMedia: (Movie) -
         LazyVerticalGrid(columns = GridCells.Adaptive(160.dp), contentPadding = PaddingValues(16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             items(filtered) { channel ->
                 val isLocked = channel.isVip && userVipExpiry < System.currentTimeMillis()
+                // 🔥 ADDED FOCUS STATE
+                var isFocused by remember { mutableStateOf(false) }
+                
                 Box {
-                    Column(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Color(0xFF15171E)).clickable { 
-                        onPlayMedia(Movie(title = channel.name, videoUrl = channel.streamUrl, isVip = channel.isVip)) 
-                    }.padding(12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .onFocusChanged { isFocused = it.isFocused } // 🔥 DETECTS REMOTE FOCUS
+                            // 🔥 ADDS WHITE BORDER WHEN FOCUSED (Kept your dark background for readability)
+                            .border(if (isFocused) 3.dp else 0.dp, Color.White, RoundedCornerShape(12.dp)) 
+                            .background(Color(0xFF15171E))
+                            .clickable { onPlayMedia(Movie(title = channel.name, videoUrl = channel.streamUrl, isVip = channel.isVip)) }
+                            .padding(12.dp), 
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
                         AsyncImage(model = channel.logo, contentDescription = channel.name, contentScale = ContentScale.Fit, modifier = Modifier.size(80.dp).clip(RoundedCornerShape(8.dp)))
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(channel.name, color = Color.White, fontSize = theme.fontSize.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
