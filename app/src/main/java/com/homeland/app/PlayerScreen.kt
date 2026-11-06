@@ -19,7 +19,11 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.focusable
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.key.*
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -62,6 +66,9 @@ fun PlayerScreen(
 
     val trackSelector = remember { DefaultTrackSelector(context) }
     var currentQuality by remember { mutableStateOf("Auto") }
+
+    // 🔥 TV REMOTE FOCUS
+    val focusRequester = remember { FocusRequester() }
 
     // Build Playlist
     val exoPlayer = remember {
@@ -109,6 +116,11 @@ fun PlayerScreen(
         }
     }
 
+    // 🔥 REQUEST FOCUS FOR TV REMOTE
+    LaunchedEffect(Unit) {
+        focusRequester.requestFocus()
+    }
+
     DisposableEffect(Unit) {
         onDispose { 
             exoPlayer.release()
@@ -116,7 +128,42 @@ fun PlayerScreen(
         }
     }
 
-    Box(modifier = Modifier.fillMaxSize().background(Color.Black).clickable { showControls = !showControls }) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black)
+            .focusRequester(focusRequester)
+            .focusable()
+            // 🔥 HANDLE TV REMOTE BUTTONS HERE 🔥
+            .onKeyEvent { keyEvent ->
+                if (keyEvent.type == KeyEventType.KeyDown) {
+                    when (keyEvent.key) {
+                        Key.MediaPlayPause, Key.Spacebar, Key.Enter, Key.DirectionCenter -> {
+                            if (isPlaying) exoPlayer.pause() else exoPlayer.play()
+                            showControls = true
+                            true
+                        }
+                        Key.MediaFastForward, Key.DirectionRight -> {
+                            exoPlayer.seekTo(exoPlayer.currentPosition + 10000) // Skip forward 10s
+                            showControls = true
+                            true
+                        }
+                        Key.MediaRewind, Key.DirectionLeft -> {
+                            exoPlayer.seekTo((exoPlayer.currentPosition - 10000).coerceAtLeast(0)) // Skip back 10s
+                            showControls = true
+                            true
+                        }
+                        Key.Back, Key.Escape -> {
+                            exoPlayer.pause()
+                            onClose()
+                            true
+                        }
+                        else -> false
+                    }
+                } else false
+            }
+            .clickable { showControls = !showControls }
+    ) {
         AndroidView(
             factory = { ctx ->
                 PlayerView(ctx).apply {
