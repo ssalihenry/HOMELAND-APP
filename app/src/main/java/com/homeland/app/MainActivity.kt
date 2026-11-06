@@ -79,11 +79,12 @@ class MainActivity : ComponentActivity() {
             }
 
             MaterialTheme(
-    colorScheme = darkColorScheme(primary = appTheme.primary, background = appTheme.background)
-) {
-    CheckForUpdates(this@MainActivity) // 🔥 MOVE IT HERE
-    
-    val auth = FirebaseAuth.getInstance()
+                colorScheme = darkColorScheme(primary = appTheme.primary, background = appTheme.background)
+            ) {
+                // 🔥 THIS IS WHERE IT SHOULD BE
+                CheckForUpdates(this@MainActivity)
+                
+                // 🔥 ONLY ONE DECLARATION OF AUTH HERE
                 val auth = FirebaseAuth.getInstance()
                 val currentUser = auth.currentUser
                 var isAuthenticated by remember { mutableStateOf(currentUser != null) }
