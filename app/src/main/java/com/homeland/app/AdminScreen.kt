@@ -62,7 +62,7 @@ fun AdminScreen(onBack: () -> Unit) {
     var tvUrl by remember { mutableStateOf("") }
     var tvCategory by remember { mutableStateOf("News") }
     var isVipTv by remember { mutableStateOf(false) }
-    var isFeaturedTv by remember { mutableStateOf(false) } // 🔥 ADDED THIS
+    var isFeaturedTv by remember { mutableStateOf(false) }
 
     // VIP & Theme & Push State
     var couponDays by remember { mutableStateOf("7") }
@@ -71,6 +71,10 @@ fun AdminScreen(onBack: () -> Unit) {
     var themeBgImageUrl by remember { mutableStateOf("") }
     var pushTitle by remember { mutableStateOf("") }
     var pushMessage by remember { mutableStateOf("") }
+
+    // Maintenance State
+    var isMaintenanceActive by remember { mutableStateOf(false) }
+    var maintenanceMsg by remember { mutableStateOf("") }
 
     var existingMovies by remember { mutableStateOf<List<Movie>>(emptyList()) }
     var existingTv by remember { mutableStateOf<List<TvChannel>>(emptyList()) }
@@ -88,7 +92,6 @@ fun AdminScreen(onBack: () -> Unit) {
             db.collection("homeland_tv").addSnapshotListener { snap, _ ->
                 if (snap != null) {
                     existingTv = snap.documents.map { doc ->
-                        // 🔥 ADDED isFeatured
                         TvChannel(id = doc.id, name = doc.getString("name") ?: "", logo = doc.getString("logo") ?: "", streamUrl = doc.getString("streamUrl") ?: "", category = doc.getString("category") ?: "", isVip = doc.getBoolean("isVip") ?: false, isFeatured = doc.getBoolean("isFeatured") ?: false)
                     }
                 }
@@ -99,6 +102,13 @@ fun AdminScreen(onBack: () -> Unit) {
                     allUsers = snap.documents.map { doc ->
                         AdminUser(uid = doc.id, email = doc.getString("email") ?: "Unknown", vipExpiry = doc.getLong("vipExpiry") ?: 0L)
                     }
+                }
+            }
+        } else if (selectedTab == 3) {
+            db.collection("config").document("maintenance").addSnapshotListener { doc, _ ->
+                if (doc != null && doc.exists()) {
+                    isMaintenanceActive = doc.getBoolean("active") ?: false
+                    maintenanceMsg = doc.getString("message") ?: ""
                 }
             }
         }
@@ -247,7 +257,6 @@ fun AdminScreen(onBack: () -> Unit) {
                 Checkbox(checked = isVipTv, onCheckedChange = { isVipTv = it }, colors = CheckboxDefaults.colors(checkedColor = Color(0xFFE50914)))
                 Text("Require VIP to watch", color = Color.White)
                 Spacer(modifier = Modifier.width(16.dp))
-                // 🔥 ADDED THIS CHECKBOX
                 Checkbox(checked = isFeaturedTv, onCheckedChange = { isFeaturedTv = it }, colors = CheckboxDefaults.colors(checkedColor = Color(0xFFE50914)))
                 Text("Featured Channel", color = Color.White)
             }
@@ -256,12 +265,10 @@ fun AdminScreen(onBack: () -> Unit) {
                 onClick = {
                     if (tvName.isBlank() || tvUrl.isBlank()) { statusMessage = "Fill required fields."; return@Button }
                     isLoading = true
-                    // 🔥 ADDED isFeatured TO THE MAP
                     val newTv = hashMapOf("name" to tvName, "logo" to tvLogo, "streamUrl" to tvUrl, "category" to tvCategory, "isVip" to isVipTv, "isFeatured" to isFeaturedTv)
                     
                     if (editingTvId != null) {
                         db.collection("homeland_tv").document(editingTvId!!).set(newTv).addOnSuccessListener {
-                            // 🔥 RESET isFeaturedTv
                             isLoading = false; statusMessage = "Success! TV updated."; editingTvId = null; tvName = ""; tvLogo = ""; tvUrl = ""; isVipTv = false; isFeaturedTv = false
                         }.addOnFailureListener { isLoading = false; statusMessage = "Error: ${it.message}" }
                     } else {
@@ -276,7 +283,6 @@ fun AdminScreen(onBack: () -> Unit) {
             ) { Text(if (editingTvId != null) "Update TV Channel" else "Publish TV Channel") }
 
             if (editingTvId != null) {
-                // 🔥 RESET isFeaturedTv ON CANCEL
                 TextButton(onClick = { editingTvId = null; tvName = ""; tvLogo = ""; tvUrl = ""; isFeaturedTv = false }) { Text("Cancel Edit", color = Color.Gray) }
             }
 
@@ -287,7 +293,6 @@ fun AdminScreen(onBack: () -> Unit) {
                     Row(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                         Text(tv.name, color = Color.White, modifier = Modifier.weight(1f))
                         IconButton(onClick = { 
-                            // 🔥 LOAD isFeaturedTv ON EDIT
                             editingTvId = tv.id; tvName = tv.name; tvLogo = tv.logo; tvUrl = tv.streamUrl; tvCategory = tv.category; isVipTv = tv.isVip; isFeaturedTv = tv.isFeatured
                         }) { Icon(Icons.Default.Edit, "Edit", tint = Color.Yellow) }
                         IconButton(onClick = { db.collection("homeland_tv").document(tv.id).delete() }) { Icon(Icons.Default.Delete, "Delete", tint = Color.Red) }
@@ -297,7 +302,6 @@ fun AdminScreen(onBack: () -> Unit) {
 
         } else if (selectedTab == 2) {
             
-            // 🔥 VIP EXPIRY TRACKER (Expiring in next 3 days)
             val now = System.currentTimeMillis()
             val threeDaysFromNow = now + (3 * 24 * 60 * 60 * 1000L)
             
@@ -334,7 +338,6 @@ fun AdminScreen(onBack: () -> Unit) {
             } else {
                 Text("✅ No users are expiring in the next 3 days.", color = Color.Green, fontSize = 12.sp, modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp))
             }
-            // END VIP EXPIRY TRACKER
 
             Text("Generate VIP Coupon", color = Color.White, fontWeight = FontWeight.Bold)
             Row(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -373,6 +376,23 @@ fun AdminScreen(onBack: () -> Unit) {
                 db.collection("config").document("theme").set(themeMap, com.google.firebase.firestore.SetOptions.merge())
                     .addOnSuccessListener { statusMessage = "Theme updated globally!" }
             }, modifier = Modifier.fillMaxWidth().height(50.dp), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE50914))) { Text("Apply Theme to All Devices") }
+            
+            Spacer(modifier = Modifier.height(24.dp))
+            Divider(color = Color.DarkGray)
+            Spacer(modifier = Modifier.height(24.dp))
+            
+            Text("App Maintenance Mode", color = Color.White, fontWeight = FontWeight.Bold)
+            Spacer(modifier = Modifier.height(8.dp))
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+                Checkbox(checked = isMaintenanceActive, onCheckedChange = { isMaintenanceActive = it }, colors = CheckboxDefaults.colors(checkedColor = Color.Red))
+                Text("Enable Maintenance Mode", color = Color.White)
+            }
+            OutlinedTextField(value = maintenanceMsg, onValueChange = { maintenanceMsg = it }, label = { Text("Maintenance Message") }, modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White))
+            Button(onClick = {
+                db.collection("config").document("maintenance").set(hashMapOf("active" to isMaintenanceActive, "message" to maintenanceMsg))
+                    .addOnSuccessListener { statusMessage = "Maintenance settings updated!" }
+            }, modifier = Modifier.fillMaxWidth().height(50.dp), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE50914))) { Text("Save Maintenance Settings") }
+            
         } else {
             Text("Send Push Notification", color = Color.White, fontWeight = FontWeight.Bold)
             Spacer(modifier = Modifier.height(8.dp))
