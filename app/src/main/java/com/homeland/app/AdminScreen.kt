@@ -9,6 +9,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -48,6 +49,7 @@ fun AdminScreen(onBack: () -> Unit) {
     var selectedType by remember { mutableStateOf("Movie") }
     var isVipMovie by remember { mutableStateOf(false) }
     var isFeaturedMovie by remember { mutableStateOf(false) }
+    var isAdultMovie by remember { mutableStateOf(false) } // 🔥 18+ STATE
     var episodesList by remember { mutableStateOf<List<Episode>>(emptyList()) }
     
     var catExpanded by remember { mutableStateOf(false) }
@@ -76,7 +78,7 @@ fun AdminScreen(onBack: () -> Unit) {
             db.collection("homeland_movies").addSnapshotListener { snap, _ ->
                 if (snap != null) {
                     existingMovies = snap.documents.map { doc ->
-                        Movie(id = doc.id, title = doc.getString("title") ?: "", poster = doc.getString("poster") ?: "", videoUrl = doc.getString("videoUrl") ?: "", category = doc.getString("category") ?: "", videoTag = doc.getString("videoTag") ?: "", year = doc.getString("year") ?: "", isVip = doc.getBoolean("isVip") ?: false)
+                        Movie(id = doc.id, title = doc.getString("title") ?: "", poster = doc.getString("poster") ?: "", videoUrl = doc.getString("videoUrl") ?: "", category = doc.getString("category") ?: "", videoTag = doc.getString("videoTag") ?: "", year = doc.getString("year") ?: "", isVip = doc.getBoolean("isVip") ?: false, isAdult = doc.getBoolean("isAdult") ?: false)
                     }
                 }
             }
@@ -180,6 +182,13 @@ fun AdminScreen(onBack: () -> Unit) {
                 Checkbox(checked = isFeaturedMovie, onCheckedChange = { isFeaturedMovie = it }, colors = CheckboxDefaults.colors(checkedColor = Color(0xFFE50914)))
                 Text("Featured Banner", color = Color.White)
             }
+            
+            // 🔥 18+ CHECKBOX
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 8.dp)) {
+                Checkbox(checked = isAdultMovie, onCheckedChange = { isAdultMovie = it }, colors = CheckboxDefaults.colors(checkedColor = Color.Red))
+                Icon(Icons.Default.Warning, contentDescription = "18+", tint = Color.Red, modifier = Modifier.size(16.dp))
+                Text(" 18+ Restricted (Requires PIN)", color = Color.White)
+            }
 
             Button(
                 onClick = {
@@ -188,17 +197,17 @@ fun AdminScreen(onBack: () -> Unit) {
                     val newMovie = hashMapOf(
                         "title" to title, "poster" to posterUrl, "videoUrl" to videoUrl, "category" to selectedCategory, 
                         "videoTag" to selectedVj, "year" to year, "type" to selectedType, "isVip" to isVipMovie, 
-                        "isFeatured" to isFeaturedMovie, "subtitleUrl" to subtitleUrl, "timestamp" to System.currentTimeMillis(),
+                        "isFeatured" to isFeaturedMovie, "isAdult" to isAdultMovie, "subtitleUrl" to subtitleUrl, "timestamp" to System.currentTimeMillis(),
                         "episodes" to episodesList
                     )
                     
                     if (editingMovieId != null) {
                         db.collection("homeland_movies").document(editingMovieId!!).set(newMovie).addOnSuccessListener {
-                            isLoading = false; statusMessage = "Success! Updated."; editingMovieId = null; title = ""; posterUrl = ""; videoUrl = ""; episodesList = emptyList()
+                            isLoading = false; statusMessage = "Success! Updated."; editingMovieId = null; title = ""; posterUrl = ""; videoUrl = ""; episodesList = emptyList(); isAdultMovie = false
                         }.addOnFailureListener { isLoading = false; statusMessage = "Error: ${it.message}" }
                     } else {
                         db.collection("homeland_movies").add(newMovie).addOnSuccessListener {
-                            isLoading = false; statusMessage = "Success! Added."; title = ""; posterUrl = ""; videoUrl = ""; episodesList = emptyList()
+                            isLoading = false; statusMessage = "Success! Added."; title = ""; posterUrl = ""; videoUrl = ""; episodesList = emptyList(); isAdultMovie = false
                         }.addOnFailureListener { isLoading = false; statusMessage = "Error: ${it.message}" }
                     }
                 },
@@ -208,7 +217,7 @@ fun AdminScreen(onBack: () -> Unit) {
             ) { Text(if (editingMovieId != null) "Update Content" else "Publish Content") }
 
             if (editingMovieId != null) {
-                TextButton(onClick = { editingMovieId = null; title = ""; posterUrl = ""; videoUrl = ""; episodesList = emptyList() }) { Text("Cancel Edit", color = Color.Gray) }
+                TextButton(onClick = { editingMovieId = null; title = ""; posterUrl = ""; videoUrl = ""; episodesList = emptyList(); isAdultMovie = false }) { Text("Cancel Edit", color = Color.Gray) }
             }
 
             Spacer(modifier = Modifier.height(16.dp))
@@ -218,7 +227,7 @@ fun AdminScreen(onBack: () -> Unit) {
                     Row(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                         Text(movie.title, color = Color.White, modifier = Modifier.weight(1f))
                         IconButton(onClick = {
-                            editingMovieId = movie.id; title = movie.title; posterUrl = movie.poster; videoUrl = movie.videoUrl; selectedCategory = movie.category; selectedVj = movie.videoTag; year = movie.year; isVipMovie = movie.isVip; episodesList = movie.episodes
+                            editingMovieId = movie.id; title = movie.title; posterUrl = movie.poster; videoUrl = movie.videoUrl; selectedCategory = movie.category; selectedVj = movie.videoTag; year = movie.year; isVipMovie = movie.isVip; episodesList = movie.episodes; isAdultMovie = movie.isAdult
                         }) { Icon(Icons.Default.Edit, "Edit", tint = Color.Yellow) }
                         IconButton(onClick = { db.collection("homeland_movies").document(movie.id).delete() }) { Icon(Icons.Default.Delete, "Delete", tint = Color.Red) }
                     }
@@ -310,13 +319,11 @@ fun AdminScreen(onBack: () -> Unit) {
             OutlinedTextField(value = themeBgImageUrl, onValueChange = { themeBgImageUrl = it }, label = { Text("Custom Background Image URL (Optional)") }, modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White))
             
             Button(onClick = {
-    // 🔥 ADD bgImageUrl HERE
-    val themeMap = hashMapOf("fontUrl" to themeFontUrl, "bgImageUrl" to themeBgImageUrl)
-    db.collection("config").document("theme").set(themeMap, com.google.firebase.firestore.SetOptions.merge())
-        .addOnSuccessListener { statusMessage = "Theme updated globally!" }
-}, modifier = Modifier.fillMaxWidth().height(50.dp), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE50914))) { Text("Apply Theme to All Devices") }
+                val themeMap = hashMapOf("fontUrl" to themeFontUrl, "bgImageUrl" to themeBgImageUrl)
+                db.collection("config").document("theme").set(themeMap, com.google.firebase.firestore.SetOptions.merge())
+                    .addOnSuccessListener { statusMessage = "Theme updated globally!" }
+            }, modifier = Modifier.fillMaxWidth().height(50.dp), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE50914))) { Text("Apply Theme to All Devices") }
         } else {
-            // 🔥 PUSH NOTIFICATION TAB
             Text("Send Push Notification", color = Color.White, fontWeight = FontWeight.Bold)
             Spacer(modifier = Modifier.height(8.dp))
             OutlinedTextField(value = pushTitle, onValueChange = { pushTitle = it }, label = { Text("Notification Title") }, modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White))
