@@ -1064,7 +1064,7 @@ fun HomeScreen(theme: ThemeConfig, profileName: String, userVipExpiry: Long, onD
                 val filtered = movies.filter { it.title.contains(searchQuery, true) && (selectedCategory == "All" || it.category == selectedCategory) }
                 items(filtered) { movie -> MovieCard(movie, theme, profileName, userVipExpiry, onDetails) }
                 
-                if (isFetchingMore) {
+                                if (isFetchingMore) {
                     item(span = { GridItemSpan(maxLineSpan) }) {
                         Box(modifier = Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) {
                             CircularProgressIndicator(color = theme.primary, modifier = Modifier.size(24.dp))
