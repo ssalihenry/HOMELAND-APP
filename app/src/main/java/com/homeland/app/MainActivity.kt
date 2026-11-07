@@ -54,6 +54,9 @@ import com.google.firebase.messaging.FirebaseMessaging
 import kotlinx.coroutines.flow.distinctUntilChanged
 import android.content.pm.PackageManager
 import android.content.res.Configuration
+import android.view.WindowManager
+import android.content.pm.ActivityInfo
+import android.view.KeyEvent
 
 const val ADMIN_EMAIL = "ssalihenry136@gmail.com"
 const val WHATSAPP_NUMBER = "256742199254" 
@@ -71,6 +74,17 @@ data class ThemeConfig(
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        
+        // 🔥 CUSTOM REQUEST 1: Keep screen always on
+        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+
+        // 🔥 CUSTOM REQUEST 2: Lock TV to Landscape
+        val isTvDevice = packageManager.hasSystemFeature(PackageManager.FEATURE_LEANBACK) || 
+                         (resources.configuration.uiMode and Configuration.UI_MODE_TYPE_MASK) == Configuration.UI_MODE_TYPE_TELEVISION
+        if (isTvDevice) {
+            requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+        }
+
         WindowCompat.setDecorFitsSystemWindows(window, false)
         val windowInsetsController = WindowInsetsControllerCompat(window, window.decorView)
         windowInsetsController.hide(WindowInsetsCompat.Type.systemBars())
@@ -128,6 +142,16 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    // 🔥 CUSTOM REQUEST 3: Block TV Remote Back Button from minimizing (Image 2 fix)
+    override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
+        if (keyCode == KeyEvent.KEYCODE_BACK) {
+            // By returning 'true', we tell Android "We handled this button press."
+            // The Compose BackHandler inside HomelandApp will handle the navigation logic.
+            return true
+        }
+        return super.onKeyDown(keyCode, event)
     }
 }
 
