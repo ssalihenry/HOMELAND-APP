@@ -370,7 +370,8 @@ fun HomelandApp(auth: FirebaseAuth, profileName: String, theme: ThemeConfig, sav
     LaunchedEffect(auth.currentUser) {
         auth.currentUser?.uid?.let { uid ->
             db.collection("users").document(uid).addSnapshotListener { doc, _ ->
-                userVipExpiry = (doc?.getLong("vipExpiry")) ?: 0L
+                // 🔥 PATH 2: FETCHING homelandVipExpiry INSTEAD OF vipExpiry
+                userVipExpiry = (doc?.getLong("homelandVipExpiry")) ?: 0L
             }
         }
     }
@@ -906,7 +907,8 @@ fun ProfileScreen(auth: FirebaseAuth, profileName: String, userVipExpiry: Long, 
                             val doc = snap.documents[0]
                             val days = doc.getLong("days") ?: 7L
                             val uid = auth.currentUser?.uid ?: return@addOnSuccessListener
-                            db.collection("users").document(uid).update("vipExpiry", System.currentTimeMillis() + (days * 24 * 60 * 60 * 1000L))
+                            // 🔥 PATH 2: UPDATE homelandVipExpiry INSTEAD OF vipExpiry
+                            db.collection("users").document(uid).update("homelandVipExpiry", System.currentTimeMillis() + (days * 24 * 60 * 60 * 1000L))
                             db.collection("homeland_coupons").document(doc.id).update("isUsed", true)
                             Toast.makeText(context, "Success! You are now VIP.", Toast.LENGTH_LONG).show()
                             couponCode = ""
