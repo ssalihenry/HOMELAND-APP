@@ -173,7 +173,6 @@ class MainActivity : ComponentActivity() {
         windowInsetsController.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
 
         setContent {
-            // 🔥 NOTIFICATION PERMISSION REQUEST (Android 13+)
             val permissionLauncher = rememberLauncherForActivityResult(
                 contract = ActivityResultContracts.RequestPermission()
             ) { _ -> }
@@ -658,7 +657,7 @@ fun DownloadsScreen(theme: ThemeConfig, onBack: () -> Unit, onPlay: (Movie) -> U
     }
 }
 
-// --- NEW PROFILE SCREEN COMPONENTS ---
+// --- PROFILE SCREEN COMPONENTS ---
 
 @Composable
 fun QuickActionButton(icon: ImageVector, label: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
@@ -762,6 +761,60 @@ fun NetflixHistoryCard(movie: Movie, progressPercent: Float, onClick: () -> Unit
     }
 }
 
+// 🔥 NEW VIP COUNTDOWN COMPOSABLE
+@Composable
+fun VipCountdownCard(userVipExpiry: Long, theme: ThemeConfig) {
+    var dateText by remember { mutableStateOf("Calculating...") }
+    var timeText by remember { mutableStateOf("--:--:--") }
+    
+    LaunchedEffect(userVipExpiry) {
+        while (true) {
+            val now = System.currentTimeMillis()
+            val diff = userVipExpiry - now
+            
+            if (diff <= 0) {
+                dateText = "VIP Expired"
+                timeText = "00:00:00"
+                break
+            } else {
+                val totalSeconds = diff / 1000
+                val totalDays = totalSeconds / 86400
+                
+                val years = totalDays / 365
+                val remDaysAfterYears = totalDays % 365
+                val months = remDaysAfterYears / 30
+                val remDaysAfterMonths = remDaysAfterYears % 30
+                val weeks = remDaysAfterMonths / 7
+                val days = remDaysAfterMonths % 7
+                
+                val hours = (totalSeconds % 86400) / 3600
+                val minutes = (totalSeconds % 3600) / 60
+                val seconds = totalSeconds % 60
+                
+                dateText = String.format("%dY - %dM - %dW - %dD", years, months, weeks, days)
+                timeText = String.format("%02d:%02d:%02d", hours, minutes, seconds)
+            }
+            delay(1000)
+        }
+    }
+    
+    Card(
+        modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF15171E).copy(alpha = 0.9f)),
+        shape = RoundedCornerShape(12.dp),
+        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFFCDC04).copy(alpha = 0.5f))
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp, horizontal = 16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(dateText, color = Color(0xFFFCDC04), fontSize = 14.sp, fontWeight = FontWeight.Bold)
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(timeText, color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Black, letterSpacing = 2.sp)
+        }
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ProfileScreen(auth: FirebaseAuth, profileName: String, userVipExpiry: Long, theme: ThemeConfig, savedPin: String?, onLogout: () -> Unit, onSwitchProfile: () -> Unit, onPlay: (Movie) -> Unit) {
@@ -831,7 +884,13 @@ fun ProfileScreen(auth: FirebaseAuth, profileName: String, userVipExpiry: Long, 
                 
                 Text(auth.currentUser?.email?.split("@")?.getOrNull(0) ?: "User", color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Black)
                 Text("Watching as: $profileName", color = theme.primary, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-                Text("Status: ${if (isVip) "VIP Active 👑" else "Free User"}", color = if (isVip) Color(0xFFFCDC04) else Color.Gray, fontWeight = FontWeight.Bold, fontSize = 14.sp, modifier = Modifier.padding(top = 4.dp))
+                
+                // 🔥 INSERTED THE COUNTDOWN CARD HERE
+                if (isVip) {
+                    VipCountdownCard(userVipExpiry = userVipExpiry, theme = theme)
+                } else {
+                    Text("Status: Free User", color = Color.Gray, fontWeight = FontWeight.Bold, fontSize = 14.sp, modifier = Modifier.padding(top = 4.dp))
+                }
 
                 Spacer(modifier = Modifier.height(24.dp))
 
