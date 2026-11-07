@@ -1,7 +1,12 @@
 package com.homeland.app
 
+import android.Manifest
 import android.app.DownloadManager
+import android.os.Build
 import android.os.Environment
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import androidx.media3.ui.PlayerView
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.common.MediaItem
@@ -168,6 +173,19 @@ class MainActivity : ComponentActivity() {
         windowInsetsController.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
 
         setContent {
+            // 🔥 NOTIFICATION PERMISSION REQUEST (Android 13+)
+            val permissionLauncher = rememberLauncherForActivityResult(
+                contract = ActivityResultContracts.RequestPermission()
+            ) { _ -> }
+
+            LaunchedEffect(Unit) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    if (ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                        permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                    }
+                }
+            }
+
             val db = FirebaseFirestore.getInstance()
             var appTheme by remember { mutableStateOf(ThemeConfig()) }
             var isMaintenanceMode by remember { mutableStateOf(false) }
@@ -370,7 +388,6 @@ fun HomelandApp(auth: FirebaseAuth, profileName: String, theme: ThemeConfig, sav
     LaunchedEffect(auth.currentUser) {
         auth.currentUser?.uid?.let { uid ->
             db.collection("users").document(uid).addSnapshotListener { doc, _ ->
-                // 🔥 PATH 2: FETCHING homelandVipExpiry INSTEAD OF vipExpiry
                 userVipExpiry = (doc?.getLong("homelandVipExpiry")) ?: 0L
             }
         }
@@ -701,14 +718,12 @@ fun NetflixHistoryCard(movie: Movie, progressPercent: Float, onClick: () -> Unit
             error = { Box(modifier = Modifier.fillMaxSize().background(Color(0xFF15171E))) }
         )
 
-        // Dark Gradient Overlay
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.7f))))
         )
 
-        // Center Play Button
         Box(
             modifier = Modifier
                 .align(Alignment.Center)
@@ -720,7 +735,6 @@ fun NetflixHistoryCard(movie: Movie, progressPercent: Float, onClick: () -> Unit
             Icon(Icons.Default.PlayArrow, contentDescription = "Play", tint = Color.White, modifier = Modifier.size(24.dp))
         }
 
-        // Title
         Text(
             text = movie.title,
             color = Color.White,
@@ -731,7 +745,6 @@ fun NetflixHistoryCard(movie: Movie, progressPercent: Float, onClick: () -> Unit
             modifier = Modifier.align(Alignment.BottomStart).padding(start = 8.dp, bottom = 10.dp, end = 8.dp)
         )
 
-        // Red Progress Bar at the bottom
         Box(
             modifier = Modifier
                 .align(Alignment.BottomStart)
@@ -766,7 +779,6 @@ fun ProfileScreen(auth: FirebaseAuth, profileName: String, userVipExpiry: Long, 
     
     val prefs = remember { context.getSharedPreferences("homeland_prefs", Context.MODE_PRIVATE) }
 
-    // Fetch History for Continue Watching with progress
     var profileHistory by remember { mutableStateOf<List<Pair<Movie, Float>>>(emptyList()) }
     LaunchedEffect(profileName) {
         val uid = auth.currentUser?.uid ?: return@LaunchedEffect
@@ -867,7 +879,6 @@ fun ProfileScreen(auth: FirebaseAuth, profileName: String, userVipExpiry: Long, 
 
                 Spacer(modifier = Modifier.height(24.dp))
 
-                // Netflix Style Continue Watching
                 if (profileHistory.isNotEmpty()) {
                     Text("Continue Watching", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.align(Alignment.Start).padding(bottom = 8.dp))
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -907,7 +918,6 @@ fun ProfileScreen(auth: FirebaseAuth, profileName: String, userVipExpiry: Long, 
                             val doc = snap.documents[0]
                             val days = doc.getLong("days") ?: 7L
                             val uid = auth.currentUser?.uid ?: return@addOnSuccessListener
-                            // 🔥 PATH 2: UPDATE homelandVipExpiry INSTEAD OF vipExpiry
                             db.collection("users").document(uid).update("homelandVipExpiry", System.currentTimeMillis() + (days * 24 * 60 * 60 * 1000L))
                             db.collection("homeland_coupons").document(doc.id).update("isUsed", true)
                             Toast.makeText(context, "Success! You are now VIP.", Toast.LENGTH_LONG).show()
