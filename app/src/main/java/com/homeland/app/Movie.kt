@@ -30,5 +30,6 @@ data class TvChannel(
     val logo: String = "",
     val streamUrl: String = "",
     val category: String = "",
-    val isVip: Boolean = false
+    val isVip: Boolean = false,
+    val isFeatured: Boolean = false
 )
