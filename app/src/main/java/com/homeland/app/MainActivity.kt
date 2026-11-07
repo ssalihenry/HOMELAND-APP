@@ -4,6 +4,12 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import android.widget.Toast
+import android.content.Context
+import android.content.pm.PackageManager
+import android.content.pm.ActivityInfo
+import android.content.res.Configuration
+import android.view.WindowManager
+import android.view.KeyEvent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
@@ -55,15 +61,6 @@ import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
 import com.google.firebase.messaging.FirebaseMessaging
 import kotlinx.coroutines.flow.distinctUntilChanged
-import android.content.pm.PackageManager
-import android.content.res.Configuration
-import android.view.WindowManager
-import android.content.pm.ActivityInfo
-import android.view.KeyEvent
-import android.content.Context
-import android.content.Context
-import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.foundation.text.KeyboardOptions
 
 const val ADMIN_EMAIL = "ssalihenry136@gmail.com"
 const val WHATSAPP_NUMBER = "256742199254" 
