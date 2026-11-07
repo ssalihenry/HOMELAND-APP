@@ -24,6 +24,7 @@ import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -38,7 +39,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -57,6 +60,7 @@ import android.content.res.Configuration
 import android.view.WindowManager
 import android.content.pm.ActivityInfo
 import android.view.KeyEvent
+import android.content.Context
 
 const val ADMIN_EMAIL = "ssalihenry136@gmail.com"
 const val WHATSAPP_NUMBER = "256742199254" 
@@ -118,30 +122,49 @@ class MainActivity : ComponentActivity() {
                 // 🔥 MULTI-PROFILE STATE
                 var currentProfileName by remember { mutableStateOf("Me") }
 
+                // 🔥 APP LOCK STATE
+                val prefs = remember { this@MainActivity.getSharedPreferences("homeland_prefs", Context.MODE_PRIVATE) }
+                var savedPin by remember { mutableStateOf(prefs.getString("app_pin", null)) }
+                var isAppUnlocked by remember { mutableStateOf(savedPin == null) } // If no pin, auto unlock
+
                 val context = LocalContext.current
                 val isTv = context.packageManager.hasSystemFeature(PackageManager.FEATURE_LEANBACK) || 
                            (context.resources.configuration.uiMode and Configuration.UI_MODE_TYPE_MASK) == Configuration.UI_MODE_TYPE_TELEVISION
 
-                if (isTv) {
-                    if (isAuthenticated) {
-                        HomelandApp(auth = auth, profileName = currentProfileName, theme = appTheme, onLogout = { isAuthenticated = false }, onSwitchProfile = { })
-                    } else {
-                        TVLoginScreen(theme = appTheme, onLoginSuccess = { 
-                            isAuthenticated = true 
-                        })
-                    }
+                if (!isAppUnlocked) {
+                    AppLockScreen(
+                        theme = appTheme,
+                        savedPin = savedPin!!,
+                        onUnlock = { isAppUnlocked = true },
+                        onForgotPin = {
+                            prefs.edit().remove("app_pin").apply()
+                            savedPin = null
+                            isAppUnlocked = true
+                            auth.signOut()
+                            isAuthenticated = false
+                            Toast.makeText(context, "PIN Reset. Please log in again.", Toast.LENGTH_LONG).show()
+                        }
+                    )
                 } else {
-                    if (isAuthenticated) {
-                        if (showProfileSelector) {
-                            ProfileSelectorScreen(theme = appTheme, onProfileSelected = { selectedProfile -> 
-                                currentProfileName = selectedProfile
-                                showProfileSelector = false 
-                            })
+                    if (isTv) {
+                        if (isAuthenticated) {
+                            HomelandApp(auth = auth, profileName = currentProfileName, theme = appTheme, savedPin = savedPin, onLogout = { isAuthenticated = false }, onSwitchProfile = { })
                         } else {
-                            HomelandApp(auth = auth, profileName = currentProfileName, theme = appTheme, onLogout = { isAuthenticated = false; showProfileSelector = false }, onSwitchProfile = { showProfileSelector = true })
+                            TVLoginScreen(theme = appTheme, onLoginSuccess = { isAuthenticated = true })
                         }
                     } else {
-                        AuthScreen(auth = auth, onLoginSuccess = { isAuthenticated = true; showProfileSelector = true })
+                        if (isAuthenticated) {
+                            if (showProfileSelector) {
+                                ProfileSelectorScreen(theme = appTheme, onProfileSelected = { selectedProfile -> 
+                                    currentProfileName = selectedProfile
+                                    showProfileSelector = false 
+                                })
+                            } else {
+                                HomelandApp(auth = auth, profileName = currentProfileName, theme = appTheme, savedPin = savedPin, onLogout = { isAuthenticated = false; showProfileSelector = false }, onSwitchProfile = { showProfileSelector = true })
+                            }
+                        } else {
+                            AuthScreen(auth = auth, onLoginSuccess = { isAuthenticated = true; showProfileSelector = true })
+                        }
                     }
                 }
             }
@@ -156,9 +179,87 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+// 🔥 APP LOCK SCREEN COMPOSABLE
+@Composable
+fun AppLockScreen(theme: ThemeConfig, savedPin: String, onUnlock: () -> Unit, onForgotPin: () -> Unit) {
+    var inputPin by remember { mutableStateOf("") }
+    var errorMsg by remember { mutableStateOf<String?>(null) }
+
+    Box(modifier = Modifier.fillMaxSize().background(Color(0xFF0B0C10)), contentAlignment = Alignment.Center) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Icon(Icons.Default.Lock, contentDescription = "Locked", tint = theme.primary, modifier = Modifier.size(64.dp))
+            Spacer(modifier = Modifier.height(16.dp))
+            Text("App Locked", color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Bold)
+            Text("Enter your 4-digit PIN", color = Color.Gray, fontSize = 14.sp)
+            Spacer(modifier = Modifier.height(24.dp))
+
+            // PIN Dots
+            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                for (i in 0 until 4) {
+                    Box(
+                        modifier = Modifier
+                            .size(20.dp)
+                            .clip(CircleShape)
+                            .background(if (i < inputPin.length) theme.primary else Color.DarkGray)
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+            if (errorMsg != null) {
+                Text(errorMsg!!, color = Color.Red, fontSize = 12.sp)
+            }
+            Spacer(modifier = Modifier.height(24.dp))
+
+            // Keypad
+            val keys = listOf(listOf("1", "2", "3"), listOf("4", "5", "6"), listOf("7", "8", "9"), listOf("", "0", "DEL"))
+            keys.forEach { row ->
+                Row(horizontalArrangement = Arrangement.spacedBy(16.dp), modifier = Modifier.padding(vertical = 8.dp)) {
+                    row.forEach { key ->
+                        if (key.isNotEmpty()) {
+                            Box(
+                                modifier = Modifier
+                                    .size(70.dp)
+                                    .clip(CircleShape)
+                                    .background(if (key == "DEL") Color.DarkGray else Color(0xFF15171E))
+                                    .clickable {
+                                        if (key == "DEL") {
+                                            if (inputPin.isNotEmpty()) inputPin = inputPin.dropLast(1)
+                                        } else {
+                                            if (inputPin.length < 4) inputPin += key
+                                        }
+                                        errorMsg = null
+
+                                        if (inputPin.length == 4) {
+                                            if (inputPin == savedPin) {
+                                                onUnlock()
+                                            } else {
+                                                errorMsg = "Incorrect PIN"
+                                                inputPin = ""
+                                            }
+                                        }
+                                    },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                if (key == "DEL") Icon(Icons.Default.Backspace, contentDescription = "Delete", tint = Color.White)
+                                else Text(key, color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Bold)
+                            }
+                        } else {
+                            Spacer(modifier = Modifier.size(70.dp))
+                        }
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.height(24.dp))
+            TextButton(onClick = onForgotPin) {
+                Text("Forgot PIN? (Logs you out)", color = Color.Gray, fontSize = 12.sp)
+            }
+        }
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun HomelandApp(auth: FirebaseAuth, profileName: String, theme: ThemeConfig, onLogout: () -> Unit, onSwitchProfile: () -> Unit) {
+fun HomelandApp(auth: FirebaseAuth, profileName: String, theme: ThemeConfig, savedPin: String?, onLogout: () -> Unit, onSwitchProfile: () -> Unit) {
     val context = LocalContext.current
     val db = FirebaseFirestore.getInstance()
     var selectedTab by remember { mutableStateOf(0) }
@@ -166,6 +267,11 @@ fun HomelandApp(auth: FirebaseAuth, profileName: String, theme: ThemeConfig, onL
     var viewingDetails by remember { mutableStateOf<Movie?>(null) }
     var userVipExpiry by remember { mutableLongStateOf(0L) }
     var showVipModal by remember { mutableStateOf(false) }
+
+    // 🔥 18+ MOVIE LOCK STATE
+    var pendingAdultMovie by remember { mutableStateOf<Movie?>(null) }
+    var showAdultPinPrompt by remember { mutableStateOf(false) }
+    var adultPinInput by remember { mutableStateOf("") }
 
     LaunchedEffect(auth.currentUser) {
         auth.currentUser?.uid?.let { uid ->
@@ -184,11 +290,56 @@ fun HomelandApp(auth: FirebaseAuth, profileName: String, theme: ThemeConfig, onL
             viewingDetails = null 
         } else if (showVipModal) {
             showVipModal = false 
+        } else if (showAdultPinPrompt) {
+            showAdultPinPrompt = false
+            pendingAdultMovie = null
         } else if (selectedTab != 0) {
             selectedTab = 0 
         } else {
             (context as? androidx.activity.ComponentActivity)?.finish()
         }
+    }
+
+    // 🔥 18+ PIN DIALOG
+    if (showAdultPinPrompt) {
+        AlertDialog(
+            onDismissRequest = { showAdultPinPrompt = false; pendingAdultMovie = null },
+            title = { Text("18+ Content Locked", color = Color.White) },
+            text = { 
+                Column {
+                    Text("Enter your App PIN to watch this movie.", color = Color.Gray)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = adultPinInput,
+                        onValueChange = { if (it.length <= 4) adultPinInput = it },
+                        placeholder = { Text("4-digit PIN") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                        visualTransformation = PasswordVisualTransformation(),
+                        colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White)
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        if (adultPinInput == savedPin) {
+                            currentlyPlaying = pendingAdultMovie
+                            showAdultPinPrompt = false
+                            pendingAdultMovie = null
+                            adultPinInput = ""
+                        } else {
+                            Toast.makeText(context, "Incorrect PIN", Toast.LENGTH_SHORT).show()
+                            adultPinInput = ""
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color.Red)
+                ) { Text("Unlock") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showAdultPinPrompt = false; pendingAdultMovie = null; adultPinInput = "" }) { Text("Cancel", color = Color.Gray) }
+            },
+            containerColor = Color(0xFF15171E)
+        )
     }
 
     if (currentlyPlaying != null) {
@@ -203,9 +354,16 @@ fun HomelandApp(auth: FirebaseAuth, profileName: String, theme: ThemeConfig, onL
     if (viewingDetails != null) {
         MovieDetailsScreen(
             movie = viewingDetails!!, userVipExpiry = userVipExpiry,
-            onPlay = { 
-                if (it.isVip && userVipExpiry < System.currentTimeMillis()) showVipModal = true
-                else { currentlyPlaying = it; viewingDetails = null }
+            onPlay = { movieToPlay -> 
+                if (movieToPlay.isVip && userVipExpiry < System.currentTimeMillis()) {
+                    showVipModal = true
+                } else if (movieToPlay.isAdult && savedPin != null) {
+                    // 🔥 INTERCEPT 18+ MOVIES
+                    pendingAdultMovie = movieToPlay
+                    showAdultPinPrompt = true
+                } else {
+                    currentlyPlaying = movieToPlay; viewingDetails = null 
+                }
             },
             onBack = { viewingDetails = null }
         )
@@ -256,7 +414,7 @@ fun HomelandApp(auth: FirebaseAuth, profileName: String, theme: ThemeConfig, onL
                         0 -> HomeScreen(theme = theme, profileName = profileName, userVipExpiry = userVipExpiry, onDetails = { viewingDetails = it })
                         1 -> TvLiveScreen(theme = theme, userVipExpiry = userVipExpiry, onPlayMedia = { currentlyPlaying = it })
                         2 -> MyListScreen(theme = theme, profileName = profileName, userVipExpiry = userVipExpiry, onDetails = { viewingDetails = it })
-                        3 -> ProfileScreen(auth, profileName = profileName, userVipExpiry, theme, onLogout, onSwitchProfile)
+                        3 -> ProfileScreen(auth, profileName = profileName, userVipExpiry, theme, savedPin = savedPin, onLogout, onSwitchProfile)
                     }
                 }
             }
@@ -283,7 +441,7 @@ fun HomelandApp(auth: FirebaseAuth, profileName: String, theme: ThemeConfig, onL
                         0 -> HomeScreen(theme = theme, profileName = profileName, userVipExpiry = userVipExpiry, onDetails = { viewingDetails = it })
                         1 -> TvLiveScreen(theme = theme, userVipExpiry = userVipExpiry, onPlayMedia = { currentlyPlaying = it })
                         2 -> MyListScreen(theme = theme, profileName = profileName, userVipExpiry = userVipExpiry, onDetails = { viewingDetails = it })
-                        3 -> ProfileScreen(auth, profileName = profileName, userVipExpiry, theme, onLogout, onSwitchProfile)
+                        3 -> ProfileScreen(auth, profileName = profileName, userVipExpiry, theme, savedPin = savedPin, onLogout, onSwitchProfile)
                     }
                 }
             }
@@ -314,7 +472,7 @@ fun ProfileSelectorScreen(theme: ThemeConfig, onProfileSelected: (String) -> Uni
                 Row(
                     modifier = Modifier
                         .padding(8.dp)
-                        .clickable { onProfileSelected(profile) } // 🔥 Passes the profile string now
+                        .clickable { onProfileSelected(profile) }
                         .background(Color.Black.copy(alpha = 0.6f), RoundedCornerShape(8.dp))
                         .padding(16.dp)
                         .fillMaxWidth(0.6f), 
@@ -335,7 +493,7 @@ fun ProfileSelectorScreen(theme: ThemeConfig, onProfileSelected: (String) -> Uni
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ProfileScreen(auth: FirebaseAuth, profileName: String, userVipExpiry: Long, theme: ThemeConfig, onLogout: () -> Unit, onSwitchProfile: () -> Unit) {
+fun ProfileScreen(auth: FirebaseAuth, profileName: String, userVipExpiry: Long, theme: ThemeConfig, savedPin: String?, onLogout: () -> Unit, onSwitchProfile: () -> Unit) {
     val context = LocalContext.current
     var showAdminPanel by remember { mutableStateOf(false) }
     var couponCode by remember { mutableStateOf("") }
@@ -343,6 +501,11 @@ fun ProfileScreen(auth: FirebaseAuth, profileName: String, userVipExpiry: Long, 
 
     var showTvDialog by remember { mutableStateOf(false) }
     var tvCodeInput by remember { mutableStateOf("") }
+
+    // 🔥 PIN SETTINGS DIALOG
+    var showPinDialog by remember { mutableStateOf(false) }
+    var newPinInput by remember { mutableStateOf("") }
+    val prefs = remember { context.getSharedPreferences("homeland_prefs", Context.MODE_PRIVATE) }
 
     if (showAdminPanel) {
         AdminScreen(onBack = { showAdminPanel = false })
@@ -363,6 +526,17 @@ fun ProfileScreen(auth: FirebaseAuth, profileName: String, userVipExpiry: Long, 
             Spacer(modifier = Modifier.height(20.dp))
             Button(onClick = onSwitchProfile, colors = ButtonDefaults.buttonColors(containerColor = Color.DarkGray), modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp)) {
                 Icon(Icons.Default.SwitchAccount, null); Spacer(modifier = Modifier.width(8.dp)); Text("Switch Profile")
+            }
+
+            // 🔥 APP LOCK SETTINGS BUTTON
+            Button(
+                onClick = { showPinDialog = true },
+                colors = ButtonDefaults.buttonColors(containerColor = if (savedPin != null) Color(0xFF25D366) else Color.DarkGray),
+                modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp)
+            ) {
+                Icon(if (savedPin != null) Icons.Default.Lock else Icons.Default.LockOpen, null)
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(if (savedPin != null) "Remove App Lock" else "Setup App Lock (PIN)")
             }
 
             Button(onClick = { showTvDialog = true }, colors = ButtonDefaults.buttonColors(containerColor = Color.DarkGray), modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp)) {
@@ -404,6 +578,59 @@ fun ProfileScreen(auth: FirebaseAuth, profileName: String, userVipExpiry: Long, 
             }
             Button(onClick = { auth.signOut(); onLogout() }, colors = ButtonDefaults.buttonColors(containerColor = Color.DarkGray), modifier = Modifier.fillMaxWidth()) { Text("Log Out") }
         }
+    }
+
+    // 🔥 PIN SETTINGS DIALOG UI
+    if (showPinDialog) {
+        AlertDialog(
+            onDismissRequest = { showPinDialog = false },
+            title = { Text(if (savedPin != null) "Remove App Lock" else "Setup App Lock", color = Color.White) },
+            text = {
+                if (savedPin != null) {
+                    Text("Are you sure you want to remove the PIN? Anyone can open the app.", color = Color.Gray)
+                } else {
+                    Column {
+                        Text("Enter a 4-digit PIN. You will need this to open the app and watch 18+ content.", color = Color.Gray, fontSize = 13.sp)
+                        Spacer(modifier = Modifier.height(8.dp))
+                        OutlinedTextField(
+                            value = newPinInput,
+                            onValueChange = { if (it.length <= 4) newPinInput = it },
+                            placeholder = { Text("Enter 4-digit PIN") },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                            visualTransformation = PasswordVisualTransformation(),
+                            colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White)
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        if (savedPin != null) {
+                            prefs.edit().remove("app_pin").apply()
+                            Toast.makeText(context, "App Lock Removed", Toast.LENGTH_SHORT).show()
+                            showPinDialog = false
+                            onSwitchProfile() // Reload app to clear state
+                        } else {
+                            if (newPinInput.length == 4) {
+                                prefs.edit().putString("app_pin", newPinInput).apply()
+                                Toast.makeText(context, "App Lock Enabled!", Toast.LENGTH_SHORT).show()
+                                showPinDialog = false
+                                newPinInput = ""
+                                onSwitchProfile() // Reload app to apply state
+                            } else {
+                                Toast.makeText(context, "PIN must be 4 digits", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = if (savedPin != null) Color.Red else Color(0xFF25D366))
+                ) { Text(if (savedPin != null) "Remove" else "Save PIN") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showPinDialog = false; newPinInput = "" }) { Text("Cancel", color = Color.Gray) }
+            },
+            containerColor = Color(0xFF15171E)
+        )
     }
 
     if (showTvDialog) {
@@ -489,6 +716,9 @@ fun MovieDetailsScreen(movie: Movie, userVipExpiry: Long, onPlay: (Movie) -> Uni
                 Text(movie.title, color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold)
                 Spacer(modifier = Modifier.height(8.dp))
                 Text("${movie.videoTag} • ${movie.year} • ${movie.category}", color = Color.Gray, fontSize = 14.sp)
+                if (movie.isAdult) {
+                    Text("🔞 18+ Restricted", color = Color.Red, fontSize = 14.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 4.dp))
+                }
                 Spacer(modifier = Modifier.height(16.dp))
                 if (!isSeries) {
                     Button(onClick = { onPlay(movie) }, modifier = Modifier.fillMaxWidth().height(50.dp), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE50914))) {
@@ -508,7 +738,7 @@ fun MovieDetailsScreen(movie: Movie, userVipExpiry: Long, onPlay: (Movie) -> Uni
                     Row(
                         modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp).background(if (selectedEpisode == ep) Color(0xFFE50914) else Color(0xFF15171E), RoundedCornerShape(8.dp)).clickable { 
                             if (isLocked) onPlay(movie)
-                            else { selectedEpisode = ep; onPlay(Movie(title = "$epLabel - ${movie.title}", videoUrl = ep.url, subtitleUrl = ep.subtitleUrl)) }
+                            else { selectedEpisode = ep; onPlay(Movie(title = "$epLabel - ${movie.title}", videoUrl = ep.url, subtitleUrl = ep.subtitleUrl, isAdult = movie.isAdult)) }
                         }.padding(16.dp),
                         horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -547,7 +777,7 @@ fun HomeScreen(theme: ThemeConfig, profileName: String, userVipExpiry: Long, onD
         query.get().addOnSuccessListener { snap ->
             if (snap != null && !snap.isEmpty) {
                 val newMovies = snap.documents.map { doc -> 
-                    Movie(id = doc.id, title = doc.getString("title") ?: "", poster = doc.getString("poster") ?: "", videoUrl = doc.getString("videoUrl") ?: "", category = doc.getString("category") ?: "", videoTag = doc.getString("videoTag") ?: "", year = doc.getString("year") ?: "", isVip = doc.getBoolean("isVip") ?: false, isFeatured = doc.getBoolean("isFeatured") ?: false) 
+                    Movie(id = doc.id, title = doc.getString("title") ?: "", poster = doc.getString("poster") ?: "", videoUrl = doc.getString("videoUrl") ?: "", category = doc.getString("category") ?: "", videoTag = doc.getString("videoTag") ?: "", year = doc.getString("year") ?: "", isVip = doc.getBoolean("isVip") ?: false, isFeatured = doc.getBoolean("isFeatured") ?: false, isAdult = doc.getBoolean("isAdult") ?: false) 
                 }
                 movies = (movies + newMovies).distinctBy { it.id }
                 lastVisibleMovie = snap.documents.lastOrNull()
@@ -572,7 +802,7 @@ fun HomeScreen(theme: ThemeConfig, profileName: String, userVipExpiry: Long, onD
         db.collection("homeland_movies").orderBy("timestamp", Query.Direction.DESCENDING).limit(20).get().addOnSuccessListener { snap ->
             if (snap != null) {
                 movies = snap.documents.map { doc -> 
-                    Movie(id = doc.id, title = doc.getString("title") ?: "", poster = doc.getString("poster") ?: "", videoUrl = doc.getString("videoUrl") ?: "", category = doc.getString("category") ?: "", videoTag = doc.getString("videoTag") ?: "", year = doc.getString("year") ?: "", isVip = doc.getBoolean("isVip") ?: false, isFeatured = doc.getBoolean("isFeatured") ?: false) 
+                    Movie(id = doc.id, title = doc.getString("title") ?: "", poster = doc.getString("poster") ?: "", videoUrl = doc.getString("videoUrl") ?: "", category = doc.getString("category") ?: "", videoTag = doc.getString("videoTag") ?: "", year = doc.getString("year") ?: "", isVip = doc.getBoolean("isVip") ?: false, isFeatured = doc.getBoolean("isFeatured") ?: false, isAdult = doc.getBoolean("isAdult") ?: false) 
                 }
                 lastVisibleMovie = snap.documents.lastOrNull()
                 featuredMovies = movies.filter { it.isFeatured }.take(5)
@@ -582,7 +812,6 @@ fun HomeScreen(theme: ThemeConfig, profileName: String, userVipExpiry: Long, onD
         }
     }
 
-    // 🔥 MULTI-PROFILE: Filter history by profileName
     LaunchedEffect(movies, profileName) {
         FirebaseAuth.getInstance().currentUser?.let { user ->
             db.collection("users").document(user.uid).collection("history")
@@ -649,7 +878,6 @@ fun MovieCard(movie: Movie, theme: ThemeConfig, profileName: String, userVipExpi
     val isLocked = movie.isVip && userVipExpiry < System.currentTimeMillis()
     var isFocused by remember { mutableStateOf(false) }
 
-    // 🔥 MULTI-PROFILE FAVORITES: Read from the map
     LaunchedEffect(uid, profileName) {
         if (uid != null) {
             db.collection("users").document(uid).get().addOnSuccessListener { doc ->
@@ -678,9 +906,13 @@ fun MovieCard(movie: Movie, theme: ThemeConfig, profileName: String, userVipExpi
             if (isLocked) {
                 Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.5f), RoundedCornerShape(10.dp)), contentAlignment = Alignment.Center) { Icon(Icons.Default.Lock, "Locked", tint = Color(0xFFFCDC04), modifier = Modifier.size(32.dp)) }
             }
+            if (movie.isAdult) {
+                Box(modifier = Modifier.align(Alignment.BottomStart).padding(4.dp).background(Color.Red, RoundedCornerShape(4.dp)).padding(horizontal = 4.dp, vertical = 2.dp)) {
+                    Text("18+", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                }
+            }
             IconButton(onClick = { 
                 if (uid != null) {
-                    // 🔥 MULTI-PROFILE FAVORITES: Write to the specific profile key in the map
                     val dbRef = db.collection("users").document(uid)
                     if (isFav) dbRef.update("favorites.$profileName", FieldValue.arrayRemove(movie.id))
                     else dbRef.update("favorites.$profileName", FieldValue.arrayUnion(movie.id))
@@ -702,7 +934,6 @@ fun MyListScreen(theme: ThemeConfig, profileName: String, userVipExpiry: Long, o
     val uid = FirebaseAuth.getInstance().currentUser?.uid
     var favMovies by remember { mutableStateOf<List<Movie>>(emptyList()) }
 
-    // 🔥 MULTI-PROFILE MY LIST
     LaunchedEffect(uid, profileName) {
         if (uid != null) {
             db.collection("users").document(uid).addSnapshotListener { doc, _ ->
@@ -711,7 +942,7 @@ fun MyListScreen(theme: ThemeConfig, profileName: String, userVipExpiry: Long, o
                 
                 db.collection("homeland_movies").get().addOnSuccessListener { snap ->
                     favMovies = snap.documents.mapNotNull { 
-                        Movie(id = it.id, title = it.getString("title") ?: "", poster = it.getString("poster") ?: "", videoUrl = it.getString("videoUrl") ?: "", videoTag = it.getString("videoTag") ?: "", year = it.getString("year") ?: "", isVip = it.getBoolean("isVip") ?: false) 
+                        Movie(id = it.id, title = it.getString("title") ?: "", poster = it.getString("poster") ?: "", videoUrl = it.getString("videoUrl") ?: "", videoTag = it.getString("videoTag") ?: "", year = it.getString("year") ?: "", isVip = it.getBoolean("isVip") ?: false, isAdult = it.getBoolean("isAdult") ?: false) 
                     }.filter { it.id in profileFavs }
                 }
             }
