@@ -13,6 +13,7 @@ import android.view.KeyEvent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -40,6 +41,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
@@ -55,9 +57,12 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import coil.compose.AsyncImage
+import coil.compose.SubcomposeAsyncImage
+import coil.request.ImageRequest
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.FirebaseFirestoreSettings
 import com.google.firebase.firestore.Query
 import com.google.firebase.messaging.FirebaseMessaging
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -75,10 +80,46 @@ data class ThemeConfig(
     val bgImageUrl: String = ""
 )
 
+// 🔥 SHIMMER LOADING EFFECT COMPOSABLE
+@Composable
+fun ShimmerBox(modifier: Modifier = Modifier) {
+    val shimmerColors = listOf(
+        Color(0xFF1F232D),
+        Color(0xFF2A2F3A),
+        Color(0xFF1F232D)
+    )
+    val transition = rememberInfiniteTransition(label = "shimmer")
+    val translateAnim by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1000f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 1200, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ), label = "shimmer_translate"
+    )
+    val brush = Brush.linearGradient(
+        colors = shimmerColors,
+        start = Offset.Zero,
+        end = Offset(x = translateAnim, y = translateAnim)
+    )
+    Box(modifier = modifier.background(brush))
+}
+
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         
+        // 🔥 ENABLE FIRESTORE OFFLINE PERSISTENCE
+        try {
+            val settings = FirebaseFirestoreSettings.Builder()
+                .setPersistenceEnabled(true)
+                .setCacheSizeBytes(FirebaseFirestoreSettings.CACHE_SIZE_UNLIMITED)
+                .build()
+            FirebaseFirestore.getInstance().firestoreSettings = settings
+        } catch (e: Exception) {
+            // Settings can only be set before any Firestore interaction
+        }
+
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
         val isTvDevice = packageManager.hasSystemFeature(PackageManager.FEATURE_LEANBACK) || 
@@ -119,13 +160,11 @@ class MainActivity : ComponentActivity() {
                 var isAuthenticated by remember { mutableStateOf(currentUser != null) }
                 var showProfileSelector by remember { mutableStateOf(false) }
                 
-                // 🔥 MULTI-PROFILE STATE
                 var currentProfileName by remember { mutableStateOf("Me") }
 
-                // 🔥 APP LOCK STATE
                 val prefs = remember { this@MainActivity.getSharedPreferences("homeland_prefs", Context.MODE_PRIVATE) }
                 var savedPin by remember { mutableStateOf(prefs.getString("app_pin", null)) }
-                var isAppUnlocked by remember { mutableStateOf(savedPin == null) } // If no pin, auto unlock
+                var isAppUnlocked by remember { mutableStateOf(savedPin == null) }
 
                 val context = LocalContext.current
                 val isTv = context.packageManager.hasSystemFeature(PackageManager.FEATURE_LEANBACK) || 
@@ -179,7 +218,6 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-// 🔥 APP LOCK SCREEN COMPOSABLE
 @Composable
 fun AppLockScreen(theme: ThemeConfig, savedPin: String, onUnlock: () -> Unit, onForgotPin: () -> Unit) {
     var inputPin by remember { mutableStateOf("") }
@@ -193,7 +231,6 @@ fun AppLockScreen(theme: ThemeConfig, savedPin: String, onUnlock: () -> Unit, on
             Text("Enter your 4-digit PIN", color = Color.Gray, fontSize = 14.sp)
             Spacer(modifier = Modifier.height(24.dp))
 
-            // PIN Dots
             Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                 for (i in 0 until 4) {
                     Box(
@@ -210,7 +247,6 @@ fun AppLockScreen(theme: ThemeConfig, savedPin: String, onUnlock: () -> Unit, on
             }
             Spacer(modifier = Modifier.height(24.dp))
 
-            // Keypad
             val keys = listOf(listOf("1", "2", "3"), listOf("4", "5", "6"), listOf("7", "8", "9"), listOf("", "0", "DEL"))
             keys.forEach { row ->
                 Row(horizontalArrangement = Arrangement.spacedBy(16.dp), modifier = Modifier.padding(vertical = 8.dp)) {
@@ -268,7 +304,6 @@ fun HomelandApp(auth: FirebaseAuth, profileName: String, theme: ThemeConfig, sav
     var userVipExpiry by remember { mutableLongStateOf(0L) }
     var showVipModal by remember { mutableStateOf(false) }
 
-    // 🔥 18+ MOVIE LOCK STATE
     var pendingAdultMovie by remember { mutableStateOf<Movie?>(null) }
     var showAdultPinPrompt by remember { mutableStateOf(false) }
     var adultPinInput by remember { mutableStateOf("") }
@@ -300,7 +335,6 @@ fun HomelandApp(auth: FirebaseAuth, profileName: String, theme: ThemeConfig, sav
         }
     }
 
-    // 🔥 18+ PIN DIALOG
     if (showAdultPinPrompt) {
         AlertDialog(
             onDismissRequest = { showAdultPinPrompt = false; pendingAdultMovie = null },
@@ -358,7 +392,6 @@ fun HomelandApp(auth: FirebaseAuth, profileName: String, theme: ThemeConfig, sav
                 if (movieToPlay.isVip && userVipExpiry < System.currentTimeMillis()) {
                     showVipModal = true
                 } else if (movieToPlay.isAdult && savedPin != null) {
-                    // 🔥 INTERCEPT 18+ MOVIES
                     pendingAdultMovie = movieToPlay
                     showAdultPinPrompt = true
                 } else {
@@ -502,7 +535,6 @@ fun ProfileScreen(auth: FirebaseAuth, profileName: String, userVipExpiry: Long, 
     var showTvDialog by remember { mutableStateOf(false) }
     var tvCodeInput by remember { mutableStateOf("") }
 
-    // 🔥 PIN SETTINGS DIALOG
     var showPinDialog by remember { mutableStateOf(false) }
     var newPinInput by remember { mutableStateOf("") }
     val prefs = remember { context.getSharedPreferences("homeland_prefs", Context.MODE_PRIVATE) }
@@ -528,7 +560,6 @@ fun ProfileScreen(auth: FirebaseAuth, profileName: String, userVipExpiry: Long, 
                 Icon(Icons.Default.SwitchAccount, null); Spacer(modifier = Modifier.width(8.dp)); Text("Switch Profile")
             }
 
-            // 🔥 APP LOCK SETTINGS BUTTON
             Button(
                 onClick = { showPinDialog = true },
                 colors = ButtonDefaults.buttonColors(containerColor = if (savedPin != null) Color(0xFF25D366) else Color.DarkGray),
@@ -580,7 +611,6 @@ fun ProfileScreen(auth: FirebaseAuth, profileName: String, userVipExpiry: Long, 
         }
     }
 
-    // 🔥 PIN SETTINGS DIALOG UI
     if (showPinDialog) {
         AlertDialog(
             onDismissRequest = { showPinDialog = false },
@@ -610,14 +640,14 @@ fun ProfileScreen(auth: FirebaseAuth, profileName: String, userVipExpiry: Long, 
                             prefs.edit().remove("app_pin").apply()
                             Toast.makeText(context, "App Lock Removed", Toast.LENGTH_SHORT).show()
                             showPinDialog = false
-                            onSwitchProfile() // Reload app to clear state
+                            onSwitchProfile() 
                         } else {
                             if (newPinInput.length == 4) {
                                 prefs.edit().putString("app_pin", newPinInput).apply()
                                 Toast.makeText(context, "App Lock Enabled!", Toast.LENGTH_SHORT).show()
                                 showPinDialog = false
                                 newPinInput = ""
-                                onSwitchProfile() // Reload app to apply state
+                                onSwitchProfile() 
                             } else {
                                 Toast.makeText(context, "PIN must be 4 digits", Toast.LENGTH_SHORT).show()
                             }
@@ -711,7 +741,15 @@ fun MovieDetailsScreen(movie: Movie, userVipExpiry: Long, onPlay: (Movie) -> Uni
         Spacer(modifier = Modifier.height(16.dp))
         
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-            AsyncImage(model = movie.poster, contentDescription = movie.title, contentScale = ContentScale.Crop, modifier = Modifier.width(120.dp).aspectRatio(2f / 3f).clip(RoundedCornerShape(12.dp)))
+            // 🔥 SHIMMER ON DETAILS POSTER
+            SubcomposeAsyncImage(
+                model = ImageRequest.Builder(LocalContext.current).data(movie.poster).crossfade(true).build(),
+                contentDescription = movie.title,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.width(120.dp).aspectRatio(2f / 3f).clip(RoundedCornerShape(12.dp)),
+                loading = { ShimmerBox(modifier = Modifier.fillMaxSize()) },
+                error = { Box(modifier = Modifier.fillMaxSize().background(Color(0xFF15171E)), contentAlignment = Alignment.Center) { Icon(Icons.Default.Movie, null, tint = Color.Gray) } }
+            )
             Column {
                 Text(movie.title, color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold)
                 Spacer(modifier = Modifier.height(8.dp))
@@ -833,7 +871,15 @@ fun HomeScreen(theme: ThemeConfig, profileName: String, userVipExpiry: Long, onD
                 HorizontalPager(state = pagerState, modifier = Modifier.height(250.dp).fillMaxWidth().padding(bottom = 16.dp)) { page ->
                     val movie = featuredMovies[page]
                     Box(modifier = Modifier.fillMaxSize()) {
-                        AsyncImage(model = movie.poster, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+                        // 🔥 SHIMMER ON HERO CAROUSEL
+                        SubcomposeAsyncImage(
+                            model = ImageRequest.Builder(LocalContext.current).data(movie.poster).crossfade(true).build(),
+                            contentDescription = null,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize(),
+                            loading = { ShimmerBox(modifier = Modifier.fillMaxSize()) },
+                            error = { Box(modifier = Modifier.fillMaxSize().background(Color(0xFF15171E))) }
+                        )
                         Box(modifier = Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Transparent, theme.background))))
                         Column(modifier = Modifier.align(Alignment.BottomStart).padding(16.dp)) {
                             Text(movie.title, color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Bold)
@@ -902,7 +948,15 @@ fun MovieCard(movie: Movie, theme: ThemeConfig, profileName: String, userVipExpi
                 .background(Color(0xFF15171E))
                 .border(if (isFocused) 3.dp else 0.dp, Color.White, RoundedCornerShape(10.dp))
         ) {
-            AsyncImage(model = movie.poster, contentDescription = movie.title, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+            // 🔥 SHIMMER ON MOVIE CARD
+            SubcomposeAsyncImage(
+                model = ImageRequest.Builder(LocalContext.current).data(movie.poster).crossfade(true).build(),
+                contentDescription = movie.title,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+                loading = { ShimmerBox(modifier = Modifier.fillMaxSize()) },
+                error = { Box(modifier = Modifier.fillMaxSize().background(Color(0xFF15171E)), contentAlignment = Alignment.Center) { Icon(Icons.Default.Movie, null, tint = Color.Gray) } }
+            )
             if (isLocked) {
                 Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.5f), RoundedCornerShape(10.dp)), contentAlignment = Alignment.Center) { Icon(Icons.Default.Lock, "Locked", tint = Color(0xFFFCDC04), modifier = Modifier.size(32.dp)) }
             }
@@ -997,7 +1051,15 @@ fun TvLiveScreen(theme: ThemeConfig, userVipExpiry: Long, onPlayMedia: (Movie) -
                             .padding(12.dp), 
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        AsyncImage(model = channel.logo, contentDescription = channel.name, contentScale = ContentScale.Fit, modifier = Modifier.size(80.dp).clip(RoundedCornerShape(8.dp)))
+                        // 🔥 SHIMMER ON TV LOGO
+                        SubcomposeAsyncImage(
+                            model = ImageRequest.Builder(LocalContext.current).data(channel.logo).crossfade(true).build(),
+                            contentDescription = channel.name,
+                            contentScale = ContentScale.Fit,
+                            modifier = Modifier.size(80.dp).clip(RoundedCornerShape(8.dp)),
+                            loading = { ShimmerBox(modifier = Modifier.fillMaxSize()) },
+                            error = { Box(modifier = Modifier.fillMaxSize().background(Color(0xFF15171E)), contentAlignment = Alignment.Center) { Icon(Icons.Default.Tv, null, tint = Color.Gray) } }
+                        )
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(channel.name, color = Color.White, fontSize = theme.fontSize.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         Text(channel.category, color = theme.primary, fontSize = (theme.fontSize - 4).sp)
