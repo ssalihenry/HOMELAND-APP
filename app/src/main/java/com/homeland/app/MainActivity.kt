@@ -681,6 +681,73 @@ fun SettingsRow(
     }
 }
 
+@Composable
+fun NetflixHistoryCard(movie: Movie, progressPercent: Float, onClick: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .width(200.dp)
+            .aspectRatio(16f / 9f)
+            .clip(RoundedCornerShape(8.dp))
+            .background(Color(0xFF15171E))
+            .clickable { onClick() }
+    ) {
+        SubcomposeAsyncImage(
+            model = ImageRequest.Builder(LocalContext.current).data(movie.poster).crossfade(true).build(),
+            contentDescription = movie.title,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier.fillMaxSize(),
+            loading = { ShimmerBox(modifier = Modifier.fillMaxSize()) },
+            error = { Box(modifier = Modifier.fillMaxSize().background(Color(0xFF15171E))) }
+        )
+
+        // Dark Gradient Overlay
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.7f))))
+        )
+
+        // Center Play Button
+        Box(
+            modifier = Modifier
+                .align(Alignment.Center)
+                .size(40.dp)
+                .clip(CircleShape)
+                .background(Color.Black.copy(alpha = 0.5f)),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(Icons.Default.PlayArrow, contentDescription = "Play", tint = Color.White, modifier = Modifier.size(24.dp))
+        }
+
+        // Title
+        Text(
+            text = movie.title,
+            color = Color.White,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Bold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.align(Alignment.BottomStart).padding(start = 8.dp, bottom = 10.dp, end = 8.dp)
+        )
+
+        // Red Progress Bar at the bottom
+        Box(
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .fillMaxWidth()
+                .height(4.dp)
+                .background(Color.DarkGray.copy(alpha = 0.5f))
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth(progressPercent.coerceIn(0f, 1f))
+                    .fillMaxHeight()
+                    .background(Color.Red)
+            )
+        }
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ProfileScreen(auth: FirebaseAuth, profileName: String, userVipExpiry: Long, theme: ThemeConfig, savedPin: String?, onLogout: () -> Unit, onSwitchProfile: () -> Unit, onPlay: (Movie) -> Unit) {
@@ -698,19 +765,24 @@ fun ProfileScreen(auth: FirebaseAuth, profileName: String, userVipExpiry: Long, 
     
     val prefs = remember { context.getSharedPreferences("homeland_prefs", Context.MODE_PRIVATE) }
 
-    // Fetch History for Continue Watching
-    var profileHistory by remember { mutableStateOf<List<Movie>>(emptyList()) }
+    // Fetch History for Continue Watching with progress
+    var profileHistory by remember { mutableStateOf<List<Pair<Movie, Float>>>(emptyList()) }
     LaunchedEffect(profileName) {
         val uid = auth.currentUser?.uid ?: return@LaunchedEffect
         val db = FirebaseFirestore.getInstance()
         db.collection("users").document(uid).collection("history")
             .whereEqualTo("profile", profileName)
             .get().addOnSuccessListener { snap ->
-                val ids = snap.documents.map { it.id }
+                val historyMap = snap.documents.associate { 
+                    val prog = it.getLong("progress") ?: 0L
+                    val dur = it.getLong("duration") ?: 1L
+                    it.id to (prog.toFloat() / dur.toFloat())
+                }
                 db.collection("homeland_movies").limit(20).get().addOnSuccessListener { moviesSnap ->
                     profileHistory = moviesSnap.documents.mapNotNull {
                         val m = Movie(id = it.id, title = it.getString("title") ?: "", poster = it.getString("poster") ?: "", videoUrl = it.getString("videoUrl") ?: "", isVip = it.getBoolean("isVip") ?: false)
-                        if (m.id in ids) m else null
+                        val progress = historyMap[m.id]
+                        if (progress != null) Pair(m, progress) else null
                     }
                 }
             }
@@ -794,13 +866,16 @@ fun ProfileScreen(auth: FirebaseAuth, profileName: String, userVipExpiry: Long, 
 
                 Spacer(modifier = Modifier.height(24.dp))
 
+                // Netflix Style Continue Watching
                 if (profileHistory.isNotEmpty()) {
                     Text("Continue Watching", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.align(Alignment.Start).padding(bottom = 8.dp))
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        items(profileHistory) { movie ->
-                            Box(modifier = Modifier.width(110.dp)) {
-                                MovieCard(movie = movie, theme = theme, profileName = profileName, userVipExpiry = userVipExpiry, onDetails = { onPlay(it) })
-                            }
+                        items(profileHistory) { pair ->
+                            NetflixHistoryCard(
+                                movie = pair.first, 
+                                progressPercent = pair.second,
+                                onClick = { onPlay(pair.first) }
+                            )
                         }
                     }
                 }
@@ -1124,7 +1199,6 @@ fun HomeScreen(theme: ThemeConfig, profileName: String, userVipExpiry: Long, onD
     val db = FirebaseFirestore.getInstance()
     var movies by remember { mutableStateOf<List<Movie>>(emptyList()) }
     var featuredMovies by remember { mutableStateOf<List<Movie>>(emptyList()) }
-    var historyMovies by remember { mutableStateOf<List<Movie>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
     var searchQuery by remember { mutableStateOf("") }
     var selectedCategory by remember { mutableStateOf("All") }
@@ -1175,18 +1249,6 @@ fun HomeScreen(theme: ThemeConfig, profileName: String, userVipExpiry: Long, onD
                 featuredMovies = movies.filter { it.isFeatured }.take(5)
                 if (featuredMovies.isEmpty()) featuredMovies = movies.take(3)
                 isLoading = false
-            }
-        }
-    }
-
-    LaunchedEffect(movies, profileName) {
-        FirebaseAuth.getInstance().currentUser?.let { user ->
-            db.collection("users").document(user.uid).collection("history")
-                .whereEqualTo("profile", profileName)
-                .get().addOnSuccessListener { historySnap ->
-                val hIds = historySnap.documents.map { it.id }
-                val valid = movies.filter { it.id in hIds }
-                historyMovies = if (valid.isEmpty()) movies.take(3) else valid
             }
         }
     }
@@ -1329,11 +1391,6 @@ fun HomeScreen(theme: ThemeConfig, profileName: String, userVipExpiry: Long, onD
             }
 
             LazyVerticalGrid(state = gridState, columns = GridCells.Adaptive(110.dp), contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                if (historyMovies.isNotEmpty() && searchQuery.isEmpty() && selectedCategory == "All") {
-                    item(span = { GridItemSpan(maxLineSpan) }) { Text(if (historyMovies.size == 3) "Top Picks For You" else "Continue Watching", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(vertical = 8.dp)) }
-                    items(historyMovies) { movie -> MovieCard(movie, theme, profileName, userVipExpiry, onDetails) }
-                    item(span = { GridItemSpan(maxLineSpan) }) { Text("Trending Now", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(vertical = 8.dp)) }
-                }
                 val filtered = movies.filter { it.title.contains(searchQuery, true) && (selectedCategory == "All" || it.category == selectedCategory) }
                 items(filtered) { movie -> MovieCard(movie, theme, profileName, userVipExpiry, onDetails) }
                 
