@@ -869,27 +869,187 @@ fun HomeScreen(theme: ThemeConfig, profileName: String, userVipExpiry: Long, onD
             if (featuredMovies.isNotEmpty() && searchQuery.isEmpty() && selectedCategory == "All") {
                 val pagerState = rememberPagerState(pageCount = { featuredMovies.size })
                 HorizontalPager(state = pagerState, modifier = Modifier.height(250.dp).fillMaxWidth().padding(bottom = 16.dp)) { page ->
-                    val movie = featuredMovies[page]
-                    Box(modifier = Modifier.fillMaxSize()) {
-                        // 🔥 SHIMMER ON HERO CAROUSEL
-                        SubcomposeAsyncImage(
-                            model = ImageRequest.Builder(LocalContext.current).data(movie.poster).crossfade(true).build(),
-                            contentDescription = null,
-                            contentScale = ContentScale.Crop,
-                            modifier = Modifier.fillMaxSize(),
-                            loading = { ShimmerBox(modifier = Modifier.fillMaxSize()) },
-                            error = { Box(modifier = Modifier.fillMaxSize().background(Color(0xFF15171E))) }
-                        )
-                        Box(modifier = Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Transparent, theme.background))))
-                        Column(modifier = Modifier.align(Alignment.BottomStart).padding(16.dp)) {
-                            Text(movie.title, color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Bold)
-                            Button(onClick = { onDetails(movie) }, colors = ButtonDefaults.buttonColors(containerColor = theme.primary), modifier = Modifier.padding(top = 8.dp)) { Icon(Icons.Default.PlayArrow, null); Text("Play Now") }
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
+@Composable
+fun HomeScreen(theme: ThemeConfig, profileName: String, userVipExpiry: Long, onDetails: (Movie) -> Unit) {
+    val db = FirebaseFirestore.getInstance()
+    var movies by remember { mutableStateOf<List<Movie>>(emptyList()) }
+    var featuredMovies by remember { mutableStateOf<List<Movie>>(emptyList()) }
+    var historyMovies by remember { mutableStateOf<List<Movie>>(emptyList()) }
+    var isLoading by remember { mutableStateOf(true) }
+    var searchQuery by remember { mutableStateOf("") }
+    var selectedCategory by remember { mutableStateOf("All") }
+
+    var lastVisibleMovie by remember { mutableStateOf<com.google.firebase.firestore.DocumentSnapshot?>(null) }
+    var isFetchingMore by remember { mutableStateOf(false) }
+
+    val gridState = rememberLazyGridState()
+
+    fun loadMoreMovies() {
+        if (isFetchingMore || lastVisibleMovie == null) return
+        isFetchingMore = true
+        var query = db.collection("homeland_movies").orderBy("timestamp", Query.Direction.DESCENDING).limit(20)
+        if (lastVisibleMovie != null) {
+            query = query.startAfter(lastVisibleMovie)
+        }
+        query.get().addOnSuccessListener { snap ->
+            if (snap != null && !snap.isEmpty) {
+                val newMovies = snap.documents.map { doc -> 
+                    Movie(id = doc.id, title = doc.getString("title") ?: "", poster = doc.getString("poster") ?: "", videoUrl = doc.getString("videoUrl") ?: "", category = doc.getString("category") ?: "", videoTag = doc.getString("videoTag") ?: "", year = doc.getString("year") ?: "", isVip = doc.getBoolean("isVip") ?: false, isFeatured = doc.getBoolean("isFeatured") ?: false, isAdult = doc.getBoolean("isAdult") ?: false) 
+                }
+                movies = (movies + newMovies).distinctBy { it.id }
+                lastVisibleMovie = snap.documents.lastOrNull()
+            }
+            isFetchingMore = false
+        }.addOnFailureListener {
+            isFetchingMore = false
+        }
+    }
+
+    LaunchedEffect(gridState) {
+        snapshotFlow { gridState.layoutInfo.visibleItemsInfo.lastOrNull()?.index }
+            .distinctUntilChanged()
+            .collect { index ->
+                if (index != null && index >= movies.size - 4) {
+                    loadMoreMovies()
+                }
+            }
+    }
+
+    LaunchedEffect(Unit) {
+        db.collection("homeland_movies").orderBy("timestamp", Query.Direction.DESCENDING).limit(20).get().addOnSuccessListener { snap ->
+            if (snap != null) {
+                movies = snap.documents.map { doc -> 
+                    Movie(id = doc.id, title = doc.getString("title") ?: "", poster = doc.getString("poster") ?: "", videoUrl = doc.getString("videoUrl") ?: "", category = doc.getString("category") ?: "", videoTag = doc.getString("videoTag") ?: "", year = doc.getString("year") ?: "", isVip = doc.getBoolean("isVip") ?: false, isFeatured = doc.getBoolean("isFeatured") ?: false, isAdult = doc.getBoolean("isAdult") ?: false) 
+                }
+                lastVisibleMovie = snap.documents.lastOrNull()
+                featuredMovies = movies.filter { it.isFeatured }.take(5)
+                if (featuredMovies.isEmpty()) featuredMovies = movies.take(3)
+                isLoading = false
+            }
+        }
+    }
+
+    LaunchedEffect(movies, profileName) {
+        FirebaseAuth.getInstance().currentUser?.let { user ->
+            db.collection("users").document(user.uid).collection("history")
+                .whereEqualTo("profile", profileName)
+                .get().addOnSuccessListener { historySnap ->
+                val hIds = historySnap.documents.map { it.id }
+                val valid = movies.filter { it.id in hIds }
+                historyMovies = if (valid.isEmpty()) movies.take(3) else valid
+            }
+        }
+    }
+
+    if (isLoading) {
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = theme.primary) }
+    } else {
+        // 🔥 REMOVED systemBarsPadding() HERE TO GO EDGE-TO-EDGE
+        Column(modifier = Modifier.fillMaxSize()) {
+            
+            // 🔥 NEW CUSTOM HEADER
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .statusBarsPadding() // Keeps text below the clock
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    modifier = Modifier.size(32.dp).background(theme.primary, RoundedCornerShape(8.dp)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text("H", color = Color.White, fontWeight = FontWeight.Black, fontSize = 20.sp)
+                }
+                Spacer(modifier = Modifier.width(12.dp))
+                Text(text = "HOMELAND", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Black, letterSpacing = 1.sp)
+                Text(text = " TV", color = theme.primary, fontSize = 18.sp, fontWeight = FontWeight.Black, letterSpacing = 1.sp)
+            }
+
+            // 🔥 NEW CUSTOM SEARCH BAR (Moved above carousel)
+            OutlinedTextField(
+                value = searchQuery, 
+                onValueChange = { searchQuery = it }, 
+                placeholder = { Text("Search titles...", color = Color.Gray, fontSize = 14.sp) }, 
+                leadingIcon = { Icon(Icons.Default.Search, "Search", tint = Color.Gray) }, 
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp), 
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = Color.Transparent, 
+                    unfocusedBorderColor = Color.Transparent, 
+                    focusedContainerColor = Color(0xFF15171E), 
+                    unfocusedContainerColor = Color(0xFF15171E), 
+                    focusedTextColor = Color.White, 
+                    unfocusedTextColor = Color.White
+                ), 
+                shape = RoundedCornerShape(12.dp)
+            )
+
+            // 🔥 NEW CINEMATIC HERO CAROUSEL
+            if (featuredMovies.isNotEmpty() && searchQuery.isEmpty() && selectedCategory == "All") {
+                val pagerState = rememberPagerState(pageCount = { featuredMovies.size })
+                
+                Box(modifier = Modifier.fillMaxWidth().height(260.dp).padding(bottom = 16.dp)) {
+                    HorizontalPager(state = pagerState, modifier = Modifier.fillMaxSize()) { page ->
+                        val movie = featuredMovies[page]
+                        Box(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp).clip(RoundedCornerShape(16.dp))) {
+                            
+                            SubcomposeAsyncImage(
+                                model = ImageRequest.Builder(LocalContext.current).data(movie.poster).crossfade(true).build(),
+                                contentDescription = null,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.fillMaxSize(),
+                                loading = { ShimmerBox(modifier = Modifier.fillMaxSize()) },
+                                error = { Box(modifier = Modifier.fillMaxSize().background(Color(0xFF15171E))) }
+                            )
+                            
+                            // Gradient overlays
+                            Box(modifier = Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.8f), Color.Black))))
+                            Box(modifier = Modifier.fillMaxSize().background(Brush.horizontalGradient(listOf(Color.Black.copy(alpha = 0.7f), Color.Transparent))))
+                            
+                            // Text & Buttons
+                            Column(modifier = Modifier.align(Alignment.BottomStart).padding(16.dp)) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Box(modifier = Modifier.background(theme.primary, RoundedCornerShape(4.dp)).padding(horizontal = 6.dp, vertical = 2.dp)) {
+                                        Text("FEATURED", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(movie.category.uppercase(), color = Color.LightGray, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                }
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text(movie.title, color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Icons.Default.Star, null, tint = Color(0xFFFCDC04), modifier = Modifier.size(14.dp))
+                                    Text(" 4.0  •  ${movie.year}  •  ${movie.videoTag}", color = Color.LightGray, fontSize = 12.sp)
+                                }
+                                Spacer(modifier = Modifier.height(12.dp))
+                                Row {
+                                    Button(onClick = { onDetails(movie) }, colors = ButtonDefaults.buttonColors(containerColor = Color.White), shape = RoundedCornerShape(8.dp), modifier = Modifier.padding(end = 8.dp)) { 
+                                        Icon(Icons.Default.PlayArrow, null, tint = Color.Black); Text("Play Now", color = Color.Black, fontWeight = FontWeight.Bold) 
+                                    }
+                                    OutlinedButton(onClick = { onDetails(movie) }, shape = RoundedCornerShape(8.dp), colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)) { 
+                                        Icon(Icons.Default.Info, null); Text("Details") 
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    
+                    // Paging Dots at the bottom right
+                    Row(
+                        modifier = Modifier.align(Alignment.BottomEnd).padding(end = 24.dp, bottom = 24.dp),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        repeat(featuredMovies.size) { iteration ->
+                            val color = if (pagerState.currentPage == iteration) theme.primary else Color.DarkGray
+                            Box(modifier = Modifier.size(if (pagerState.currentPage == iteration) 16.dp else 6.dp, 6.dp).clip(CircleShape).background(color))
                         }
                     }
                 }
             }
-
-            OutlinedTextField(value = searchQuery, onValueChange = { searchQuery = it }, placeholder = { Text("Search...", color = Color.Gray) }, leadingIcon = { Icon(Icons.Default.Search, "Search", tint = Color.Gray) }, modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = theme.primary, unfocusedBorderColor = Color.DarkGray, focusedContainerColor = Color(0xFF15171E), unfocusedContainerColor = Color(0xFF15171E), focusedTextColor = Color.White, unfocusedTextColor = Color.White), shape = RoundedCornerShape(12.dp))
 
             LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(bottom = 16.dp)) {
                 items(movieCategories) { category -> FilterChip(selected = selectedCategory == category, onClick = { selectedCategory = category }, label = { Text(category) }, colors = FilterChipDefaults.filterChipColors(selectedContainerColor = theme.primary, selectedLabelColor = Color.White, containerColor = Color(0xFF15171E), labelColor = Color.Gray)) }
