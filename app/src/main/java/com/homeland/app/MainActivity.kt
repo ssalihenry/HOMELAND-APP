@@ -80,7 +80,6 @@ data class ThemeConfig(
     val bgImageUrl: String = ""
 )
 
-// 🔥 SHIMMER LOADING EFFECT COMPOSABLE
 @Composable
 fun ShimmerBox(modifier: Modifier = Modifier) {
     val shimmerColors = listOf(
@@ -109,7 +108,6 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         
-        // 🔥 ENABLE FIRESTORE OFFLINE PERSISTENCE
         try {
             val settings = FirebaseFirestoreSettings.Builder()
                 .setPersistenceEnabled(true)
@@ -117,7 +115,6 @@ class MainActivity : ComponentActivity() {
                 .build()
             FirebaseFirestore.getInstance().firestoreSettings = settings
         } catch (e: Exception) {
-            // Settings can only be set before any Firestore interaction
         }
 
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -741,7 +738,6 @@ fun MovieDetailsScreen(movie: Movie, userVipExpiry: Long, onPlay: (Movie) -> Uni
         Spacer(modifier = Modifier.height(16.dp))
         
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-            // 🔥 SHIMMER ON DETAILS POSTER
             SubcomposeAsyncImage(
                 model = ImageRequest.Builder(LocalContext.current).data(movie.poster).crossfade(true).build(),
                 contentDescription = movie.title,
@@ -865,94 +861,11 @@ fun HomeScreen(theme: ThemeConfig, profileName: String, userVipExpiry: Long, onD
     if (isLoading) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = theme.primary) }
     } else {
-        Column(modifier = Modifier.fillMaxSize().systemBarsPadding()) {
-            if (featuredMovies.isNotEmpty() && searchQuery.isEmpty() && selectedCategory == "All") {
-                val pagerState = rememberPagerState(pageCount = { featuredMovies.size })
-                HorizontalPager(state = pagerState, modifier = Modifier.height(250.dp).fillMaxWidth().padding(bottom = 16.dp)) { page ->
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
-@Composable
-fun HomeScreen(theme: ThemeConfig, profileName: String, userVipExpiry: Long, onDetails: (Movie) -> Unit) {
-    val db = FirebaseFirestore.getInstance()
-    var movies by remember { mutableStateOf<List<Movie>>(emptyList()) }
-    var featuredMovies by remember { mutableStateOf<List<Movie>>(emptyList()) }
-    var historyMovies by remember { mutableStateOf<List<Movie>>(emptyList()) }
-    var isLoading by remember { mutableStateOf(true) }
-    var searchQuery by remember { mutableStateOf("") }
-    var selectedCategory by remember { mutableStateOf("All") }
-
-    var lastVisibleMovie by remember { mutableStateOf<com.google.firebase.firestore.DocumentSnapshot?>(null) }
-    var isFetchingMore by remember { mutableStateOf(false) }
-
-    val gridState = rememberLazyGridState()
-
-    fun loadMoreMovies() {
-        if (isFetchingMore || lastVisibleMovie == null) return
-        isFetchingMore = true
-        var query = db.collection("homeland_movies").orderBy("timestamp", Query.Direction.DESCENDING).limit(20)
-        if (lastVisibleMovie != null) {
-            query = query.startAfter(lastVisibleMovie)
-        }
-        query.get().addOnSuccessListener { snap ->
-            if (snap != null && !snap.isEmpty) {
-                val newMovies = snap.documents.map { doc -> 
-                    Movie(id = doc.id, title = doc.getString("title") ?: "", poster = doc.getString("poster") ?: "", videoUrl = doc.getString("videoUrl") ?: "", category = doc.getString("category") ?: "", videoTag = doc.getString("videoTag") ?: "", year = doc.getString("year") ?: "", isVip = doc.getBoolean("isVip") ?: false, isFeatured = doc.getBoolean("isFeatured") ?: false, isAdult = doc.getBoolean("isAdult") ?: false) 
-                }
-                movies = (movies + newMovies).distinctBy { it.id }
-                lastVisibleMovie = snap.documents.lastOrNull()
-            }
-            isFetchingMore = false
-        }.addOnFailureListener {
-            isFetchingMore = false
-        }
-    }
-
-    LaunchedEffect(gridState) {
-        snapshotFlow { gridState.layoutInfo.visibleItemsInfo.lastOrNull()?.index }
-            .distinctUntilChanged()
-            .collect { index ->
-                if (index != null && index >= movies.size - 4) {
-                    loadMoreMovies()
-                }
-            }
-    }
-
-    LaunchedEffect(Unit) {
-        db.collection("homeland_movies").orderBy("timestamp", Query.Direction.DESCENDING).limit(20).get().addOnSuccessListener { snap ->
-            if (snap != null) {
-                movies = snap.documents.map { doc -> 
-                    Movie(id = doc.id, title = doc.getString("title") ?: "", poster = doc.getString("poster") ?: "", videoUrl = doc.getString("videoUrl") ?: "", category = doc.getString("category") ?: "", videoTag = doc.getString("videoTag") ?: "", year = doc.getString("year") ?: "", isVip = doc.getBoolean("isVip") ?: false, isFeatured = doc.getBoolean("isFeatured") ?: false, isAdult = doc.getBoolean("isAdult") ?: false) 
-                }
-                lastVisibleMovie = snap.documents.lastOrNull()
-                featuredMovies = movies.filter { it.isFeatured }.take(5)
-                if (featuredMovies.isEmpty()) featuredMovies = movies.take(3)
-                isLoading = false
-            }
-        }
-    }
-
-    LaunchedEffect(movies, profileName) {
-        FirebaseAuth.getInstance().currentUser?.let { user ->
-            db.collection("users").document(user.uid).collection("history")
-                .whereEqualTo("profile", profileName)
-                .get().addOnSuccessListener { historySnap ->
-                val hIds = historySnap.documents.map { it.id }
-                val valid = movies.filter { it.id in hIds }
-                historyMovies = if (valid.isEmpty()) movies.take(3) else valid
-            }
-        }
-    }
-
-    if (isLoading) {
-        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = theme.primary) }
-    } else {
-        // 🔥 REMOVED systemBarsPadding() HERE TO GO EDGE-TO-EDGE
         Column(modifier = Modifier.fillMaxSize()) {
-            
-            // 🔥 NEW CUSTOM HEADER
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .statusBarsPadding() // Keeps text below the clock
+                    .statusBarsPadding() 
                     .padding(horizontal = 16.dp, vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -967,7 +880,6 @@ fun HomeScreen(theme: ThemeConfig, profileName: String, userVipExpiry: Long, onD
                 Text(text = " TV", color = theme.primary, fontSize = 18.sp, fontWeight = FontWeight.Black, letterSpacing = 1.sp)
             }
 
-            // 🔥 NEW CUSTOM SEARCH BAR (Moved above carousel)
             OutlinedTextField(
                 value = searchQuery, 
                 onValueChange = { searchQuery = it }, 
@@ -987,7 +899,6 @@ fun HomeScreen(theme: ThemeConfig, profileName: String, userVipExpiry: Long, onD
                 shape = RoundedCornerShape(12.dp)
             )
 
-            // 🔥 NEW CINEMATIC HERO CAROUSEL
             if (featuredMovies.isNotEmpty() && searchQuery.isEmpty() && selectedCategory == "All") {
                 val pagerState = rememberPagerState(pageCount = { featuredMovies.size })
                 
@@ -1005,11 +916,9 @@ fun HomeScreen(theme: ThemeConfig, profileName: String, userVipExpiry: Long, onD
                                 error = { Box(modifier = Modifier.fillMaxSize().background(Color(0xFF15171E))) }
                             )
                             
-                            // Gradient overlays
                             Box(modifier = Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.8f), Color.Black))))
                             Box(modifier = Modifier.fillMaxSize().background(Brush.horizontalGradient(listOf(Color.Black.copy(alpha = 0.7f), Color.Transparent))))
                             
-                            // Text & Buttons
                             Column(modifier = Modifier.align(Alignment.BottomStart).padding(16.dp)) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Box(modifier = Modifier.background(theme.primary, RoundedCornerShape(4.dp)).padding(horizontal = 6.dp, vertical = 2.dp)) {
@@ -1038,7 +947,6 @@ fun HomeScreen(theme: ThemeConfig, profileName: String, userVipExpiry: Long, onD
                         }
                     }
                     
-                    // Paging Dots at the bottom right
                     Row(
                         modifier = Modifier.align(Alignment.BottomEnd).padding(end = 24.dp, bottom = 24.dp),
                         horizontalArrangement = Arrangement.spacedBy(4.dp)
@@ -1064,7 +972,7 @@ fun HomeScreen(theme: ThemeConfig, profileName: String, userVipExpiry: Long, onD
                 val filtered = movies.filter { it.title.contains(searchQuery, true) && (selectedCategory == "All" || it.category == selectedCategory) }
                 items(filtered) { movie -> MovieCard(movie, theme, profileName, userVipExpiry, onDetails) }
                 
-                                if (isFetchingMore) {
+                if (isFetchingMore) {
                     item(span = { GridItemSpan(maxLineSpan) }) {
                         Box(modifier = Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) {
                             CircularProgressIndicator(color = theme.primary, modifier = Modifier.size(24.dp))
@@ -1094,7 +1002,6 @@ fun MovieCard(movie: Movie, theme: ThemeConfig, profileName: String, userVipExpi
         }
     }
 
-    // 🔥 NEW: CINEMATIC POSTER CARD (Everything inside one Box)
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -1105,7 +1012,6 @@ fun MovieCard(movie: Movie, theme: ThemeConfig, profileName: String, userVipExpi
             .border(if (isFocused) 3.dp else 0.dp, Color.White, RoundedCornerShape(12.dp))
             .clickable { onDetails(movie) }
     ) {
-        // 1. The Image
         SubcomposeAsyncImage(
             model = ImageRequest.Builder(LocalContext.current).data(movie.poster).crossfade(true).build(),
             contentDescription = movie.title,
@@ -1115,7 +1021,6 @@ fun MovieCard(movie: Movie, theme: ThemeConfig, profileName: String, userVipExpi
             error = { Box(modifier = Modifier.fillMaxSize().background(Color(0xFF15171E)), contentAlignment = Alignment.Center) { Icon(Icons.Default.Movie, null, tint = Color.Gray) } }
         )
 
-        // 2. The Gradient Shadow (Fades from transparent to solid black at the bottom)
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -1131,7 +1036,6 @@ fun MovieCard(movie: Movie, theme: ThemeConfig, profileName: String, userVipExpi
                 )
         )
 
-        // 3. The Text (Overlaid on the gradient)
         Column(
             modifier = Modifier
                 .align(Alignment.BottomStart)
@@ -1142,7 +1046,7 @@ fun MovieCard(movie: Movie, theme: ThemeConfig, profileName: String, userVipExpi
                 color = Color.White,
                 fontSize = 12.sp,
                 fontWeight = FontWeight.Bold,
-                maxLines = 2, // Allows longer titles to wrap
+                maxLines = 2, 
                 overflow = TextOverflow.Ellipsis,
                 lineHeight = 14.sp
             )
@@ -1157,7 +1061,6 @@ fun MovieCard(movie: Movie, theme: ThemeConfig, profileName: String, userVipExpi
             )
         }
 
-        // 4. VIP Lock Icon
         if (isLocked) {
             Box(
                 modifier = Modifier
@@ -1169,7 +1072,6 @@ fun MovieCard(movie: Movie, theme: ThemeConfig, profileName: String, userVipExpi
             }
         }
 
-        // 5. 18+ Badge (Moved to Top Start so it doesn't clash with the title)
         if (movie.isAdult) {
             Box(
                 modifier = Modifier
@@ -1182,7 +1084,6 @@ fun MovieCard(movie: Movie, theme: ThemeConfig, profileName: String, userVipExpi
             }
         }
 
-        // 6. Favorite Heart Icon
         IconButton(
             onClick = { 
                 if (uid != null) {
@@ -1274,7 +1175,6 @@ fun TvLiveScreen(theme: ThemeConfig, userVipExpiry: Long, onPlayMedia: (Movie) -
                             .padding(12.dp), 
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        // 🔥 SHIMMER ON TV LOGO
                         SubcomposeAsyncImage(
                             model = ImageRequest.Builder(LocalContext.current).data(channel.logo).crossfade(true).build(),
                             contentDescription = channel.name,
