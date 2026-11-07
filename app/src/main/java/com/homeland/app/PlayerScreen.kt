@@ -97,11 +97,6 @@ fun PlayerScreen(
     LaunchedEffect(exoPlayer) {
         val listener = object : Player.Listener {
             override fun onIsPlayingChanged(playing: Boolean) { isPlaying = playing }
-            override fun onPlaybackStateChanged(state: Int) {
-                if (state == Player.STATE_ENDED) {
-                    // Auto-play next episode logic handled by playlist
-                }
-            }
         }
         exoPlayer.addListener(listener)
 
@@ -116,8 +111,10 @@ fun PlayerScreen(
     LaunchedEffect(exoPlayer) {
         while (true) {
             if (exoPlayer.isPlaying) {
-                // Get current bitrate, fallback to 1.5 Mbps if unknown
-                val currentBitrate = exoPlayer.videoFormat?.bitrate ?: 1500000 
+                // Get current bitrate. If it's 0 or null, default to 1.2 Mbps
+                val formatBitrate = exoPlayer.videoFormat?.bitrate
+                val currentBitrate = if (formatBitrate != null && formatBitrate > 0) formatBitrate else 1200000
+                
                 val bytesPerSecond = currentBitrate / 8
                 val mbPerSecond = bytesPerSecond.toDouble() / (1024 * 1024)
                 dataUsedMb += mbPerSecond
@@ -194,34 +191,46 @@ fun PlayerScreen(
             modifier = Modifier.fillMaxSize()
         )
 
+        // 🔥 PERMANENT DATA METER (Top Left)
+        Box(
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .padding(top = 20.dp, start = 20.dp)
+                .background(Color.Black.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
+                .padding(horizontal = 10.dp, vertical = 6.dp)
+        ) {
+            Text(
+                text = String.format("%.2f MB", dataUsedMb),
+                color = Color(0xFF10B981), // Green text
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold
+            )
+        }
+
+        // 🔥 PERMANENT WATERMARK (Top Right)
+        Box(
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(top = 20.dp, end = 20.dp)
+                .background(Color.Black.copy(alpha = 0.4f), RoundedCornerShape(6.dp))
+                .padding(horizontal = 8.dp, vertical = 4.dp)
+        ) {
+            Text("HOMELAND APP", color = Color.White.copy(alpha = 0.7f), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+        }
+
+        // CONTROLS OVERLAY
         AnimatedVisibility(visible = showControls, enter = fadeIn(), exit = fadeOut(), modifier = Modifier.fillMaxSize()) {
             Box(modifier = Modifier.fillMaxSize().safeDrawingPadding()) {
                 
-                // 🔥 DATA METER OVERLAY (Top Left)
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.TopStart)
-                        .padding(16.dp)
-                        .background(Color.Black.copy(alpha = 0.6f), RoundedCornerShape(8.dp))
-                        .padding(horizontal = 10.dp, vertical = 6.dp)
-                ) {
-                    Text(
-                        text = String.format("%.1f MB", dataUsedMb),
-                        color = Color(0xFF10B981), // Green text
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-
+                // Top bar (Title & Close)
                 Row(
                     modifier = Modifier.fillMaxWidth().background(Color.Black.copy(alpha = 0.6f), RoundedCornerShape(bottomStart = 16.dp, bottomEnd = 16.dp)).padding(horizontal = 16.dp, vertical = 12.dp).align(Alignment.TopCenter),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     IconButton(onClick = { exoPlayer.pause(); onClose() }) { Icon(Icons.Default.Close, "Close", tint = Color.White) }
                     Text(title, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f), maxLines = 1)
-                    Box(modifier = Modifier.background(Color.Black.copy(alpha = 0.4f), RoundedCornerShape(6.dp)).padding(horizontal = 8.dp, vertical = 4.dp)) {
-                        Text("HOMELAND APP", color = Color.White.copy(alpha = 0.7f), fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                    }
+                    // Left space empty since Watermark is now permanent
+                    Spacer(modifier = Modifier.width(80.dp))
                 }
 
                 IconButton(
@@ -282,14 +291,19 @@ fun PlayerScreen(
                             }
                         }
 
-                        // 🔥 PIP BUTTON
+                        // 🔥 PIP BUTTON (Fixed)
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                             IconButton(onClick = {
-                                val aspectRatio = Rational(16, 9)
-                                val params = PictureInPictureParams.Builder()
-                                    .setAspectRatio(aspectRatio)
-                                    .build()
-                                activity?.enterPictureInPictureMode(params)
+                                try {
+                                    val aspectRatio = Rational(16, 9)
+                                    val params = PictureInPictureParams.Builder()
+                                        .setAspectRatio(aspectRatio)
+                                        .build()
+                                    activity?.enterPictureInPictureMode(params)
+                                    showControls = false // Hide controls when entering PiP
+                                } catch (e: Exception) {
+                                    // Catch error if manifest is not updated
+                                }
                             }) { 
                                 Icon(Icons.Default.PictureInPicture, "PiP", tint = Color.White) 
                             }
