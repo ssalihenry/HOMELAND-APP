@@ -77,6 +77,7 @@ import com.google.firebase.firestore.Query
 import com.google.firebase.messaging.FirebaseMessaging
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
+import java.io.File
 
 const val ADMIN_EMAIL = "ssalihenry136@gmail.com"
 const val WHATSAPP_NUMBER = "256742199254" 
@@ -166,6 +167,8 @@ class MainActivity : ComponentActivity() {
         setContent {
             val db = FirebaseFirestore.getInstance()
             var appTheme by remember { mutableStateOf(ThemeConfig()) }
+            var isMaintenanceMode by remember { mutableStateOf(false) }
+            var maintenanceMessage by remember { mutableStateOf("We'll be back soon!") }
             
             LaunchedEffect(Unit) {
                 db.collection("config").document("theme").addSnapshotListener { doc, _ ->
@@ -176,6 +179,12 @@ class MainActivity : ComponentActivity() {
                         val url = doc.getString("fontUrl") ?: ""
                         val bgImg = doc.getString("bgImageUrl") ?: ""
                         appTheme = ThemeConfig(Color(android.graphics.Color.parseColor(p)), Color(android.graphics.Color.parseColor(b)), f, url, bgImg)
+                    }
+                }
+                db.collection("config").document("maintenance").addSnapshotListener { doc, _ ->
+                    if (doc != null && doc.exists()) {
+                        isMaintenanceMode = doc.getBoolean("active") ?: false
+                        maintenanceMessage = doc.getString("message") ?: "We'll be back soon!"
                     }
                 }
             }
@@ -200,7 +209,9 @@ class MainActivity : ComponentActivity() {
                 val isTv = context.packageManager.hasSystemFeature(PackageManager.FEATURE_LEANBACK) || 
                            (context.resources.configuration.uiMode and Configuration.UI_MODE_TYPE_MASK) == Configuration.UI_MODE_TYPE_TELEVISION
 
-                if (!isAppUnlocked) {
+                if (isMaintenanceMode && currentUser?.email != ADMIN_EMAIL) {
+                    MaintenanceScreen(theme = appTheme, message = maintenanceMessage)
+                } else if (!isAppUnlocked) {
                     AppLockScreen(
                         theme = appTheme,
                         savedPin = savedPin!!,
@@ -245,6 +256,21 @@ class MainActivity : ComponentActivity() {
             return true
         }
         return super.onKeyDown(keyCode, event)
+    }
+}
+
+@Composable
+fun MaintenanceScreen(theme: ThemeConfig, message: String) {
+    Box(modifier = Modifier.fillMaxSize().background(Color(0xFF0B0C10)), contentAlignment = Alignment.Center) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(32.dp)) {
+            Icon(Icons.Default.Build, contentDescription = "Maintenance", tint = theme.primary, modifier = Modifier.size(80.dp))
+            Spacer(modifier = Modifier.height(24.dp))
+            Text("Under Maintenance", color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.Black, textAlign = TextAlign.Center)
+            Spacer(modifier = Modifier.height(16.dp))
+            Text(message, color = Color.Gray, fontSize = 16.sp, textAlign = TextAlign.Center)
+            Spacer(modifier = Modifier.height(32.dp))
+            CircularProgressIndicator(color = theme.primary)
+        }
     }
 }
 
@@ -477,7 +503,7 @@ fun HomelandApp(auth: FirebaseAuth, profileName: String, theme: ThemeConfig, sav
                         0 -> HomeScreen(theme = theme, profileName = profileName, userVipExpiry = userVipExpiry, onDetails = { viewingDetails = it })
                         1 -> TvLiveScreen(theme = theme, userVipExpiry = userVipExpiry, onPlayMedia = { currentlyPlaying = it })
                         2 -> MyListScreen(theme = theme, profileName = profileName, userVipExpiry = userVipExpiry, onDetails = { viewingDetails = it })
-                        3 -> ProfileScreen(auth, profileName = profileName, userVipExpiry, theme, savedPin = savedPin, onLogout, onSwitchProfile)
+                        3 -> ProfileScreen(auth, profileName = profileName, userVipExpiry, theme, savedPin = savedPin, onLogout, onSwitchProfile, onPlay = { currentlyPlaying = it })
                     }
                 }
             }
@@ -511,7 +537,7 @@ fun HomelandApp(auth: FirebaseAuth, profileName: String, theme: ThemeConfig, sav
                         0 -> HomeScreen(theme = theme, profileName = profileName, userVipExpiry = userVipExpiry, onDetails = { viewingDetails = it })
                         1 -> TvLiveScreen(theme = theme, userVipExpiry = userVipExpiry, onPlayMedia = { currentlyPlaying = it })
                         2 -> MyListScreen(theme = theme, profileName = profileName, userVipExpiry = userVipExpiry, onDetails = { viewingDetails = it })
-                        3 -> ProfileScreen(auth, profileName = profileName, userVipExpiry, theme, savedPin = savedPin, onLogout, onSwitchProfile)
+                        3 -> ProfileScreen(auth, profileName = profileName, userVipExpiry, theme, savedPin = savedPin, onLogout, onSwitchProfile, onPlay = { currentlyPlaying = it })
                     }
                 }
             }
@@ -561,11 +587,62 @@ fun ProfileSelectorScreen(theme: ThemeConfig, onProfileSelected: (String) -> Uni
     }
 }
 
+@Composable
+fun DownloadsScreen(theme: ThemeConfig, onBack: () -> Unit, onPlay: (Movie) -> Unit) {
+    val context = LocalContext.current
+    var downloadedFiles by remember { mutableStateOf<List<File>>(emptyList()) }
+    
+    LaunchedEffect(Unit) {
+        val dir = context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)
+        downloadedFiles = dir?.listFiles()?.filter { it.extension == "mp4" } ?: emptyList()
+    }
+
+    Column(modifier = Modifier.fillMaxSize().padding(16.dp).systemBarsPadding()) {
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 16.dp)) {
+            IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, "Back", tint = Color.White) }
+            Text("My Downloads", color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Bold)
+        }
+        
+        if (downloadedFiles.isEmpty()) {
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(Icons.Default.Download, contentDescription = "Empty", tint = Color.DarkGray, modifier = Modifier.size(64.dp))
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text("No in-app downloads found.", color = Color.Gray, fontSize = 16.sp)
+                }
+            }
+        } else {
+            LazyColumn(modifier = Modifier.fillMaxSize()) {
+                items(downloadedFiles) { file ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 8.dp)
+                            .background(Color(0xFF15171E), RoundedCornerShape(12.dp))
+                            .clickable { onPlay(Movie(title = file.nameWithoutExtension, videoUrl = file.absolutePath)) }
+                            .padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Default.Movie, contentDescription = "Movie", tint = theme.primary, modifier = Modifier.size(32.dp))
+                        Spacer(modifier = Modifier.width(16.dp))
+                        Column {
+                            Text(file.name, color = Color.White, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            val sizeInMb = file.length() / (1024 * 1024)
+                            Text("$sizeInMb MB", color = Color.Gray, fontSize = 12.sp)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ProfileScreen(auth: FirebaseAuth, profileName: String, userVipExpiry: Long, theme: ThemeConfig, savedPin: String?, onLogout: () -> Unit, onSwitchProfile: () -> Unit) {
+fun ProfileScreen(auth: FirebaseAuth, profileName: String, userVipExpiry: Long, theme: ThemeConfig, savedPin: String?, onLogout: () -> Unit, onSwitchProfile: () -> Unit, onPlay: (Movie) -> Unit) {
     val context = LocalContext.current
     var showAdminPanel by remember { mutableStateOf(false) }
+    var showDownloads by remember { mutableStateOf(false) }
     var couponCode by remember { mutableStateOf("") }
     val isVip = userVipExpiry > System.currentTimeMillis()
 
@@ -578,6 +655,8 @@ fun ProfileScreen(auth: FirebaseAuth, profileName: String, userVipExpiry: Long, 
 
     if (showAdminPanel) {
         AdminScreen(onBack = { showAdminPanel = false })
+    } else if (showDownloads) {
+        DownloadsScreen(theme = theme, onBack = { showDownloads = false }, onPlay = onPlay)
     } else {
         Column(modifier = Modifier.fillMaxSize().padding(24.dp).systemBarsPadding(), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
             Box(modifier = Modifier.size(100.dp).clip(CircleShape).background(Color(0xFF15171E)).clickable { Toast.makeText(context, "Tap to change avatar", Toast.LENGTH_SHORT).show() }, contentAlignment = Alignment.Center) {
@@ -595,6 +674,10 @@ fun ProfileScreen(auth: FirebaseAuth, profileName: String, userVipExpiry: Long, 
             Spacer(modifier = Modifier.height(20.dp))
             Button(onClick = onSwitchProfile, colors = ButtonDefaults.buttonColors(containerColor = Color.DarkGray), modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp)) {
                 Icon(Icons.Default.SwitchAccount, null); Spacer(modifier = Modifier.width(8.dp)); Text("Switch Profile")
+            }
+
+            Button(onClick = { showDownloads = true }, colors = ButtonDefaults.buttonColors(containerColor = Color.DarkGray), modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp)) {
+                Icon(Icons.Default.Download, null); Spacer(modifier = Modifier.width(8.dp)); Text("My Downloads")
             }
 
             Button(
@@ -1038,8 +1121,8 @@ fun HomeScreen(theme: ThemeConfig, profileName: String, userVipExpiry: Long, onD
                         val movie = featuredMovies[page]
                         
                         val context = LocalContext.current
-val trailerExoPlayer = remember {
-    ExoPlayer.Builder(context).build().apply {
+                        val trailerExoPlayer = remember {
+                            ExoPlayer.Builder(context).build().apply {
                                 setMediaItem(MediaItem.fromUri(movie.videoUrl))
                                 prepare()
                                 playWhenReady = false
