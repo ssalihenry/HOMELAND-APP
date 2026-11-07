@@ -1037,8 +1037,9 @@ fun HomeScreen(theme: ThemeConfig, profileName: String, userVipExpiry: Long, onD
                     HorizontalPager(state = pagerState, modifier = Modifier.fillMaxSize()) { page ->
                         val movie = featuredMovies[page]
                         
-                        val trailerExoPlayer = remember {
-                            ExoPlayer.Builder(LocalContext.current).build().apply {
+                        val context = LocalContext.current
+val trailerExoPlayer = remember {
+    ExoPlayer.Builder(context).build().apply {
                                 setMediaItem(MediaItem.fromUri(movie.videoUrl))
                                 prepare()
                                 playWhenReady = false
