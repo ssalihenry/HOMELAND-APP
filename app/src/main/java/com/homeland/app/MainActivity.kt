@@ -5,6 +5,7 @@ import android.os.Environment
 import androidx.media3.ui.PlayerView
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.common.MediaItem
+import androidx.media3.common.Player
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
@@ -15,6 +16,8 @@ import android.content.pm.ActivityInfo
 import android.content.res.Configuration
 import android.view.WindowManager
 import android.view.KeyEvent
+import android.view.ViewGroup
+import android.widget.FrameLayout
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
@@ -59,6 +62,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -71,6 +75,7 @@ import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.FirebaseFirestoreSettings
 import com.google.firebase.firestore.Query
 import com.google.firebase.messaging.FirebaseMessaging
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
 
 const val ADMIN_EMAIL = "ssalihenry136@gmail.com"
@@ -108,6 +113,28 @@ fun ShimmerBox(modifier: Modifier = Modifier) {
         end = Offset(x = translateAnim, y = translateAnim)
     )
     Box(modifier = modifier.background(brush))
+}
+
+fun downloadFile(context: Context, url: String, fileName: String, saveToPublic: Boolean) {
+    try {
+        val request = DownloadManager.Request(Uri.parse(url))
+        request.setTitle("Downloading $fileName")
+        request.setDescription("Homeland App")
+        request.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+        request.setAllowedOverMetered(true)
+        
+        if (saveToPublic) {
+            request.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, fileName)
+        } else {
+            request.setDestinationInExternalFilesDir(context, Environment.DIRECTORY_DOWNLOADS, fileName)
+        }
+        
+        val manager = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+        manager.enqueue(request)
+        Toast.makeText(context, "Download Started!", Toast.LENGTH_SHORT).show()
+    } catch (e: Exception) {
+        Toast.makeText(context, "Download failed: ${e.message}", Toast.LENGTH_LONG).show()
+    }
 }
 
 class MainActivity : ComponentActivity() {
@@ -457,7 +484,6 @@ fun HomelandApp(auth: FirebaseAuth, profileName: String, theme: ThemeConfig, sav
         }
     } else {
         Scaffold(
-            // 🔥 OPTION 2: GLASSMORPHISM BOTTOM BAR
             bottomBar = {
                 Box(
                     modifier = Modifier
@@ -738,15 +764,43 @@ fun ProfileScreen(auth: FirebaseAuth, profileName: String, userVipExpiry: Long, 
     }
 }
 
-// 🔥 OPTION 1: NETFLIX CINEMATIC MOVIE DETAILS SCREEN
 @Composable
 fun MovieDetailsScreen(movie: Movie, userVipExpiry: Long, onPlay: (Movie) -> Unit, onBack: () -> Unit) {
     val isLocked = movie.isVip && userVipExpiry < System.currentTimeMillis()
     val isSeries = movie.episodes.isNotEmpty()
     var selectedEpisode by remember { mutableStateOf<Episode?>(null) }
+    val context = LocalContext.current
+
+    var showDownloadDialog by remember { mutableStateOf(false) }
+    var downloadUrlToUse by remember { mutableStateOf("") }
+    var downloadTitleToUse by remember { mutableStateOf("") }
+
+    if (showDownloadDialog) {
+        AlertDialog(
+            onDismissRequest = { showDownloadDialog = false },
+            title = { Text("Download Options", color = Color.White) },
+            text = { Text("Where would you like to save this video?", color = Color.Gray) },
+            confirmButton = {
+                Button(onClick = {
+                    downloadFile(context, downloadUrlToUse, "$downloadTitleToUse.mp4", saveToPublic = true)
+                    showDownloadDialog = false
+                }, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE50914))) { 
+                    Text("Direct to Phone") 
+                }
+            },
+            dismissButton = {
+                Button(onClick = {
+                    downloadFile(context, downloadUrlToUse, "$downloadTitleToUse.mp4", saveToPublic = false)
+                    showDownloadDialog = false
+                }, colors = ButtonDefaults.buttonColors(containerColor = Color.DarkGray)) { 
+                    Text("In-App Download") 
+                }
+            },
+            containerColor = Color(0xFF15171E)
+        )
+    }
 
     Box(modifier = Modifier.fillMaxSize().background(Color(0xFF0B0C10))) {
-        // Blurred Background Poster
         SubcomposeAsyncImage(
             model = ImageRequest.Builder(LocalContext.current).data(movie.poster).crossfade(true).build(),
             contentDescription = null,
@@ -755,10 +809,8 @@ fun MovieDetailsScreen(movie: Movie, userVipExpiry: Long, onPlay: (Movie) -> Uni
             loading = { Box(modifier = Modifier.fillMaxSize().background(Color.Black)) },
             error = { Box(modifier = Modifier.fillMaxSize().background(Color.Black)) }
         )
-        // Deep Dark Overlay
         Box(modifier = Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.6f), Color.Black.copy(alpha = 0.95f)))))
 
-        // Foreground Content
         Column(modifier = Modifier.fillMaxSize().systemBarsPadding()) {
             Row(modifier = Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = onBack, modifier = Modifier.background(Color.White.copy(alpha = 0.1f), CircleShape)) { 
@@ -771,7 +823,6 @@ fun MovieDetailsScreen(movie: Movie, userVipExpiry: Long, onPlay: (Movie) -> Uni
             Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                 Spacer(modifier = Modifier.height(16.dp))
                 
-                // Center Poster
                 SubcomposeAsyncImage(
                     model = ImageRequest.Builder(LocalContext.current).data(movie.poster).crossfade(true).build(),
                     contentDescription = movie.title,
@@ -799,15 +850,31 @@ fun MovieDetailsScreen(movie: Movie, userVipExpiry: Long, onPlay: (Movie) -> Uni
                 Spacer(modifier = Modifier.height(24.dp))
 
                 if (!isSeries) {
-                    Button(
-                        onClick = { onPlay(movie) }, 
-                        modifier = Modifier.fillMaxWidth().height(56.dp), 
-                        colors = ButtonDefaults.buttonColors(containerColor = Color.White),
-                        shape = RoundedCornerShape(12.dp)
-                    ) {
-                        Icon(Icons.Default.PlayArrow, null, tint = Color.Black, modifier = Modifier.size(28.dp)); 
-                        Spacer(modifier = Modifier.width(8.dp)); 
-                        Text(if (isLocked) "Unlock with VIP" else "Play Now", color = Color.Black, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Button(
+                            onClick = { onPlay(movie) }, 
+                            modifier = Modifier.weight(1f).height(56.dp), 
+                            colors = ButtonDefaults.buttonColors(containerColor = Color.White),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Icon(Icons.Default.PlayArrow, null, tint = Color.Black, modifier = Modifier.size(28.dp)); 
+                            Spacer(modifier = Modifier.width(8.dp)); 
+                            Text(if (isLocked) "Unlock VIP" else "Play Now", color = Color.Black, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                        }
+                        
+                        Button(
+                            onClick = { 
+                                downloadUrlToUse = movie.videoUrl
+                                downloadTitleToUse = movie.title
+                                showDownloadDialog = true 
+                            },
+                            modifier = Modifier.height(56.dp).width(60.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF15171E)),
+                            shape = RoundedCornerShape(12.dp),
+                            contentPadding = PaddingValues(0.dp)
+                        ) {
+                            Icon(Icons.Default.Download, null, tint = Color.White)
+                        }
                     }
                 }
                 Spacer(modifier = Modifier.height(24.dp))
@@ -825,11 +892,22 @@ fun MovieDetailsScreen(movie: Movie, userVipExpiry: Long, onPlay: (Movie) -> Uni
                                     if (isLocked) onPlay(movie)
                                     else { selectedEpisode = ep; onPlay(Movie(title = "$epLabel - ${movie.title}", videoUrl = ep.url, subtitleUrl = ep.subtitleUrl, isAdult = movie.isAdult)) }
                                 }
-                                .padding(16.dp),
+                                .padding(horizontal = 16.dp, vertical = 12.dp),
                             horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(epLabel, color = if (selectedEpisode == ep) Color.Black else Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                            Icon(Icons.Default.PlayArrow, "Play", tint = if (selectedEpisode == ep) Color.Black else Color.White)
+                            
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.PlayArrow, "Play", tint = if (selectedEpisode == ep) Color.Black else Color.White)
+                                Spacer(modifier = Modifier.width(16.dp))
+                                IconButton(onClick = {
+                                    downloadUrlToUse = ep.url
+                                    downloadTitleToUse = "${movie.title} $epLabel"
+                                    showDownloadDialog = true
+                                }) {
+                                    Icon(Icons.Default.Download, "Download", tint = if (selectedEpisode == ep) Color.Black else Color.White)
+                                }
+                            }
                         }
                     }
                 }
@@ -958,6 +1036,26 @@ fun HomeScreen(theme: ThemeConfig, profileName: String, userVipExpiry: Long, onD
                 Box(modifier = Modifier.fillMaxWidth().height(260.dp).padding(bottom = 16.dp)) {
                     HorizontalPager(state = pagerState, modifier = Modifier.fillMaxSize()) { page ->
                         val movie = featuredMovies[page]
+                        
+                        val trailerExoPlayer = remember {
+                            ExoPlayer.Builder(LocalContext.current).build().apply {
+                                setMediaItem(MediaItem.fromUri(movie.videoUrl))
+                                prepare()
+                                playWhenReady = false
+                                volume = 0f
+                                repeatMode = Player.REPEAT_MODE_ONE
+                            }
+                        }
+                        
+                        LaunchedEffect(movie.id) {
+                            delay(3000)
+                            trailerExoPlayer.playWhenReady = true
+                        }
+                        
+                        DisposableEffect(movie.id) {
+                            onDispose { trailerExoPlayer.release() }
+                        }
+
                         Box(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp).clip(RoundedCornerShape(16.dp))) {
                             
                             SubcomposeAsyncImage(
@@ -967,6 +1065,17 @@ fun HomeScreen(theme: ThemeConfig, profileName: String, userVipExpiry: Long, onD
                                 modifier = Modifier.fillMaxSize(),
                                 loading = { ShimmerBox(modifier = Modifier.fillMaxSize()) },
                                 error = { Box(modifier = Modifier.fillMaxSize().background(Color(0xFF15171E))) }
+                            )
+
+                            AndroidView(
+                                factory = { ctx ->
+                                    PlayerView(ctx).apply {
+                                        player = trailerExoPlayer
+                                        useController = false
+                                        layoutParams = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
+                                    }
+                                },
+                                modifier = Modifier.fillMaxSize()
                             )
                             
                             Box(modifier = Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.8f), Color.Black))))
@@ -1189,7 +1298,6 @@ fun MyListScreen(theme: ThemeConfig, profileName: String, userVipExpiry: Long, o
     }
 }
 
-// 🔥 OPTION 3: SMART TV LIVE SCREEN
 @Composable
 fun TvLiveScreen(theme: ThemeConfig, userVipExpiry: Long, onPlayMedia: (Movie) -> Unit) {
     val db = FirebaseFirestore.getInstance()
@@ -1207,7 +1315,7 @@ fun TvLiveScreen(theme: ThemeConfig, userVipExpiry: Long, onPlayMedia: (Movie) -
                         streamUrl = doc.getString("streamUrl") ?: "", 
                         category = doc.getString("category") ?: "", 
                         isVip = doc.getBoolean("isVip") ?: false, 
-                        isFeatured = doc.getBoolean("isFeatured") ?: false // 🔥 NEW
+                        isFeatured = doc.getBoolean("isFeatured") ?: false 
                     )
                 }
             }
@@ -1220,7 +1328,6 @@ fun TvLiveScreen(theme: ThemeConfig, userVipExpiry: Long, onPlayMedia: (Movie) -
         val featuredChannels = channels.filter { it.isFeatured }.take(4)
         val displayFeatured = if (featuredChannels.isNotEmpty()) featuredChannels else channels.take(4)
 
-        // Featured Channels Row
         if (displayFeatured.isNotEmpty()) {
             Text("Featured Channels", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(start = 16.dp, top = 16.dp, bottom = 8.dp))
             LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
