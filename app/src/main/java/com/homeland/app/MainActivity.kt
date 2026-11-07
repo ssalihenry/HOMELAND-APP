@@ -75,10 +75,8 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         
-        // 🔥 CUSTOM REQUEST 1: Keep screen always on
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
-        // 🔥 CUSTOM REQUEST 2: Lock TV to Landscape
         val isTvDevice = packageManager.hasSystemFeature(PackageManager.FEATURE_LEANBACK) || 
                          (resources.configuration.uiMode and Configuration.UI_MODE_TYPE_MASK) == Configuration.UI_MODE_TYPE_TELEVISION
         if (isTvDevice) {
@@ -117,13 +115,16 @@ class MainActivity : ComponentActivity() {
                 var isAuthenticated by remember { mutableStateOf(currentUser != null) }
                 var showProfileSelector by remember { mutableStateOf(false) }
                 
+                // 🔥 MULTI-PROFILE STATE
+                var currentProfileName by remember { mutableStateOf("Me") }
+
                 val context = LocalContext.current
                 val isTv = context.packageManager.hasSystemFeature(PackageManager.FEATURE_LEANBACK) || 
                            (context.resources.configuration.uiMode and Configuration.UI_MODE_TYPE_MASK) == Configuration.UI_MODE_TYPE_TELEVISION
 
                 if (isTv) {
                     if (isAuthenticated) {
-                        HomelandApp(auth = auth, theme = appTheme, onLogout = { isAuthenticated = false }, onSwitchProfile = { })
+                        HomelandApp(auth = auth, profileName = currentProfileName, theme = appTheme, onLogout = { isAuthenticated = false }, onSwitchProfile = { })
                     } else {
                         TVLoginScreen(theme = appTheme, onLoginSuccess = { 
                             isAuthenticated = true 
@@ -132,9 +133,12 @@ class MainActivity : ComponentActivity() {
                 } else {
                     if (isAuthenticated) {
                         if (showProfileSelector) {
-                            ProfileSelectorScreen(theme = appTheme, onProfileSelected = { showProfileSelector = false })
+                            ProfileSelectorScreen(theme = appTheme, onProfileSelected = { selectedProfile -> 
+                                currentProfileName = selectedProfile
+                                showProfileSelector = false 
+                            })
                         } else {
-                            HomelandApp(auth = auth, theme = appTheme, onLogout = { isAuthenticated = false; showProfileSelector = false }, onSwitchProfile = { showProfileSelector = true })
+                            HomelandApp(auth = auth, profileName = currentProfileName, theme = appTheme, onLogout = { isAuthenticated = false; showProfileSelector = false }, onSwitchProfile = { showProfileSelector = true })
                         }
                     } else {
                         AuthScreen(auth = auth, onLoginSuccess = { isAuthenticated = true; showProfileSelector = true })
@@ -144,11 +148,8 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    // 🔥 CUSTOM REQUEST 3: Block TV Remote Back Button from minimizing (Image 2 fix)
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
         if (keyCode == KeyEvent.KEYCODE_BACK) {
-            // By returning 'true', we tell Android "We handled this button press."
-            // The Compose BackHandler inside HomelandApp will handle the navigation logic.
             return true
         }
         return super.onKeyDown(keyCode, event)
@@ -157,7 +158,7 @@ class MainActivity : ComponentActivity() {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun HomelandApp(auth: FirebaseAuth, theme: ThemeConfig, onLogout: () -> Unit, onSwitchProfile: () -> Unit) {
+fun HomelandApp(auth: FirebaseAuth, profileName: String, theme: ThemeConfig, onLogout: () -> Unit, onSwitchProfile: () -> Unit) {
     val context = LocalContext.current
     val db = FirebaseFirestore.getInstance()
     var selectedTab by remember { mutableStateOf(0) }
@@ -252,10 +253,10 @@ fun HomelandApp(auth: FirebaseAuth, theme: ThemeConfig, onLogout: () -> Unit, on
                 }
                 Box(modifier = Modifier.fillMaxSize()) {
                     when (selectedTab) {
-                        0 -> HomeScreen(theme = theme, userVipExpiry = userVipExpiry, onDetails = { viewingDetails = it })
+                        0 -> HomeScreen(theme = theme, profileName = profileName, userVipExpiry = userVipExpiry, onDetails = { viewingDetails = it })
                         1 -> TvLiveScreen(theme = theme, userVipExpiry = userVipExpiry, onPlayMedia = { currentlyPlaying = it })
-                        2 -> MyListScreen(theme = theme, userVipExpiry = userVipExpiry, onDetails = { viewingDetails = it })
-                        3 -> ProfileScreen(auth, userVipExpiry, theme, onLogout, onSwitchProfile)
+                        2 -> MyListScreen(theme = theme, profileName = profileName, userVipExpiry = userVipExpiry, onDetails = { viewingDetails = it })
+                        3 -> ProfileScreen(auth, profileName = profileName, userVipExpiry, theme, onLogout, onSwitchProfile)
                     }
                 }
             }
@@ -279,10 +280,10 @@ fun HomelandApp(auth: FirebaseAuth, theme: ThemeConfig, onLogout: () -> Unit, on
                 }
                 Box(modifier = Modifier.fillMaxSize()) {
                     when (selectedTab) {
-                        0 -> HomeScreen(theme = theme, userVipExpiry = userVipExpiry, onDetails = { viewingDetails = it })
+                        0 -> HomeScreen(theme = theme, profileName = profileName, userVipExpiry = userVipExpiry, onDetails = { viewingDetails = it })
                         1 -> TvLiveScreen(theme = theme, userVipExpiry = userVipExpiry, onPlayMedia = { currentlyPlaying = it })
-                        2 -> MyListScreen(theme = theme, userVipExpiry = userVipExpiry, onDetails = { viewingDetails = it })
-                        3 -> ProfileScreen(auth, userVipExpiry, theme, onLogout, onSwitchProfile)
+                        2 -> MyListScreen(theme = theme, profileName = profileName, userVipExpiry = userVipExpiry, onDetails = { viewingDetails = it })
+                        3 -> ProfileScreen(auth, profileName = profileName, userVipExpiry, theme, onLogout, onSwitchProfile)
                     }
                 }
             }
@@ -291,7 +292,7 @@ fun HomelandApp(auth: FirebaseAuth, theme: ThemeConfig, onLogout: () -> Unit, on
 }
 
 @Composable
-fun ProfileSelectorScreen(theme: ThemeConfig, onProfileSelected: () -> Unit) {
+fun ProfileSelectorScreen(theme: ThemeConfig, onProfileSelected: (String) -> Unit) {
     var profiles by remember { mutableStateOf(listOf("Me", "Kids", "Guest")) }
     
     Box(modifier = Modifier.fillMaxSize().background(theme.background)) {
@@ -313,7 +314,7 @@ fun ProfileSelectorScreen(theme: ThemeConfig, onProfileSelected: () -> Unit) {
                 Row(
                     modifier = Modifier
                         .padding(8.dp)
-                        .clickable { onProfileSelected() }
+                        .clickable { onProfileSelected(profile) } // 🔥 Passes the profile string now
                         .background(Color.Black.copy(alpha = 0.6f), RoundedCornerShape(8.dp))
                         .padding(16.dp)
                         .fillMaxWidth(0.6f), 
@@ -334,7 +335,7 @@ fun ProfileSelectorScreen(theme: ThemeConfig, onProfileSelected: () -> Unit) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ProfileScreen(auth: FirebaseAuth, userVipExpiry: Long, theme: ThemeConfig, onLogout: () -> Unit, onSwitchProfile: () -> Unit) {
+fun ProfileScreen(auth: FirebaseAuth, profileName: String, userVipExpiry: Long, theme: ThemeConfig, onLogout: () -> Unit, onSwitchProfile: () -> Unit) {
     val context = LocalContext.current
     var showAdminPanel by remember { mutableStateOf(false) }
     var couponCode by remember { mutableStateOf("") }
@@ -353,6 +354,8 @@ fun ProfileScreen(auth: FirebaseAuth, userVipExpiry: Long, theme: ThemeConfig, o
             Spacer(modifier = Modifier.height(16.dp))
             Text("MY PROFILE", color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Bold)
             Spacer(modifier = Modifier.height(8.dp))
+            Text("Watching as: $profileName", color = theme.primary, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+            Spacer(modifier = Modifier.height(4.dp))
             Text("Logged in as: ${auth.currentUser?.email ?: "Unknown"}", color = Color.Gray, fontSize = 14.sp)
             Spacer(modifier = Modifier.height(8.dp))
             Text("Status: ${if (isVip) "VIP Active 👑" else "Free User"}", color = if (isVip) Color(0xFFFCDC04) else Color.Gray, fontWeight = FontWeight.Bold, fontSize = 18.sp)
@@ -520,7 +523,7 @@ fun MovieDetailsScreen(movie: Movie, userVipExpiry: Long, onPlay: (Movie) -> Uni
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
-fun HomeScreen(theme: ThemeConfig, userVipExpiry: Long, onDetails: (Movie) -> Unit) {
+fun HomeScreen(theme: ThemeConfig, profileName: String, userVipExpiry: Long, onDetails: (Movie) -> Unit) {
     val db = FirebaseFirestore.getInstance()
     var movies by remember { mutableStateOf<List<Movie>>(emptyList()) }
     var featuredMovies by remember { mutableStateOf<List<Movie>>(emptyList()) }
@@ -579,9 +582,12 @@ fun HomeScreen(theme: ThemeConfig, userVipExpiry: Long, onDetails: (Movie) -> Un
         }
     }
 
-    LaunchedEffect(movies) {
+    // 🔥 MULTI-PROFILE: Filter history by profileName
+    LaunchedEffect(movies, profileName) {
         FirebaseAuth.getInstance().currentUser?.let { user ->
-            db.collection("users").document(user.uid).collection("history").get().addOnSuccessListener { historySnap ->
+            db.collection("users").document(user.uid).collection("history")
+                .whereEqualTo("profile", profileName)
+                .get().addOnSuccessListener { historySnap ->
                 val hIds = historySnap.documents.map { it.id }
                 val valid = movies.filter { it.id in hIds }
                 historyMovies = if (valid.isEmpty()) movies.take(3) else valid
@@ -617,11 +623,11 @@ fun HomeScreen(theme: ThemeConfig, userVipExpiry: Long, onDetails: (Movie) -> Un
             LazyVerticalGrid(state = gridState, columns = GridCells.Adaptive(110.dp), contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 if (historyMovies.isNotEmpty() && searchQuery.isEmpty() && selectedCategory == "All") {
                     item(span = { GridItemSpan(maxLineSpan) }) { Text(if (historyMovies.size == 3) "Top Picks For You" else "Continue Watching", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(vertical = 8.dp)) }
-                    items(historyMovies) { movie -> MovieCard(movie, theme, userVipExpiry, onDetails) }
+                    items(historyMovies) { movie -> MovieCard(movie, theme, profileName, userVipExpiry, onDetails) }
                     item(span = { GridItemSpan(maxLineSpan) }) { Text("Trending Now", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(vertical = 8.dp)) }
                 }
                 val filtered = movies.filter { it.title.contains(searchQuery, true) && (selectedCategory == "All" || it.category == selectedCategory) }
-                items(filtered) { movie -> MovieCard(movie, theme, userVipExpiry, onDetails) }
+                items(filtered) { movie -> MovieCard(movie, theme, profileName, userVipExpiry, onDetails) }
                 
                 if (isFetchingMore) {
                     item(span = { GridItemSpan(maxLineSpan) }) {
@@ -636,17 +642,20 @@ fun HomeScreen(theme: ThemeConfig, userVipExpiry: Long, onDetails: (Movie) -> Un
 }
 
 @Composable
-fun MovieCard(movie: Movie, theme: ThemeConfig, userVipExpiry: Long, onDetails: (Movie) -> Unit) {
+fun MovieCard(movie: Movie, theme: ThemeConfig, profileName: String, userVipExpiry: Long, onDetails: (Movie) -> Unit) {
     val db = FirebaseFirestore.getInstance()
     val uid = FirebaseAuth.getInstance().currentUser?.uid
     var isFav by remember { mutableStateOf(false) }
     val isLocked = movie.isVip && userVipExpiry < System.currentTimeMillis()
     var isFocused by remember { mutableStateOf(false) }
 
-    LaunchedEffect(uid) {
+    // 🔥 MULTI-PROFILE FAVORITES: Read from the map
+    LaunchedEffect(uid, profileName) {
         if (uid != null) {
             db.collection("users").document(uid).get().addOnSuccessListener { doc ->
-                isFav = (doc.get("favorites") as? List<String> ?: emptyList()).contains(movie.id)
+                val favMap = doc.get("favorites") as? Map<*, *>
+                val profileFavs = (favMap?.get(profileName) as? List<*>)?.map { it.toString() } ?: emptyList()
+                isFav = profileFavs.contains(movie.id)
             }
         }
     }
@@ -671,8 +680,10 @@ fun MovieCard(movie: Movie, theme: ThemeConfig, userVipExpiry: Long, onDetails: 
             }
             IconButton(onClick = { 
                 if (uid != null) {
-                    if (isFav) db.collection("users").document(uid).update("favorites", FieldValue.arrayRemove(movie.id))
-                    else db.collection("users").document(uid).update("favorites", FieldValue.arrayUnion(movie.id))
+                    // 🔥 MULTI-PROFILE FAVORITES: Write to the specific profile key in the map
+                    val dbRef = db.collection("users").document(uid)
+                    if (isFav) dbRef.update("favorites.$profileName", FieldValue.arrayRemove(movie.id))
+                    else dbRef.update("favorites.$profileName", FieldValue.arrayUnion(movie.id))
                     isFav = !isFav
                 }
             }, modifier = Modifier.align(Alignment.TopEnd).padding(4.dp)) {
@@ -686,29 +697,32 @@ fun MovieCard(movie: Movie, theme: ThemeConfig, userVipExpiry: Long, onDetails: 
 }
 
 @Composable
-fun MyListScreen(theme: ThemeConfig, userVipExpiry: Long, onDetails: (Movie) -> Unit) {
+fun MyListScreen(theme: ThemeConfig, profileName: String, userVipExpiry: Long, onDetails: (Movie) -> Unit) {
     val db = FirebaseFirestore.getInstance()
     val uid = FirebaseAuth.getInstance().currentUser?.uid
     var favMovies by remember { mutableStateOf<List<Movie>>(emptyList()) }
 
-    LaunchedEffect(uid) {
+    // 🔥 MULTI-PROFILE MY LIST
+    LaunchedEffect(uid, profileName) {
         if (uid != null) {
             db.collection("users").document(uid).addSnapshotListener { doc, _ ->
-                val favs = doc?.get("favorites") as? List<String> ?: emptyList()
+                val favMap = doc?.get("favorites") as? Map<*, *>
+                val profileFavs = (favMap?.get(profileName) as? List<*>)?.map { it.toString() } ?: emptyList()
+                
                 db.collection("homeland_movies").get().addOnSuccessListener { snap ->
                     favMovies = snap.documents.mapNotNull { 
                         Movie(id = it.id, title = it.getString("title") ?: "", poster = it.getString("poster") ?: "", videoUrl = it.getString("videoUrl") ?: "", videoTag = it.getString("videoTag") ?: "", year = it.getString("year") ?: "", isVip = it.getBoolean("isVip") ?: false) 
-                    }.filter { it.id in favs }
+                    }.filter { it.id in profileFavs }
                 }
             }
         }
     }
 
     Column(modifier = Modifier.fillMaxSize().padding(16.dp).systemBarsPadding()) {
-        Text("My List", color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 16.dp))
+        Text("My List ($profileName)", color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 16.dp))
         if (favMovies.isEmpty()) Text("Your list is empty. Add favorites from Home.", color = Color.Gray)
         else LazyVerticalGrid(columns = GridCells.Adaptive(110.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            items(favMovies) { movie -> MovieCard(movie, theme, userVipExpiry, onDetails) }
+            items(favMovies) { movie -> MovieCard(movie, theme, profileName, userVipExpiry, onDetails) }
         }
     }
 }
