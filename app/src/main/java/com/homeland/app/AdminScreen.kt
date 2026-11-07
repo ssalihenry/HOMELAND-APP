@@ -1,5 +1,6 @@
 package com.homeland.app
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -49,7 +50,7 @@ fun AdminScreen(onBack: () -> Unit) {
     var selectedType by remember { mutableStateOf("Movie") }
     var isVipMovie by remember { mutableStateOf(false) }
     var isFeaturedMovie by remember { mutableStateOf(false) }
-    var isAdultMovie by remember { mutableStateOf(false) } // 🔥 18+ STATE
+    var isAdultMovie by remember { mutableStateOf(false) }
     var episodesList by remember { mutableStateOf<List<Episode>>(emptyList()) }
     
     var catExpanded by remember { mutableStateOf(false) }
@@ -183,7 +184,6 @@ fun AdminScreen(onBack: () -> Unit) {
                 Text("Featured Banner", color = Color.White)
             }
             
-            // 🔥 18+ CHECKBOX
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 8.dp)) {
                 Checkbox(checked = isAdultMovie, onCheckedChange = { isAdultMovie = it }, colors = CheckboxDefaults.colors(checkedColor = Color.Red))
                 Icon(Icons.Default.Warning, contentDescription = "18+", tint = Color.Red, modifier = Modifier.size(16.dp))
@@ -286,6 +286,46 @@ fun AdminScreen(onBack: () -> Unit) {
             }
 
         } else if (selectedTab == 2) {
+            
+            // 🔥 VIP EXPIRY TRACKER (Expiring in next 3 days)
+            val now = System.currentTimeMillis()
+            val threeDaysFromNow = now + (3 * 24 * 60 * 60 * 1000L)
+            
+            val expiringSoonUsers = allUsers.filter { it.vipExpiry > now && it.vipExpiry <= threeDaysFromNow }
+                .sortedBy { it.vipExpiry }
+
+            if (expiringSoonUsers.isNotEmpty()) {
+                Card(
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFF2D1B1B)),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, Color.Red)
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Warning, contentDescription = "Warning", tint = Color.Red)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("VIP Expiring Soon", color = Color.Red, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                        }
+                        Text("These users expire in the next 3 days. Message them to renew!", color = Color.Gray, fontSize = 12.sp, modifier = Modifier.padding(bottom = 8.dp))
+                        
+                        expiringSoonUsers.forEach { user ->
+                            val timeLeft = user.vipExpiry - now
+                            val daysLeft = timeLeft / (1000 * 60 * 60 * 24)
+                            val hoursLeft = (timeLeft % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60)
+                            val timeText = if (daysLeft > 0) "${daysLeft}d ${hoursLeft}h left" else "${hoursLeft}h left"
+                            
+                            Row(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Text(user.email, color = Color.White, fontSize = 12.sp, modifier = Modifier.weight(1f))
+                                Text(timeText, color = Color.Red, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                            }
+                        }
+                    }
+                }
+            } else {
+                Text("✅ No users are expiring in the next 3 days.", color = Color.Green, fontSize = 12.sp, modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp))
+            }
+            // END VIP EXPIRY TRACKER
+
             Text("Generate VIP Coupon", color = Color.White, fontWeight = FontWeight.Bold)
             Row(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                 OutlinedTextField(value = couponDays, onValueChange = { couponDays = it }, label = { Text("Days") }, modifier = Modifier.weight(1f), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White))
