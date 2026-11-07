@@ -37,9 +37,11 @@ import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -53,6 +55,7 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -637,6 +640,47 @@ fun DownloadsScreen(theme: ThemeConfig, onBack: () -> Unit, onPlay: (Movie) -> U
     }
 }
 
+// --- NEW PROFILE SCREEN COMPONENTS ---
+
+@Composable
+fun QuickActionButton(icon: ImageVector, label: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    Column(
+        modifier = modifier
+            .clip(RoundedCornerShape(12.dp))
+            .background(Color(0xFF15171E).copy(alpha = 0.8f))
+            .clickable { onClick() }
+            .padding(vertical = 12.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Icon(icon, contentDescription = label, tint = Color.White, modifier = Modifier.size(24.dp))
+        Spacer(modifier = Modifier.height(6.dp))
+        Text(label, color = Color.LightGray, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    }
+}
+
+@Composable
+fun SettingsRow(
+    icon: ImageVector,
+    title: String,
+    onClick: () -> Unit,
+    iconTint: Color = Color.White,
+    titleColor: Color = Color.White
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onClick() }
+            .padding(16.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(icon, contentDescription = title, tint = iconTint, modifier = Modifier.size(22.dp))
+        Spacer(modifier = Modifier.width(16.dp))
+        Text(title, color = titleColor, fontSize = 15.sp, fontWeight = FontWeight.Medium)
+        Spacer(modifier = Modifier.weight(1f))
+        Icon(Icons.Default.KeyboardArrowRight, contentDescription = "Go", tint = Color.Gray, modifier = Modifier.size(20.dp))
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ProfileScreen(auth: FirebaseAuth, profileName: String, userVipExpiry: Long, theme: ThemeConfig, savedPin: String?, onLogout: () -> Unit, onSwitchProfile: () -> Unit, onPlay: (Movie) -> Unit) {
@@ -648,87 +692,162 @@ fun ProfileScreen(auth: FirebaseAuth, profileName: String, userVipExpiry: Long, 
 
     var showTvDialog by remember { mutableStateOf(false) }
     var tvCodeInput by remember { mutableStateOf("") }
-
     var showPinDialog by remember { mutableStateOf(false) }
     var newPinInput by remember { mutableStateOf("") }
+    var showCouponDialog by remember { mutableStateOf(false) }
+    
     val prefs = remember { context.getSharedPreferences("homeland_prefs", Context.MODE_PRIVATE) }
+
+    // Fetch History for Continue Watching
+    var profileHistory by remember { mutableStateOf<List<Movie>>(emptyList()) }
+    LaunchedEffect(profileName) {
+        val uid = auth.currentUser?.uid ?: return@LaunchedEffect
+        val db = FirebaseFirestore.getInstance()
+        db.collection("users").document(uid).collection("history")
+            .whereEqualTo("profile", profileName)
+            .get().addOnSuccessListener { snap ->
+                val ids = snap.documents.map { it.id }
+                db.collection("homeland_movies").limit(20).get().addOnSuccessListener { moviesSnap ->
+                    profileHistory = moviesSnap.documents.mapNotNull {
+                        val m = Movie(id = it.id, title = it.getString("title") ?: "", poster = it.getString("poster") ?: "", videoUrl = it.getString("videoUrl") ?: "", isVip = it.getBoolean("isVip") ?: false)
+                        if (m.id in ids) m else null
+                    }
+                }
+            }
+    }
 
     if (showAdminPanel) {
         AdminScreen(onBack = { showAdminPanel = false })
     } else if (showDownloads) {
         DownloadsScreen(theme = theme, onBack = { showDownloads = false }, onPlay = onPlay)
     } else {
-        Column(modifier = Modifier.fillMaxSize().padding(24.dp).systemBarsPadding(), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
-            Box(modifier = Modifier.size(100.dp).clip(CircleShape).background(Color(0xFF15171E)).clickable { Toast.makeText(context, "Tap to change avatar", Toast.LENGTH_SHORT).show() }, contentAlignment = Alignment.Center) {
-                Icon(Icons.Default.Person, "Avatar", tint = theme.primary, modifier = Modifier.size(60.dp))
-            }
-            Spacer(modifier = Modifier.height(16.dp))
-            Text("MY PROFILE", color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Bold)
-            Spacer(modifier = Modifier.height(8.dp))
-            Text("Watching as: $profileName", color = theme.primary, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-            Spacer(modifier = Modifier.height(4.dp))
-            Text("Logged in as: ${auth.currentUser?.email ?: "Unknown"}", color = Color.Gray, fontSize = 14.sp)
-            Spacer(modifier = Modifier.height(8.dp))
-            Text("Status: ${if (isVip) "VIP Active 👑" else "Free User"}", color = if (isVip) Color(0xFFFCDC04) else Color.Gray, fontWeight = FontWeight.Bold, fontSize = 18.sp)
-            
-            Spacer(modifier = Modifier.height(20.dp))
-            Button(onClick = onSwitchProfile, colors = ButtonDefaults.buttonColors(containerColor = Color.DarkGray), modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp)) {
-                Icon(Icons.Default.SwitchAccount, null); Spacer(modifier = Modifier.width(8.dp)); Text("Switch Profile")
+        Box(modifier = Modifier.fillMaxSize()) {
+            if (theme.bgImageUrl.isNotEmpty()) {
+                AsyncImage(model = theme.bgImageUrl, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+                Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.6f)))
+            } else {
+                Box(modifier = Modifier.fillMaxSize().background(theme.background))
             }
 
-            Button(onClick = { showDownloads = true }, colors = ButtonDefaults.buttonColors(containerColor = Color.DarkGray), modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp)) {
-                Icon(Icons.Default.Download, null); Spacer(modifier = Modifier.width(8.dp)); Text("My Downloads")
-            }
-
-            Button(
-                onClick = { showPinDialog = true },
-                colors = ButtonDefaults.buttonColors(containerColor = if (savedPin != null) Color(0xFF25D366) else Color.DarkGray),
-                modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp)
+            Column(
+                modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp).systemBarsPadding(),
+                horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Icon(if (savedPin != null) Icons.Default.Lock else Icons.Default.LockOpen, null)
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(if (savedPin != null) "Remove App Lock" else "Setup App Lock (PIN)")
-            }
+                Spacer(modifier = Modifier.height(24.dp))
+                
+                Box(
+                    modifier = Modifier.size(100.dp).clip(CircleShape).background(Color(0xFF15171E)).border(3.dp, theme.primary, CircleShape),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(Icons.Default.Person, "Avatar", tint = theme.primary, modifier = Modifier.size(60.dp))
+                }
+                
+                Spacer(modifier = Modifier.height(16.dp))
+                
+                Text(auth.currentUser?.email?.split("@")?.getOrNull(0) ?: "User", color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Black)
+                Text("Watching as: $profileName", color = theme.primary, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                Text("Status: ${if (isVip) "VIP Active 👑" else "Free User"}", color = if (isVip) Color(0xFFFCDC04) else Color.Gray, fontWeight = FontWeight.Bold, fontSize = 14.sp, modifier = Modifier.padding(top = 4.dp))
 
-            Button(onClick = { showTvDialog = true }, colors = ButtonDefaults.buttonColors(containerColor = Color.DarkGray), modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp)) {
-                Icon(Icons.Default.Tv, null); Spacer(modifier = Modifier.width(8.dp)); Text("Login on TV")
-            }
+                Spacer(modifier = Modifier.height(24.dp))
 
-            if (!isVip) {
-                Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    OutlinedTextField(value = couponCode, onValueChange = { couponCode = it }, placeholder = { Text("Coupon Code") }, modifier = Modifier.weight(1f), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White))
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                    QuickActionButton(icon = Icons.Default.Star, label = "VIP Plans", modifier = Modifier.weight(1f), onClick = {
+                        if (!isVip) {
+                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://wa.me/$WHATSAPP_NUMBER?text=Hi, I want to subscribe to Homeland VIP."))
+                            context.startActivity(intent)
+                        } else {
+                            Toast.makeText(context, "You are already VIP!", Toast.LENGTH_SHORT).show()
+                        }
+                    })
                     Spacer(modifier = Modifier.width(8.dp))
-                    Button(onClick = {
-                        val db = FirebaseFirestore.getInstance()
-                        db.collection("homeland_coupons").whereEqualTo("code", couponCode.trim()).whereEqualTo("isUsed", false).get().addOnSuccessListener { snap ->
-                            if (!snap.isEmpty) {
-                                val doc = snap.documents[0]
-                                val days = doc.getLong("days") ?: 7L
-                                val uid = auth.currentUser?.uid ?: return@addOnSuccessListener
-                                db.collection("users").document(uid).update("vipExpiry", System.currentTimeMillis() + (days * 24 * 60 * 60 * 1000L))
-                                db.collection("homeland_coupons").document(doc.id).update("isUsed", true)
-                                Toast.makeText(context, "Success! You are now VIP.", Toast.LENGTH_LONG).show()
-                                couponCode = ""
-                            } else {
-                                Toast.makeText(context, "Invalid or used code.", Toast.LENGTH_SHORT).show()
+                    QuickActionButton(icon = Icons.Default.Download, label = "Downloads", modifier = Modifier.weight(1f), onClick = { showDownloads = true })
+                    Spacer(modifier = Modifier.width(8.dp))
+                    QuickActionButton(icon = Icons.Default.Tv, label = "Login TV", modifier = Modifier.weight(1f), onClick = { showTvDialog = true })
+                    Spacer(modifier = Modifier.width(8.dp))
+                    QuickActionButton(icon = Icons.Default.SwitchAccount, label = "Profiles", modifier = Modifier.weight(1f), onClick = onSwitchProfile)
+                }
+
+                Spacer(modifier = Modifier.height(24.dp))
+
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFF15171E).copy(alpha = 0.9f)),
+                    shape = RoundedCornerShape(16.dp)
+                ) {
+                    Column {
+                        SettingsRow(icon = Icons.Default.Lock, title = if (savedPin != null) "App Lock (Enabled)" else "Setup App Lock", onClick = { showPinDialog = true })
+                        HorizontalDivider(color = Color.White.copy(alpha = 0.05f))
+                        
+                        if (!isVip) {
+                            SettingsRow(icon = Icons.Default.ConfirmationNumber, title = "Redeem Coupon", onClick = { showCouponDialog = true })
+                            HorizontalDivider(color = Color.White.copy(alpha = 0.05f))
+                        }
+                        
+                        if (auth.currentUser?.email == ADMIN_EMAIL) {
+                            SettingsRow(icon = Icons.Default.AdminPanelSettings, title = "Admin Panel", onClick = { showAdminPanel = true }, iconTint = theme.primary, titleColor = theme.primary)
+                            HorizontalDivider(color = Color.White.copy(alpha = 0.05f))
+                        }
+                        
+                        SettingsRow(icon = Icons.Default.Logout, title = "Log Out", onClick = { auth.signOut(); onLogout() }, iconTint = Color.Red, titleColor = Color.Red)
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(24.dp))
+
+                if (profileHistory.isNotEmpty()) {
+                    Text("Continue Watching", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.align(Alignment.Start).padding(bottom = 8.dp))
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        items(profileHistory) { movie ->
+                            Box(modifier = Modifier.width(110.dp)) {
+                                MovieCard(movie = movie, theme = theme, profileName = profileName, userVipExpiry = userVipExpiry, onDetails = { onPlay(it) })
                             }
                         }
-                    }, colors = ButtonDefaults.buttonColors(containerColor = theme.primary)) { Text("Redeem") }
+                    }
                 }
-                Spacer(modifier = Modifier.height(20.dp))
-                Button(onClick = { 
-                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://wa.me/$WHATSAPP_NUMBER?text=Hi, I want to subscribe to Homeland VIP."))
-                    context.startActivity(intent)
-                }, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF25D366)), modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp)) {
-                    Icon(Icons.Default.Whatsapp, null); Spacer(modifier = Modifier.width(8.dp)); Text("Subscribe via WhatsApp")
-                }
+                
+                Spacer(modifier = Modifier.height(100.dp))
             }
-
-            if (auth.currentUser?.email == ADMIN_EMAIL) {
-                Button(onClick = { showAdminPanel = true }, colors = ButtonDefaults.buttonColors(containerColor = theme.primary), modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp)) { Text("Open Admin Panel") }
-            }
-            Button(onClick = { auth.signOut(); onLogout() }, colors = ButtonDefaults.buttonColors(containerColor = Color.DarkGray), modifier = Modifier.fillMaxWidth()) { Text("Log Out") }
         }
+    }
+
+    if (showCouponDialog) {
+        AlertDialog(
+            onDismissRequest = { showCouponDialog = false },
+            title = { Text("Redeem Coupon", color = Color.White) },
+            text = {
+                OutlinedTextField(
+                    value = couponCode, 
+                    onValueChange = { couponCode = it }, 
+                    placeholder = { Text("Enter Code") }, 
+                    modifier = Modifier.fillMaxWidth(), 
+                    colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White)
+                )
+            },
+            confirmButton = {
+                Button(onClick = {
+                    val db = FirebaseFirestore.getInstance()
+                    db.collection("homeland_coupons").whereEqualTo("code", couponCode.trim()).whereEqualTo("isUsed", false).get().addOnSuccessListener { snap ->
+                        if (!snap.isEmpty) {
+                            val doc = snap.documents[0]
+                            val days = doc.getLong("days") ?: 7L
+                            val uid = auth.currentUser?.uid ?: return@addOnSuccessListener
+                            db.collection("users").document(uid).update("vipExpiry", System.currentTimeMillis() + (days * 24 * 60 * 60 * 1000L))
+                            db.collection("homeland_coupons").document(doc.id).update("isUsed", true)
+                            Toast.makeText(context, "Success! You are now VIP.", Toast.LENGTH_LONG).show()
+                            couponCode = ""
+                            showCouponDialog = false
+                            onSwitchProfile() 
+                        } else {
+                            Toast.makeText(context, "Invalid or used code.", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                }, colors = ButtonDefaults.buttonColors(containerColor = theme.primary)) { Text("Redeem") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showCouponDialog = false }) { Text("Cancel", color = Color.Gray) }
+            },
+            containerColor = Color(0xFF15171E)
+        )
     }
 
     if (showPinDialog) {
