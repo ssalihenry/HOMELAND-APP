@@ -1195,7 +1195,15 @@ fun TvLiveScreen(theme: ThemeConfig, userVipExpiry: Long, onPlayMedia: (Movie) -
         val listener = db.collection("homeland_tv").orderBy("name", Query.Direction.ASCENDING).addSnapshotListener { snapshot, _ ->
             if (snapshot != null) {
                 channels = snapshot.documents.mapNotNull { doc ->
-                    TvChannel(id = doc.id, name = doc.getString("name") ?: "", logo = doc.getString("logo") ?: "", streamUrl = doc.getString("streamUrl") ?: "", category = doc.getString("category") ?: "", isVip = doc.getBoolean("isVip") ?: false)
+                    TvChannel(
+                        id = doc.id, 
+                        name = doc.getString("name") ?: "", 
+                        logo = doc.getString("logo") ?: "", 
+                        streamUrl = doc.getString("streamUrl") ?: "", 
+                        category = doc.getString("category") ?: "", 
+                        isVip = doc.getBoolean("isVip") ?: false, 
+                        isFeatured = doc.getBoolean("isFeatured") ?: false // 🔥 NEW
+                    )
                 }
             }
         }
@@ -1204,11 +1212,14 @@ fun TvLiveScreen(theme: ThemeConfig, userVipExpiry: Long, onPlayMedia: (Movie) -
 
     Column(modifier = Modifier.fillMaxSize().systemBarsPadding()) {
         
+        val featuredChannels = channels.filter { it.isFeatured }.take(4)
+        val displayFeatured = if (featuredChannels.isNotEmpty()) featuredChannels else channels.take(4)
+
         // Featured Channels Row
-        if (channels.isNotEmpty()) {
+        if (displayFeatured.isNotEmpty()) {
             Text("Featured Channels", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(start = 16.dp, top = 16.dp, bottom = 8.dp))
             LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                items(channels.take(4)) { channel ->
+                items(displayFeatured) { channel ->
                     Box(
                         modifier = Modifier
                             .width(200.dp)
@@ -1252,7 +1263,7 @@ fun TvLiveScreen(theme: ThemeConfig, userVipExpiry: Long, onPlayMedia: (Movie) -
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(160.dp) // Taller Cards
+                            .height(160.dp)
                             .clip(RoundedCornerShape(16.dp))
                             .onFocusChanged { isFocused = it.isFocused }
                             .border(if (isFocused) 3.dp else 0.dp, Color.White, RoundedCornerShape(16.dp)) 
@@ -1273,7 +1284,6 @@ fun TvLiveScreen(theme: ThemeConfig, userVipExpiry: Long, onPlayMedia: (Movie) -
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(channel.name, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         
-                        // Blinking LIVE Dot
                         val infiniteTransition = rememberInfiniteTransition(label = "blink")
                         val alpha by infiniteTransition.animateFloat(
                             initialValue = 1f, targetValue = 0.2f,
