@@ -1,7 +1,10 @@
 package com.homeland.app
 
 import android.app.Activity
+import android.app.PictureInPictureParams
 import android.content.pm.ActivityInfo
+import android.os.Build
+import android.util.Rational
 import android.view.ViewGroup
 import android.widget.FrameLayout
 import androidx.annotation.OptIn
@@ -10,7 +13,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.focusable // 🔥 FIXED IMPORT HERE
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -23,7 +26,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.key.* // Imports Key, KeyEvent, onKeyEvent
+import androidx.compose.ui.input.key.*
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -64,13 +67,14 @@ fun PlayerScreen(
     var showQualityMenu by remember { mutableStateOf(false) }
     var showAspectMenu by remember { mutableStateOf(false) }
 
+    // 🔥 DATA METER STATE
+    var dataUsedMb by remember { mutableDoubleStateOf(0.0) }
+
     val trackSelector = remember { DefaultTrackSelector(context) }
     var currentQuality by remember { mutableStateOf("Auto") }
 
-    // 🔥 TV REMOTE FOCUS
     val focusRequester = remember { FocusRequester() }
 
-    // Build Playlist
     val exoPlayer = remember {
         ExoPlayer.Builder(context)
             .setTrackSelector(trackSelector)
@@ -90,13 +94,12 @@ fun PlayerScreen(
             }
     }
 
-    // Auto-play Next Episode handling
     LaunchedEffect(exoPlayer) {
         val listener = object : Player.Listener {
             override fun onIsPlayingChanged(playing: Boolean) { isPlaying = playing }
             override fun onPlaybackStateChanged(state: Int) {
                 if (state == Player.STATE_ENDED) {
-                    // Auto-play next episode logic is handled by ExoPlayer's playlist natively if setMediaItems was used
+                    // Auto-play next episode logic handled by playlist
                 }
             }
         }
@@ -109,6 +112,20 @@ fun PlayerScreen(
         }
     }
 
+    // 🔥 DATA METER CALCULATION LOOP
+    LaunchedEffect(exoPlayer) {
+        while (true) {
+            if (exoPlayer.isPlaying) {
+                // Get current bitrate, fallback to 1.5 Mbps if unknown
+                val currentBitrate = exoPlayer.videoFormat?.bitrate ?: 1500000 
+                val bytesPerSecond = currentBitrate / 8
+                val mbPerSecond = bytesPerSecond.toDouble() / (1024 * 1024)
+                dataUsedMb += mbPerSecond
+            }
+            delay(1000) // Update every second
+        }
+    }
+
     LaunchedEffect(showControls, isPlaying) {
         if (showControls && isPlaying) {
             delay(3000)
@@ -116,7 +133,6 @@ fun PlayerScreen(
         }
     }
 
-    // 🔥 REQUEST FOCUS FOR TV REMOTE
     LaunchedEffect(Unit) {
         focusRequester.requestFocus()
     }
@@ -134,7 +150,6 @@ fun PlayerScreen(
             .background(Color.Black)
             .focusRequester(focusRequester)
             .focusable()
-            // 🔥 HANDLE TV REMOTE BUTTONS HERE (Explicit KeyEvent type added)
             .onKeyEvent { keyEvent: KeyEvent ->
                 if (keyEvent.type == KeyEventType.KeyDown) {
                     when (keyEvent.key) {
@@ -144,12 +159,12 @@ fun PlayerScreen(
                             true
                         }
                         Key.MediaFastForward, Key.DirectionRight -> {
-                            exoPlayer.seekTo(exoPlayer.currentPosition + 10000) // Skip forward 10s
+                            exoPlayer.seekTo(exoPlayer.currentPosition + 10000)
                             showControls = true
                             true
                         }
                         Key.MediaRewind, Key.DirectionLeft -> {
-                            exoPlayer.seekTo((exoPlayer.currentPosition - 10000).coerceAtLeast(0)) // Skip back 10s
+                            exoPlayer.seekTo((exoPlayer.currentPosition - 10000).coerceAtLeast(0))
                             showControls = true
                             true
                         }
@@ -181,6 +196,23 @@ fun PlayerScreen(
 
         AnimatedVisibility(visible = showControls, enter = fadeIn(), exit = fadeOut(), modifier = Modifier.fillMaxSize()) {
             Box(modifier = Modifier.fillMaxSize().safeDrawingPadding()) {
+                
+                // 🔥 DATA METER OVERLAY (Top Left)
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(16.dp)
+                        .background(Color.Black.copy(alpha = 0.6f), RoundedCornerShape(8.dp))
+                        .padding(horizontal = 10.dp, vertical = 6.dp)
+                ) {
+                    Text(
+                        text = String.format("%.1f MB", dataUsedMb),
+                        color = Color(0xFF10B981), // Green text
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+
                 Row(
                     modifier = Modifier.fillMaxWidth().background(Color.Black.copy(alpha = 0.6f), RoundedCornerShape(bottomStart = 16.dp, bottomEnd = 16.dp)).padding(horizontal = 16.dp, vertical = 12.dp).align(Alignment.TopCenter),
                     verticalAlignment = Alignment.CenterVertically
@@ -207,16 +239,12 @@ fun PlayerScreen(
                     Spacer(modifier = Modifier.height(16.dp))
                     
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
-                        // Subtitles Toggle
                         if (subtitleUrl != null) {
-                            IconButton(onClick = { 
-                                subtitlesEnabled = !subtitlesEnabled
-                            }) { 
+                            IconButton(onClick = { subtitlesEnabled = !subtitlesEnabled }) { 
                                 Icon(Icons.Default.ClosedCaption, "CC", tint = if (subtitlesEnabled) Color(0xFFE50914) else Color.White) 
                             }
                         }
 
-                        // Speed Menu
                         Box {
                             IconButton(onClick = { showSpeedMenu = !showSpeedMenu; showQualityMenu = false; showAspectMenu = false }) { Icon(Icons.Default.Speed, "Speed", tint = Color.White) }
                             DropdownMenu(expanded = showSpeedMenu, onDismissRequest = { showSpeedMenu = false }, modifier = Modifier.background(Color(0xFF15171E))) {
@@ -224,7 +252,6 @@ fun PlayerScreen(
                             }
                         }
 
-                        // Quality Menu
                         Box {
                             IconButton(onClick = { showQualityMenu = !showQualityMenu; showSpeedMenu = false; showAspectMenu = false }) { Icon(Icons.Default.HighQuality, "Quality", tint = Color.White) }
                             DropdownMenu(expanded = showQualityMenu, onDismissRequest = { showQualityMenu = false }, modifier = Modifier.background(Color(0xFF15171E))) {
@@ -243,7 +270,6 @@ fun PlayerScreen(
                             }
                         }
 
-                        // Aspect Ratio
                         Box {
                             IconButton(onClick = { showAspectMenu = !showAspectMenu; showSpeedMenu = false; showQualityMenu = false }) { Icon(Icons.Default.AspectRatio, "Aspect", tint = Color.White) }
                             DropdownMenu(expanded = showAspectMenu, onDismissRequest = { showAspectMenu = false }, modifier = Modifier.background(Color(0xFF15171E))) {
@@ -256,7 +282,19 @@ fun PlayerScreen(
                             }
                         }
 
-                        // Fullscreen
+                        // 🔥 PIP BUTTON
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                            IconButton(onClick = {
+                                val aspectRatio = Rational(16, 9)
+                                val params = PictureInPictureParams.Builder()
+                                    .setAspectRatio(aspectRatio)
+                                    .build()
+                                activity?.enterPictureInPictureMode(params)
+                            }) { 
+                                Icon(Icons.Default.PictureInPicture, "PiP", tint = Color.White) 
+                            }
+                        }
+
                         IconButton(onClick = {
                             if (isLandscape) activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
                             else activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
