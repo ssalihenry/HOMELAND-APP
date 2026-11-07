@@ -39,6 +39,7 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
@@ -451,12 +452,20 @@ fun HomelandApp(auth: FirebaseAuth, profileName: String, theme: ThemeConfig, sav
         }
     } else {
         Scaffold(
+            // 🔥 OPTION 2: GLASSMORPHISM BOTTOM BAR
             bottomBar = {
-                NavigationBar(containerColor = Color(0xFF15171E)) {
-                    NavigationBarItem(selected = selectedTab == 0, onClick = { selectedTab = 0 }, icon = { Icon(Icons.Default.Home, "Home") }, label = { Text("Home") }, colors = NavigationBarItemDefaults.colors(selectedIconColor = theme.primary, selectedTextColor = theme.primary, unselectedIconColor = Color.Gray, unselectedTextColor = Color.Gray))
-                    NavigationBarItem(selected = selectedTab == 1, onClick = { selectedTab = 1 }, icon = { Icon(Icons.Default.Tv, "TV Live") }, label = { Text("TV Live") }, colors = NavigationBarItemDefaults.colors(selectedIconColor = theme.primary, selectedTextColor = theme.primary, unselectedIconColor = Color.Gray, unselectedTextColor = Color.Gray))
-                    NavigationBarItem(selected = selectedTab == 2, onClick = { selectedTab = 2 }, icon = { Icon(Icons.Default.Favorite, "My List") }, label = { Text("My List") }, colors = NavigationBarItemDefaults.colors(selectedIconColor = theme.primary, selectedTextColor = theme.primary, unselectedIconColor = Color.Gray, unselectedTextColor = Color.Gray))
-                    NavigationBarItem(selected = selectedTab == 3, onClick = { selectedTab = 3 }, icon = { Icon(Icons.Default.Person, "Profile") }, label = { Text("Profile") }, colors = NavigationBarItemDefaults.colors(selectedIconColor = theme.primary, selectedTextColor = theme.primary, unselectedIconColor = Color.Gray, unselectedTextColor = Color.Gray))
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(Color(0xFF0B0C10).copy(alpha = 0.94f))
+                        .border(width = 1.dp, color = Color.White.copy(alpha = 0.08f), shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp))
+                ) {
+                    NavigationBar(containerColor = Color.Transparent) {
+                        NavigationBarItem(selected = selectedTab == 0, onClick = { selectedTab = 0 }, icon = { Icon(Icons.Default.Home, "Home") }, label = { Text("Home") }, colors = NavigationBarItemDefaults.colors(selectedIconColor = theme.primary, selectedTextColor = theme.primary, unselectedIconColor = Color.Gray, unselectedTextColor = Color.Gray, indicatorColor = theme.primary.copy(alpha = 0.2f)))
+                        NavigationBarItem(selected = selectedTab == 1, onClick = { selectedTab = 1 }, icon = { Icon(Icons.Default.Tv, "TV Live") }, label = { Text("TV Live") }, colors = NavigationBarItemDefaults.colors(selectedIconColor = theme.primary, selectedTextColor = theme.primary, unselectedIconColor = Color.Gray, unselectedTextColor = Color.Gray, indicatorColor = theme.primary.copy(alpha = 0.2f)))
+                        NavigationBarItem(selected = selectedTab == 2, onClick = { selectedTab = 2 }, icon = { Icon(Icons.Default.Favorite, "My List") }, label = { Text("My List") }, colors = NavigationBarItemDefaults.colors(selectedIconColor = theme.primary, selectedTextColor = theme.primary, unselectedIconColor = Color.Gray, unselectedTextColor = Color.Gray, indicatorColor = theme.primary.copy(alpha = 0.2f)))
+                        NavigationBarItem(selected = selectedTab == 3, onClick = { selectedTab = 3 }, icon = { Icon(Icons.Default.Person, "Profile") }, label = { Text("Profile") }, colors = NavigationBarItemDefaults.colors(selectedIconColor = theme.primary, selectedTextColor = theme.primary, unselectedIconColor = Color.Gray, unselectedTextColor = Color.Gray, indicatorColor = theme.primary.copy(alpha = 0.2f)))
+                    }
                 }
             }
         ) { paddingValues ->
@@ -724,60 +733,99 @@ fun ProfileScreen(auth: FirebaseAuth, profileName: String, userVipExpiry: Long, 
     }
 }
 
+// 🔥 OPTION 1: NETFLIX CINEMATIC MOVIE DETAILS SCREEN
 @Composable
 fun MovieDetailsScreen(movie: Movie, userVipExpiry: Long, onPlay: (Movie) -> Unit, onBack: () -> Unit) {
     val isLocked = movie.isVip && userVipExpiry < System.currentTimeMillis()
     val isSeries = movie.episodes.isNotEmpty()
     var selectedEpisode by remember { mutableStateOf<Episode?>(null) }
 
-    Column(modifier = Modifier.fillMaxSize().background(Color(0xFF0B0C10)).padding(16.dp).systemBarsPadding()) {
-        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, "Back", tint = Color.White) }
-            Text(movie.title, color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold, maxLines = 1)
-        }
-        Spacer(modifier = Modifier.height(16.dp))
-        
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-            SubcomposeAsyncImage(
-                model = ImageRequest.Builder(LocalContext.current).data(movie.poster).crossfade(true).build(),
-                contentDescription = movie.title,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.width(120.dp).aspectRatio(2f / 3f).clip(RoundedCornerShape(12.dp)),
-                loading = { ShimmerBox(modifier = Modifier.fillMaxSize()) },
-                error = { Box(modifier = Modifier.fillMaxSize().background(Color(0xFF15171E)), contentAlignment = Alignment.Center) { Icon(Icons.Default.Movie, null, tint = Color.Gray) } }
-            )
-            Column {
-                Text(movie.title, color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold)
-                Spacer(modifier = Modifier.height(8.dp))
-                Text("${movie.videoTag} • ${movie.year} • ${movie.category}", color = Color.Gray, fontSize = 14.sp)
-                if (movie.isAdult) {
-                    Text("🔞 18+ Restricted", color = Color.Red, fontSize = 14.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 4.dp))
+    Box(modifier = Modifier.fillMaxSize().background(Color(0xFF0B0C10))) {
+        // Blurred Background Poster
+        SubcomposeAsyncImage(
+            model = ImageRequest.Builder(LocalContext.current).data(movie.poster).crossfade(true).build(),
+            contentDescription = null,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier.fillMaxSize().blur(40.dp),
+            loading = { Box(modifier = Modifier.fillMaxSize().background(Color.Black)) },
+            error = { Box(modifier = Modifier.fillMaxSize().background(Color.Black)) }
+        )
+        // Deep Dark Overlay
+        Box(modifier = Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.6f), Color.Black.copy(alpha = 0.95f)))))
+
+        // Foreground Content
+        Column(modifier = Modifier.fillMaxSize().systemBarsPadding()) {
+            Row(modifier = Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = onBack, modifier = Modifier.background(Color.White.copy(alpha = 0.1f), CircleShape)) { 
+                    Icon(Icons.Default.ArrowBack, "Back", tint = Color.White) 
                 }
+                Spacer(modifier = Modifier.width(12.dp))
+                Text("Details", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+            }
+
+            Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                 Spacer(modifier = Modifier.height(16.dp))
+                
+                // Center Poster
+                SubcomposeAsyncImage(
+                    model = ImageRequest.Builder(LocalContext.current).data(movie.poster).crossfade(true).build(),
+                    contentDescription = movie.title,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier
+                        .width(200.dp)
+                        .aspectRatio(2f / 3f)
+                        .clip(RoundedCornerShape(16.dp))
+                        .border(1.dp, Color.White.copy(alpha = 0.2f), RoundedCornerShape(16.dp)),
+                    loading = { ShimmerBox(modifier = Modifier.fillMaxSize()) },
+                    error = { Box(modifier = Modifier.fillMaxSize().background(Color(0xFF15171E)), contentAlignment = Alignment.Center) { Icon(Icons.Default.Movie, null, tint = Color.Gray) } }
+                )
+                
+                Spacer(modifier = Modifier.height(24.dp))
+                
+                Text(movie.title, color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.Black, textAlign = TextAlign.Center)
+                Spacer(modifier = Modifier.height(8.dp))
+                Text("${movie.videoTag} • ${movie.year} • ${movie.category}", color = Color.LightGray, fontSize = 14.sp, textAlign = TextAlign.Center)
+                
+                if (movie.isAdult) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text("🔞 18+ Restricted", color = Color.Red, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                }
+
+                Spacer(modifier = Modifier.height(24.dp))
+
                 if (!isSeries) {
-                    Button(onClick = { onPlay(movie) }, modifier = Modifier.fillMaxWidth().height(50.dp), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE50914))) {
-                        Icon(Icons.Default.PlayArrow, null); Spacer(modifier = Modifier.width(8.dp)); Text(if (isLocked) "Unlock with VIP" else "Play Now", fontSize = 16.sp)
+                    Button(
+                        onClick = { onPlay(movie) }, 
+                        modifier = Modifier.fillMaxWidth().height(56.dp), 
+                        colors = ButtonDefaults.buttonColors(containerColor = Color.White),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Icon(Icons.Default.PlayArrow, null, tint = Color.Black, modifier = Modifier.size(28.dp)); 
+                        Spacer(modifier = Modifier.width(8.dp)); 
+                        Text(if (isLocked) "Unlock with VIP" else "Play Now", color = Color.Black, fontSize = 18.sp, fontWeight = FontWeight.Bold)
                     }
                 }
+                Spacer(modifier = Modifier.height(24.dp))
             }
-        }
 
-        Spacer(modifier = Modifier.height(24.dp))
-
-        if (isSeries) {
-            Text("Episodes", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 8.dp))
-            LazyColumn(modifier = Modifier.fillMaxSize()) {
-                items(movie.episodes) { ep ->
-                    val epLabel = "${ep.season} • ${ep.episode}"
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp).background(if (selectedEpisode == ep) Color(0xFFE50914) else Color(0xFF15171E), RoundedCornerShape(8.dp)).clickable { 
-                            if (isLocked) onPlay(movie)
-                            else { selectedEpisode = ep; onPlay(Movie(title = "$epLabel - ${movie.title}", videoUrl = ep.url, subtitleUrl = ep.subtitleUrl, isAdult = movie.isAdult)) }
-                        }.padding(16.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(epLabel, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                        Icon(Icons.Default.PlayArrow, "Play", tint = Color.White)
+            if (isSeries) {
+                Text("Episodes", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp))
+                LazyColumn(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
+                    items(movie.episodes) { ep ->
+                        val epLabel = "${ep.season} • ${ep.episode}"
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp)
+                                .background(if (selectedEpisode == ep) Color.White else Color(0xFF15171E), RoundedCornerShape(12.dp))
+                                .clickable { 
+                                    if (isLocked) onPlay(movie)
+                                    else { selectedEpisode = ep; onPlay(Movie(title = "$epLabel - ${movie.title}", videoUrl = ep.url, subtitleUrl = ep.subtitleUrl, isAdult = movie.isAdult)) }
+                                }
+                                .padding(16.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(epLabel, color = if (selectedEpisode == ep) Color.Black else Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                            Icon(Icons.Default.PlayArrow, "Play", tint = if (selectedEpisode == ep) Color.Black else Color.White)
+                        }
                     }
                 }
             }
@@ -1136,6 +1184,7 @@ fun MyListScreen(theme: ThemeConfig, profileName: String, userVipExpiry: Long, o
     }
 }
 
+// 🔥 OPTION 3: SMART TV LIVE SCREEN
 @Composable
 fun TvLiveScreen(theme: ThemeConfig, userVipExpiry: Long, onPlayMedia: (Movie) -> Unit) {
     val db = FirebaseFirestore.getInstance()
@@ -1154,9 +1203,45 @@ fun TvLiveScreen(theme: ThemeConfig, userVipExpiry: Long, onPlayMedia: (Movie) -
     }
 
     Column(modifier = Modifier.fillMaxSize().systemBarsPadding()) {
-        LazyRow(contentPadding = PaddingValues(16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            items(tvCategories) { category -> FilterChip(selected = selectedCategory == category, onClick = { selectedCategory = category }, label = { Text(category) }, colors = FilterChipDefaults.filterChipColors(selectedContainerColor = theme.primary, selectedLabelColor = Color.White, containerColor = Color(0xFF15171E), labelColor = Color.Gray)) }
+        
+        // Featured Channels Row
+        if (channels.isNotEmpty()) {
+            Text("Featured Channels", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(start = 16.dp, top = 16.dp, bottom = 8.dp))
+            LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                items(channels.take(4)) { channel ->
+                    Box(
+                        modifier = Modifier
+                            .width(200.dp)
+                            .height(110.dp)
+                            .clip(RoundedCornerShape(16.dp))
+                            .clickable { onPlayMedia(Movie(title = channel.name, videoUrl = channel.streamUrl, isVip = channel.isVip)) }
+                    ) {
+                        SubcomposeAsyncImage(
+                            model = ImageRequest.Builder(LocalContext.current).data(channel.logo).crossfade(true).build(),
+                            contentDescription = channel.name,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize(),
+                            loading = { ShimmerBox(modifier = Modifier.fillMaxSize()) }
+                        )
+                        Box(modifier = Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black))))
+                        Column(modifier = Modifier.align(Alignment.BottomStart).padding(12.dp)) {
+                            Text(channel.name, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Box(modifier = Modifier.size(6.dp).clip(CircleShape).background(Color.Red))
+                                Text(" LIVE", color = Color.Red, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                }
+            }
         }
+
+        LazyRow(contentPadding = PaddingValues(16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            items(tvCategories) { category -> 
+                FilterChip(selected = selectedCategory == category, onClick = { selectedCategory = category }, label = { Text(category) }, colors = FilterChipDefaults.filterChipColors(selectedContainerColor = theme.primary, selectedLabelColor = Color.White, containerColor = Color(0xFF15171E), labelColor = Color.Gray)) 
+            }
+        }
+        
         val filtered = channels.filter { selectedCategory == "All" || it.category == selectedCategory }
         LazyVerticalGrid(columns = GridCells.Adaptive(160.dp), contentPadding = PaddingValues(16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             items(filtered) { channel ->
@@ -1167,13 +1252,15 @@ fun TvLiveScreen(theme: ThemeConfig, userVipExpiry: Long, onPlayMedia: (Movie) -
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clip(RoundedCornerShape(12.dp))
+                            .height(160.dp) // Taller Cards
+                            .clip(RoundedCornerShape(16.dp))
                             .onFocusChanged { isFocused = it.isFocused }
-                            .border(if (isFocused) 3.dp else 0.dp, Color.White, RoundedCornerShape(12.dp)) 
+                            .border(if (isFocused) 3.dp else 0.dp, Color.White, RoundedCornerShape(16.dp)) 
                             .background(Color(0xFF15171E))
                             .clickable { onPlayMedia(Movie(title = channel.name, videoUrl = channel.streamUrl, isVip = channel.isVip)) }
                             .padding(12.dp), 
-                        horizontalAlignment = Alignment.CenterHorizontally
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
                     ) {
                         SubcomposeAsyncImage(
                             model = ImageRequest.Builder(LocalContext.current).data(channel.logo).crossfade(true).build(),
@@ -1184,11 +1271,21 @@ fun TvLiveScreen(theme: ThemeConfig, userVipExpiry: Long, onPlayMedia: (Movie) -
                             error = { Box(modifier = Modifier.fillMaxSize().background(Color(0xFF15171E)), contentAlignment = Alignment.Center) { Icon(Icons.Default.Tv, null, tint = Color.Gray) } }
                         )
                         Spacer(modifier = Modifier.height(8.dp))
-                        Text(channel.name, color = Color.White, fontSize = theme.fontSize.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        Text(channel.category, color = theme.primary, fontSize = (theme.fontSize - 4).sp)
+                        Text(channel.name, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        
+                        // Blinking LIVE Dot
+                        val infiniteTransition = rememberInfiniteTransition(label = "blink")
+                        val alpha by infiniteTransition.animateFloat(
+                            initialValue = 1f, targetValue = 0.2f,
+                            animationSpec = infiniteRepeatable(animation = tween(1000), repeatMode = RepeatMode.Reverse), label = "alpha"
+                        )
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp)) {
+                            Box(modifier = Modifier.size(6.dp).clip(CircleShape).background(Color.Red.copy(alpha = alpha)))
+                            Text(" LIVE", color = Color.Red.copy(alpha = alpha), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                        }
                     }
                     if (isLocked) {
-                        Box(modifier = Modifier.matchParentSize().background(Color.Black.copy(alpha = 0.5f), RoundedCornerShape(12.dp)), contentAlignment = Alignment.Center) {
+                        Box(modifier = Modifier.matchParentSize().background(Color.Black.copy(alpha = 0.5f), RoundedCornerShape(16.dp)), contentAlignment = Alignment.Center) {
                             Icon(Icons.Default.Lock, "Locked", tint = Color(0xFFFCDC04), modifier = Modifier.size(32.dp))
                         }
                     }
