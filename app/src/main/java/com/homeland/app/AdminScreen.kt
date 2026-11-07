@@ -62,6 +62,7 @@ fun AdminScreen(onBack: () -> Unit) {
     var tvUrl by remember { mutableStateOf("") }
     var tvCategory by remember { mutableStateOf("News") }
     var isVipTv by remember { mutableStateOf(false) }
+    var isFeaturedTv by remember { mutableStateOf(false) } // 🔥 ADDED THIS
 
     // VIP & Theme & Push State
     var couponDays by remember { mutableStateOf("7") }
@@ -87,7 +88,8 @@ fun AdminScreen(onBack: () -> Unit) {
             db.collection("homeland_tv").addSnapshotListener { snap, _ ->
                 if (snap != null) {
                     existingTv = snap.documents.map { doc ->
-                        TvChannel(id = doc.id, name = doc.getString("name") ?: "", logo = doc.getString("logo") ?: "", streamUrl = doc.getString("streamUrl") ?: "", category = doc.getString("category") ?: "", isVip = doc.getBoolean("isVip") ?: false)
+                        // 🔥 ADDED isFeatured
+                        TvChannel(id = doc.id, name = doc.getString("name") ?: "", logo = doc.getString("logo") ?: "", streamUrl = doc.getString("streamUrl") ?: "", category = doc.getString("category") ?: "", isVip = doc.getBoolean("isVip") ?: false, isFeatured = doc.getBoolean("isFeatured") ?: false)
                     }
                 }
             }
@@ -244,21 +246,27 @@ fun AdminScreen(onBack: () -> Unit) {
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 16.dp)) {
                 Checkbox(checked = isVipTv, onCheckedChange = { isVipTv = it }, colors = CheckboxDefaults.colors(checkedColor = Color(0xFFE50914)))
                 Text("Require VIP to watch", color = Color.White)
+                Spacer(modifier = Modifier.width(16.dp))
+                // 🔥 ADDED THIS CHECKBOX
+                Checkbox(checked = isFeaturedTv, onCheckedChange = { isFeaturedTv = it }, colors = CheckboxDefaults.colors(checkedColor = Color(0xFFE50914)))
+                Text("Featured Channel", color = Color.White)
             }
 
             Button(
                 onClick = {
                     if (tvName.isBlank() || tvUrl.isBlank()) { statusMessage = "Fill required fields."; return@Button }
                     isLoading = true
-                    val newTv = hashMapOf("name" to tvName, "logo" to tvLogo, "streamUrl" to tvUrl, "category" to tvCategory, "isVip" to isVipTv)
+                    // 🔥 ADDED isFeatured TO THE MAP
+                    val newTv = hashMapOf("name" to tvName, "logo" to tvLogo, "streamUrl" to tvUrl, "category" to tvCategory, "isVip" to isVipTv, "isFeatured" to isFeaturedTv)
                     
                     if (editingTvId != null) {
                         db.collection("homeland_tv").document(editingTvId!!).set(newTv).addOnSuccessListener {
-                            isLoading = false; statusMessage = "Success! TV updated."; editingTvId = null; tvName = ""; tvLogo = ""; tvUrl = ""; isVipTv = false
+                            // 🔥 RESET isFeaturedTv
+                            isLoading = false; statusMessage = "Success! TV updated."; editingTvId = null; tvName = ""; tvLogo = ""; tvUrl = ""; isVipTv = false; isFeaturedTv = false
                         }.addOnFailureListener { isLoading = false; statusMessage = "Error: ${it.message}" }
                     } else {
                         db.collection("homeland_tv").add(newTv).addOnSuccessListener {
-                            isLoading = false; statusMessage = "Success! TV added."; tvName = ""; tvLogo = ""; tvUrl = ""; isVipTv = false
+                            isLoading = false; statusMessage = "Success! TV added."; tvName = ""; tvLogo = ""; tvUrl = ""; isVipTv = false; isFeaturedTv = false
                         }.addOnFailureListener { isLoading = false; statusMessage = "Error: ${it.message}" }
                     }
                 },
@@ -268,7 +276,8 @@ fun AdminScreen(onBack: () -> Unit) {
             ) { Text(if (editingTvId != null) "Update TV Channel" else "Publish TV Channel") }
 
             if (editingTvId != null) {
-                TextButton(onClick = { editingTvId = null; tvName = ""; tvLogo = ""; tvUrl = "" }) { Text("Cancel Edit", color = Color.Gray) }
+                // 🔥 RESET isFeaturedTv ON CANCEL
+                TextButton(onClick = { editingTvId = null; tvName = ""; tvLogo = ""; tvUrl = ""; isFeaturedTv = false }) { Text("Cancel Edit", color = Color.Gray) }
             }
 
             Spacer(modifier = Modifier.height(16.dp))
@@ -278,7 +287,8 @@ fun AdminScreen(onBack: () -> Unit) {
                     Row(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                         Text(tv.name, color = Color.White, modifier = Modifier.weight(1f))
                         IconButton(onClick = { 
-                            editingTvId = tv.id; tvName = tv.name; tvLogo = tv.logo; tvUrl = tv.streamUrl; tvCategory = tv.category; isVipTv = tv.isVip 
+                            // 🔥 LOAD isFeaturedTv ON EDIT
+                            editingTvId = tv.id; tvName = tv.name; tvLogo = tv.logo; tvUrl = tv.streamUrl; tvCategory = tv.category; isVipTv = tv.isVip; isFeaturedTv = tv.isFeatured
                         }) { Icon(Icons.Default.Edit, "Edit", tint = Color.Yellow) }
                         IconButton(onClick = { db.collection("homeland_tv").document(tv.id).delete() }) { Icon(Icons.Default.Delete, "Delete", tint = Color.Red) }
                     }
