@@ -934,51 +934,114 @@ fun MovieCard(movie: Movie, theme: ThemeConfig, profileName: String, userVipExpi
         }
     }
 
-    Column(
+    // 🔥 NEW: CINEMATIC POSTER CARD (Everything inside one Box)
+    Box(
         modifier = Modifier
             .fillMaxWidth()
+            .aspectRatio(2f / 3f)
+            .clip(RoundedCornerShape(12.dp))
+            .background(Color(0xFF15171E))
             .onFocusChanged { isFocused = it.isFocused }
+            .border(if (isFocused) 3.dp else 0.dp, Color.White, RoundedCornerShape(12.dp))
             .clickable { onDetails(movie) }
     ) {
+        // 1. The Image
+        SubcomposeAsyncImage(
+            model = ImageRequest.Builder(LocalContext.current).data(movie.poster).crossfade(true).build(),
+            contentDescription = movie.title,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier.fillMaxSize(),
+            loading = { ShimmerBox(modifier = Modifier.fillMaxSize()) },
+            error = { Box(modifier = Modifier.fillMaxSize().background(Color(0xFF15171E)), contentAlignment = Alignment.Center) { Icon(Icons.Default.Movie, null, tint = Color.Gray) } }
+        )
+
+        // 2. The Gradient Shadow (Fades from transparent to solid black at the bottom)
         Box(
             modifier = Modifier
-                .fillMaxWidth()
-                .aspectRatio(2f / 3f)
-                .clip(RoundedCornerShape(10.dp))
-                .background(Color(0xFF15171E))
-                .border(if (isFocused) 3.dp else 0.dp, Color.White, RoundedCornerShape(10.dp))
+                .fillMaxSize()
+                .background(
+                    Brush.verticalGradient(
+                        colors = listOf(
+                            Color.Transparent,
+                            Color.Black.copy(alpha = 0.3f),
+                            Color.Black.copy(alpha = 0.8f),
+                            Color.Black
+                        )
+                    )
+                )
+        )
+
+        // 3. The Text (Overlaid on the gradient)
+        Column(
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .padding(8.dp)
         ) {
-            // 🔥 SHIMMER ON MOVIE CARD
-            SubcomposeAsyncImage(
-                model = ImageRequest.Builder(LocalContext.current).data(movie.poster).crossfade(true).build(),
-                contentDescription = movie.title,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize(),
-                loading = { ShimmerBox(modifier = Modifier.fillMaxSize()) },
-                error = { Box(modifier = Modifier.fillMaxSize().background(Color(0xFF15171E)), contentAlignment = Alignment.Center) { Icon(Icons.Default.Movie, null, tint = Color.Gray) } }
+            Text(
+                text = movie.title,
+                color = Color.White,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold,
+                maxLines = 2, // Allows longer titles to wrap
+                overflow = TextOverflow.Ellipsis,
+                lineHeight = 14.sp
             )
-            if (isLocked) {
-                Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.5f), RoundedCornerShape(10.dp)), contentAlignment = Alignment.Center) { Icon(Icons.Default.Lock, "Locked", tint = Color(0xFFFCDC04), modifier = Modifier.size(32.dp)) }
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                text = "${movie.videoTag} • ${movie.year}",
+                color = if (movie.isVip) Color(0xFFFCDC04) else Color.LightGray,
+                fontSize = 9.sp,
+                fontWeight = FontWeight.Medium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+
+        // 4. VIP Lock Icon
+        if (isLocked) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.4f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(Icons.Default.Lock, "Locked", tint = Color(0xFFFCDC04), modifier = Modifier.size(32.dp))
             }
-            if (movie.isAdult) {
-                Box(modifier = Modifier.align(Alignment.BottomStart).padding(4.dp).background(Color.Red, RoundedCornerShape(4.dp)).padding(horizontal = 4.dp, vertical = 2.dp)) {
-                    Text("18+", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                }
+        }
+
+        // 5. 18+ Badge (Moved to Top Start so it doesn't clash with the title)
+        if (movie.isAdult) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .padding(6.dp)
+                    .background(Color.Red, RoundedCornerShape(4.dp))
+                    .padding(horizontal = 4.dp, vertical = 2.dp)
+            ) {
+                Text("18+", color = Color.White, fontSize = 9.sp, fontWeight = FontWeight.Black)
             }
-            IconButton(onClick = { 
+        }
+
+        // 6. Favorite Heart Icon
+        IconButton(
+            onClick = { 
                 if (uid != null) {
                     val dbRef = db.collection("users").document(uid)
                     if (isFav) dbRef.update("favorites.$profileName", FieldValue.arrayRemove(movie.id))
                     else dbRef.update("favorites.$profileName", FieldValue.arrayUnion(movie.id))
                     isFav = !isFav
                 }
-            }, modifier = Modifier.align(Alignment.TopEnd).padding(4.dp)) {
-                Icon(if (isFav) Icons.Default.Favorite else Icons.Default.FavoriteBorder, "Fav", tint = if (isFav) theme.primary else Color.White)
-            }
+            }, 
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(4.dp)
+        ) {
+            Icon(
+                imageVector = if (isFav) Icons.Default.Favorite else Icons.Default.FavoriteBorder, 
+                contentDescription = "Fav", 
+                tint = if (isFav) theme.primary else Color.White
+            )
         }
-        Spacer(modifier = Modifier.height(4.dp))
-        Text(movie.title, color = Color.White, fontSize = (theme.fontSize).sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        Text("${movie.videoTag} • ${movie.year}", color = if (movie.isVip) Color(0xFFFCDC04) else Color.Gray, fontSize = (theme.fontSize - 4).sp, maxLines = 1)
     }
 }
 
