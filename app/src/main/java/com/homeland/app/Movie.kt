@@ -20,7 +20,9 @@ data class Movie(
     val isFeatured: Boolean = false,
     val subtitleUrl: String = "",
     val timestamp: Long = System.currentTimeMillis(),
-    val episodes: List<Episode> = emptyList()
+    val episodes: List<Episode> = emptyList(),
+    val isVip: Boolean = false,
+    val isAdult: Boolean = false
 )
 
 data class TvChannel(
