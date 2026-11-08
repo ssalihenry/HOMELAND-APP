@@ -58,6 +58,8 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
+import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.ListenerRegistration
 import kotlinx.coroutines.delay
 import kotlin.math.abs
 
@@ -69,6 +71,7 @@ fun PlayerScreen(
     episodes: List<Episode> = emptyList(),
     startPosition: Long = 0L,
     subtitleUrl: String? = null,
+    tvSessionCode: String? = null,  // 🔥 NEW: TV remote session code
     onClose: () -> Unit
 ) {
     val context = LocalContext.current
@@ -98,7 +101,6 @@ fun PlayerScreen(
     var hasError by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf("") }
 
-    // 🔥 NEW: Loading & Buffering states
     var hasStartedPlaying by remember { mutableStateOf(false) }
     var isBuffering by remember { mutableStateOf(true) }
 
@@ -152,6 +154,57 @@ fun PlayerScreen(
             }
     }
 
+    // 🔥 NEW: Listen for TV remote player commands
+    DisposableEffect(tvSessionCode, exoPlayer) {
+        if (tvSessionCode == null) {
+            return@DisposableEffect onDispose { }
+        }
+
+        val db = FirebaseFirestore.getInstance()
+        val startTs = System.currentTimeMillis() - 1000
+        val processedIds = mutableSetOf<String>()
+
+        val listener: ListenerRegistration = db.collection("tv_sessions").document(tvSessionCode)
+            .collection("commands")
+            .whereGreaterThan("timestamp", startTs)
+            .addSnapshotListener { snap, _ ->
+                snap?.documents?.forEach { cmdDoc ->
+                    if (!processedIds.add(cmdDoc.id)) return@forEach
+                    val type = cmdDoc.getString("type") ?: return@forEach
+                    val value = cmdDoc.getString("value") ?: ""
+                    when (type) {
+                        "play" -> {
+                            exoPlayer.play()
+                            showControls = true
+                        }
+                        "pause" -> {
+                            exoPlayer.pause()
+                            showControls = true
+                        }
+                        "toggle_play" -> {
+                            if (exoPlayer.isPlaying) exoPlayer.pause() else exoPlayer.play()
+                            showControls = true
+                        }
+                        "seek_forward" -> {
+                            exoPlayer.seekTo(exoPlayer.currentPosition + 10000)
+                            showControls = true
+                        }
+                        "seek_backward" -> {
+                            exoPlayer.seekTo((exoPlayer.currentPosition - 10000).coerceAtLeast(0))
+                            showControls = true
+                        }
+                        "seek_to" -> {
+                            val pos = value.toLongOrNull() ?: 0L
+                            exoPlayer.seekTo(pos)
+                            showControls = true
+                        }
+                    }
+                }
+            }
+
+        onDispose { listener.remove() }
+    }
+
     LaunchedEffect(isAudioOnly) {
         val params = trackSelector.buildUponParameters()
         if (isAudioOnly) {
@@ -166,7 +219,6 @@ fun PlayerScreen(
         val listener = object : Player.Listener {
             override fun onIsPlayingChanged(playing: Boolean) { isPlaying = playing }
 
-            // 🔥 NEW: Track buffering state
             override fun onPlaybackStateChanged(playbackState: Int) {
                 when (playbackState) {
                     Player.STATE_BUFFERING -> isBuffering = true
@@ -281,7 +333,6 @@ fun PlayerScreen(
             }
             .clickable { showControls = !showControls }
     ) {
-        // VIDEO VIEW
         if (!isAudioOnly) {
             AndroidView(
                 factory = { ctx ->
@@ -317,7 +368,6 @@ fun PlayerScreen(
             }
         }
 
-        // GESTURE DETECTOR
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -378,7 +428,6 @@ fun PlayerScreen(
                 }
         )
 
-        // GESTURE OVERLAY
         if (showGestureOverlay) {
             Box(
                 modifier = Modifier
@@ -405,7 +454,6 @@ fun PlayerScreen(
             }
         }
 
-        // DATA METER
         Box(
             modifier = Modifier
                 .align(Alignment.TopStart)
@@ -421,7 +469,6 @@ fun PlayerScreen(
             )
         }
 
-        // WATERMARK
         Box(
             modifier = Modifier
                 .align(Alignment.TopEnd)
@@ -432,7 +479,6 @@ fun PlayerScreen(
             Text("HOMELAND APP", color = Color.White.copy(alpha = 0.7f), fontSize = 10.sp, fontWeight = FontWeight.Bold)
         }
 
-        // 🔥 NEW: INITIAL LOADING SCREEN
         if (!hasStartedPlaying && !hasError) {
             Box(
                 modifier = Modifier.fillMaxSize().background(Color(0xFF0B0C10)),
@@ -494,7 +540,6 @@ fun PlayerScreen(
             }
         }
 
-        // 🔥 NEW: BUFFERING SPINNER (mid-playback / Live TV)
         if (hasStartedPlaying && isBuffering && !hasError) {
             Box(
                 modifier = Modifier
@@ -519,7 +564,6 @@ fun PlayerScreen(
             }
         }
 
-        // CONTROLS OVERLAY (only after video has started)
         AnimatedVisibility(visible = showControls && !hasError && hasStartedPlaying, enter = fadeIn(), exit = fadeOut(), modifier = Modifier.fillMaxSize()) {
             Box(modifier = Modifier.fillMaxSize().safeDrawingPadding()) {
                 
@@ -659,7 +703,6 @@ fun PlayerScreen(
             }
         }
 
-        // SIGNAL LOST SCREEN
         if (hasError) {
             Box(
                 modifier = Modifier.fillMaxSize().background(Color(0xFF0B0C10).copy(alpha = 0.96f)),
