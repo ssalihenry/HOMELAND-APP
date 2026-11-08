@@ -36,8 +36,9 @@ jobs:
         KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
         KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
 
+    # 🔥 UPLOAD THE APK (Using wildcard *.apk to catch the dynamic name)
     - name: Upload APK
       uses: actions/upload-artifact@v4
       with:
-        name: Homeland-Release-App
-        path: app/build/outputs/apk/release/app-release.apk
+        name: Homeland-v1.4.0-Release
+        path: app/build/outputs/apk/release/*.apk
