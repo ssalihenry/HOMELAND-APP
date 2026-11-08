@@ -147,8 +147,14 @@ fun downloadFile(context: Context, url: String, fileName: String, saveToPublic: 
 }
 
 class MainActivity : ComponentActivity() {
+    // 🔥 NEW: Holds the incoming deep link Movie ID
+    private var deepLinkMovieId by mutableStateOf<String?>(null)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        
+        // 🔥 NEW: Check if opened via link
+        handleIntent(intent)
         
         try {
             val settings = FirebaseFirestoreSettings.Builder()
@@ -248,7 +254,16 @@ class MainActivity : ComponentActivity() {
                 } else {
                     if (isTv) {
                         if (isAuthenticated) {
-                            HomelandApp(auth = auth, profileName = currentProfileName, theme = appTheme, savedPin = savedPin, onLogout = { isAuthenticated = false }, onSwitchProfile = { })
+                            HomelandApp(
+                                auth = auth, 
+                                profileName = currentProfileName, 
+                                theme = appTheme, 
+                                savedPin = savedPin, 
+                                deepLinkMovieId = deepLinkMovieId, // 🔥 NEW
+                                onDeepLinkHandled = { deepLinkMovieId = null }, // 🔥 NEW
+                                onLogout = { isAuthenticated = false }, 
+                                onSwitchProfile = { }
+                            )
                         } else {
                             TVLoginScreen(theme = appTheme, onLoginSuccess = { isAuthenticated = true })
                         }
@@ -260,13 +275,42 @@ class MainActivity : ComponentActivity() {
                                     showProfileSelector = false 
                                 })
                             } else {
-                                HomelandApp(auth = auth, profileName = currentProfileName, theme = appTheme, savedPin = savedPin, onLogout = { isAuthenticated = false; showProfileSelector = false }, onSwitchProfile = { showProfileSelector = true })
+                                HomelandApp(
+                                    auth = auth, 
+                                    profileName = currentProfileName, 
+                                    theme = appTheme, 
+                                    savedPin = savedPin, 
+                                    deepLinkMovieId = deepLinkMovieId, // 🔥 NEW
+                                    onDeepLinkHandled = { deepLinkMovieId = null }, // 🔥 NEW
+                                    onLogout = { isAuthenticated = false; showProfileSelector = false }, 
+                                    onSwitchProfile = { showProfileSelector = true }
+                                )
                             }
                         } else {
                             AuthScreen(auth = auth, onLoginSuccess = { isAuthenticated = true; showProfileSelector = true })
                         }
                     }
                 }
+            }
+        }
+    }
+
+    // 🔥 NEW: Catch links when the app is already open
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleIntent(intent)
+    }
+
+    // 🔥 NEW: Extract the Movie ID from the URL
+    private fun handleIntent(intent: Intent?) {
+        val data: Uri? = intent?.data
+        if (data != null) {
+            // Matches https://homeland.app/movie/123 OR homeland://movie/123
+            if (data.pathSegments.size >= 2 && data.pathSegments[0] == "movie") {
+                deepLinkMovieId = data.pathSegments[1]
+            } else if (data.lastPathSegment != null) {
+                deepLinkMovieId = data.lastPathSegment
             }
         }
     }
@@ -371,7 +415,16 @@ fun AppLockScreen(theme: ThemeConfig, savedPin: String, onUnlock: () -> Unit, on
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun HomelandApp(auth: FirebaseAuth, profileName: String, theme: ThemeConfig, savedPin: String?, onLogout: () -> Unit, onSwitchProfile: () -> Unit) {
+fun HomelandApp(
+    auth: FirebaseAuth, 
+    profileName: String, 
+    theme: ThemeConfig, 
+    savedPin: String?, 
+    deepLinkMovieId: String? = null, // 🔥 NEW
+    onDeepLinkHandled: () -> Unit = {}, // 🔥 NEW
+    onLogout: () -> Unit, 
+    onSwitchProfile: () -> Unit
+) {
     val context = LocalContext.current
     val db = FirebaseFirestore.getInstance()
     var selectedTab by remember { mutableStateOf(0) }
@@ -393,6 +446,31 @@ fun HomelandApp(auth: FirebaseAuth, profileName: String, theme: ThemeConfig, sav
     }
 
     LaunchedEffect(Unit) { FirebaseMessaging.getInstance().subscribeToTopic("homeland_updates") }
+
+    // 🔥 NEW: Handle Deep Link automatically
+    LaunchedEffect(deepLinkMovieId) {
+        if (deepLinkMovieId != null) {
+            db.collection("homeland_movies").document(deepLinkMovieId).get().addOnSuccessListener { doc ->
+                if (doc.exists()) {
+                    val movie = Movie(
+                        id = doc.id, 
+                        title = doc.getString("title") ?: "", 
+                        poster = doc.getString("poster") ?: "", 
+                        videoUrl = doc.getString("videoUrl") ?: "", 
+                        category = doc.getString("category") ?: "", 
+                        videoTag = doc.getString("videoTag") ?: "", 
+                        year = doc.getString("year") ?: "", 
+                        isVip = doc.getBoolean("isVip") ?: false, 
+                        isFeatured = doc.getBoolean("isFeatured") ?: false, 
+                        isAdult = doc.getBoolean("isAdult") ?: false,
+                        subtitleUrl = doc.getString("subtitleUrl") ?: ""
+                    )
+                    viewingDetails = movie // Open details screen
+                }
+                onDeepLinkHandled() // Reset the link after handling
+            }
+        }
+    }
 
     BackHandler(enabled = true) {
         if (currentlyPlaying != null) {
