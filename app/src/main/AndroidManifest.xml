@@ -33,15 +33,33 @@
         <activity
             android:name=".MainActivity"
             android:exported="true"
+            android:launchMode="singleTop"
             android:supportsPictureInPicture="true"
             android:resizeableActivity="true"
             android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden"
             android:windowLayoutInDisplayCutoutMode="shortEdges"
             android:theme="@android:style/Theme.Material.NoActionBar">
+            
+            <!-- Normal App Launch -->
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
                 <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
+            </intent-filter>
+
+            <!-- 🔥 NEW: DEEP LINKING (Push Notifications & Shared Links) -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                
+                <!-- Custom Scheme: homeland://movie/123 -->
+                <data android:scheme="homeland" />
+                
+                <!-- HTTPS Scheme: https://homeland.app/movie/123 -->
+                <data android:scheme="https" />
+                <data android:host="homeland.app" />
+                <data android:pathPrefix="/movie/" />
             </intent-filter>
         </activity>
 
@@ -53,7 +71,7 @@
             </intent-filter>
         </service>
 
-        <!-- ✅ NEW: Default notification icon for system-tray notifications -->
+        <!-- Default notification icon -->
         <meta-data
             android:name="com.google.firebase.messaging.default_notification_icon"
             android:resource="@drawable/ic_launcher" />
