@@ -71,8 +71,13 @@ fun AdminScreen(onBack: () -> Unit) {
     var allUsers by remember { mutableStateOf<List<AdminUser>>(emptyList()) }
     var themeFontUrl by remember { mutableStateOf("") }
     var themeBgImageUrl by remember { mutableStateOf("") }
+    
+    // 🔥 NEW: Push Notification State
     var pushTitle by remember { mutableStateOf("") }
     var pushMessage by remember { mutableStateOf("") }
+    var pushDeepLink by remember { mutableStateOf("") }
+    var selectedPushMovieTitle by remember { mutableStateOf("None (Open Home Screen)") }
+    var pushMovieExpanded by remember { mutableStateOf(false) }
 
     // Maintenance State
     var isMaintenanceActive by remember { mutableStateOf(false) }
@@ -82,7 +87,8 @@ fun AdminScreen(onBack: () -> Unit) {
     var existingTv by remember { mutableStateOf<List<TvChannel>>(emptyList()) }
 
     LaunchedEffect(selectedTab) {
-        if (selectedTab == 0) {
+        // 🔥 NEW: Also load movies for the Push tab (tab 4)
+        if (selectedTab == 0 || selectedTab == 4) {
             db.collection("homeland_movies").addSnapshotListener { snap, _ ->
                 if (snap != null) {
                     existingMovies = snap.documents.map { doc ->
@@ -464,6 +470,7 @@ fun AdminScreen(onBack: () -> Unit) {
                     }
                 }
             } else {
+                // 🔥 UPDATED: PUSH NOTIFICATION TAB
                 item {
                     Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF15171E)), shape = RoundedCornerShape(16.dp)) {
                         Column(modifier = Modifier.padding(16.dp)) {
@@ -472,13 +479,58 @@ fun AdminScreen(onBack: () -> Unit) {
                             OutlinedTextField(value = pushTitle, onValueChange = { pushTitle = it }, label = { Text("Notification Title") }, modifier = Modifier.fillMaxWidth(), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White))
                             Spacer(modifier = Modifier.height(8.dp))
                             OutlinedTextField(value = pushMessage, onValueChange = { pushMessage = it }, label = { Text("Notification Message") }, modifier = Modifier.fillMaxWidth(), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White))
+                            
+                            Spacer(modifier = Modifier.height(12.dp))
+                            
+                            // 🔥 NEW: Dropdown to select a movie
+                            ExposedDropdownMenuBox(
+                                expanded = pushMovieExpanded,
+                                onExpandedChange = { pushMovieExpanded = !pushMovieExpanded }
+                            ) {
+                                OutlinedTextField(
+                                    value = selectedPushMovieTitle,
+                                    onValueChange = {},
+                                    readOnly = true,
+                                    label = { Text("Attach Movie to Notification (Optional)") },
+                                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = pushMovieExpanded) },
+                                    modifier = Modifier.fillMaxWidth().menuAnchor(),
+                                    colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White)
+                                )
+                                ExposedDropdownMenu(
+                                    expanded = pushMovieExpanded,
+                                    onDismissRequest = { pushMovieExpanded = false },
+                                    modifier = Modifier.heightIn(max = 200.dp)
+                                ) {
+                                    DropdownMenuItem(
+                                        text = { Text("None (Open Home Screen)") },
+                                        onClick = {
+                                            selectedPushMovieTitle = "None (Open Home Screen)"
+                                            pushDeepLink = ""
+                                            pushMovieExpanded = false
+                                        }
+                                    )
+                                    existingMovies.forEach { movie ->
+                                        DropdownMenuItem(
+                                            text = { Text(movie.title) },
+                                            onClick = {
+                                                selectedPushMovieTitle = movie.title
+                                                pushDeepLink = "homeland://movie/${movie.id}" // Automatically generate the link
+                                                pushMovieExpanded = false
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+                            
                             Spacer(modifier = Modifier.height(16.dp))
+                            
                             Button(onClick = {
                                 if (pushTitle.isBlank() || pushMessage.isBlank()) { statusMessage = "Fill in both fields."; return@Button }
                                 isLoading = true
                                 val notifData = hashMapOf(
                                     "title" to pushTitle,
                                     "message" to pushMessage,
+                                    "deep_link" to pushDeepLink, // 🔥 Added deep link
                                     "status" to "pending",
                                     "timestamp" to System.currentTimeMillis()
                                 )
@@ -487,6 +539,8 @@ fun AdminScreen(onBack: () -> Unit) {
                                     statusMessage = "Success! Notification queued."
                                     pushTitle = ""
                                     pushMessage = ""
+                                    pushDeepLink = ""
+                                    selectedPushMovieTitle = "None (Open Home Screen)"
                                 }.addOnFailureListener {
                                     isLoading = false
                                     statusMessage = "Error: ${it.message}"
