@@ -147,13 +147,13 @@ fun downloadFile(context: Context, url: String, fileName: String, saveToPublic: 
 }
 
 class MainActivity : ComponentActivity() {
-    // 🔥 NEW: Holds the incoming deep link Movie ID
+    // Holds the incoming deep link Movie ID
     private var deepLinkMovieId by mutableStateOf<String?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         
-        // 🔥 NEW: Check if opened via link
+        // Check if opened via link
         handleIntent(intent)
         
         try {
@@ -231,11 +231,36 @@ class MainActivity : ComponentActivity() {
                 var savedPin by remember { mutableStateOf(prefs.getString("app_pin", null)) }
                 var isAppUnlocked by remember { mutableStateOf(savedPin == null) }
 
+                // 🔥 NEW: Ban State & Listener
+                var isBanned by remember { mutableStateOf(false) }
+                
+                LaunchedEffect(currentUser) {
+                    if (currentUser != null) {
+                        db.collection("users").document(currentUser.uid).addSnapshotListener { doc, _ ->
+                            if (doc != null && doc.exists()) {
+                                isBanned = doc.getBoolean("isBanned") ?: false
+                            }
+                        }
+                    } else {
+                        isBanned = false
+                    }
+                }
+
                 val context = LocalContext.current
                 val isTv = context.packageManager.hasSystemFeature(PackageManager.FEATURE_LEANBACK) || 
                            (context.resources.configuration.uiMode and Configuration.UI_MODE_TYPE_MASK) == Configuration.UI_MODE_TYPE_TELEVISION
 
-                if (isMaintenanceMode && currentUser?.email != ADMIN_EMAIL) {
+                // 🔥 NEW: Check for ban BEFORE maintenance or lock screen
+                if (isBanned && currentUser?.email != ADMIN_EMAIL) {
+                    BannedScreen(
+                        theme = appTheme,
+                        onLogout = {
+                            auth.signOut()
+                            isAuthenticated = false
+                            isBanned = false
+                        }
+                    )
+                } else if (isMaintenanceMode && currentUser?.email != ADMIN_EMAIL) {
                     MaintenanceScreen(theme = appTheme, message = maintenanceMessage)
                 } else if (!isAppUnlocked) {
                     AppLockScreen(
@@ -259,8 +284,8 @@ class MainActivity : ComponentActivity() {
                                 profileName = currentProfileName, 
                                 theme = appTheme, 
                                 savedPin = savedPin, 
-                                deepLinkMovieId = deepLinkMovieId, // 🔥 NEW
-                                onDeepLinkHandled = { deepLinkMovieId = null }, // 🔥 NEW
+                                deepLinkMovieId = deepLinkMovieId, 
+                                onDeepLinkHandled = { deepLinkMovieId = null }, 
                                 onLogout = { isAuthenticated = false }, 
                                 onSwitchProfile = { }
                             )
@@ -280,8 +305,8 @@ class MainActivity : ComponentActivity() {
                                     profileName = currentProfileName, 
                                     theme = appTheme, 
                                     savedPin = savedPin, 
-                                    deepLinkMovieId = deepLinkMovieId, // 🔥 NEW
-                                    onDeepLinkHandled = { deepLinkMovieId = null }, // 🔥 NEW
+                                    deepLinkMovieId = deepLinkMovieId, 
+                                    onDeepLinkHandled = { deepLinkMovieId = null }, 
                                     onLogout = { isAuthenticated = false; showProfileSelector = false }, 
                                     onSwitchProfile = { showProfileSelector = true }
                                 )
@@ -295,18 +320,17 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    // 🔥 NEW: Catch links when the app is already open
+    // Catch links when the app is already open
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
         handleIntent(intent)
     }
 
-    // 🔥 NEW: Extract the Movie ID from the URL
+    // Extract the Movie ID from the URL
     private fun handleIntent(intent: Intent?) {
         val data: Uri? = intent?.data
         if (data != null) {
-            // Matches https://homeland.app/movie/123 OR homeland://movie/123
             if (data.pathSegments.size >= 2 && data.pathSegments[0] == "movie") {
                 deepLinkMovieId = data.pathSegments[1]
             } else if (data.lastPathSegment != null) {
@@ -334,6 +358,29 @@ fun MaintenanceScreen(theme: ThemeConfig, message: String) {
             Text(message, color = Color.Gray, fontSize = 16.sp, textAlign = TextAlign.Center)
             Spacer(modifier = Modifier.height(32.dp))
             CircularProgressIndicator(color = theme.primary)
+        }
+    }
+}
+
+// 🔥 NEW: BANNED SCREEN
+@Composable
+fun BannedScreen(theme: ThemeConfig, onLogout: () -> Unit) {
+    Box(modifier = Modifier.fillMaxSize().background(Color(0xFF0B0C10)), contentAlignment = Alignment.Center) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(32.dp)) {
+            Icon(Icons.Default.Block, contentDescription = "Banned", tint = Color.Red, modifier = Modifier.size(80.dp))
+            Spacer(modifier = Modifier.height(24.dp))
+            Text("Account Suspended", color = Color.Red, fontSize = 28.sp, fontWeight = FontWeight.Black, textAlign = TextAlign.Center)
+            Spacer(modifier = Modifier.height(16.dp))
+            Text("Your account has been banned by the administrator. If you believe this is a mistake, please contact support.", color = Color.Gray, fontSize = 16.sp, textAlign = TextAlign.Center)
+            Spacer(modifier = Modifier.height(32.dp))
+            Button(
+                onClick = onLogout,
+                colors = ButtonDefaults.buttonColors(containerColor = Color.Red),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.height(50.dp).fillMaxWidth(0.6f)
+            ) {
+                Text("Log Out", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+            }
         }
     }
 }
@@ -420,8 +467,8 @@ fun HomelandApp(
     profileName: String, 
     theme: ThemeConfig, 
     savedPin: String?, 
-    deepLinkMovieId: String? = null, // 🔥 NEW
-    onDeepLinkHandled: () -> Unit = {}, // 🔥 NEW
+    deepLinkMovieId: String? = null, 
+    onDeepLinkHandled: () -> Unit = {}, 
     onLogout: () -> Unit, 
     onSwitchProfile: () -> Unit
 ) {
@@ -447,7 +494,6 @@ fun HomelandApp(
 
     LaunchedEffect(Unit) { FirebaseMessaging.getInstance().subscribeToTopic("homeland_updates") }
 
-    // 🔥 NEW: Handle Deep Link automatically
     LaunchedEffect(deepLinkMovieId) {
         if (deepLinkMovieId != null) {
             db.collection("homeland_movies").document(deepLinkMovieId).get().addOnSuccessListener { doc ->
@@ -465,9 +511,9 @@ fun HomelandApp(
                         isAdult = doc.getBoolean("isAdult") ?: false,
                         subtitleUrl = doc.getString("subtitleUrl") ?: ""
                     )
-                    viewingDetails = movie // Open details screen
+                    viewingDetails = movie 
                 }
-                onDeepLinkHandled() // Reset the link after handling
+                onDeepLinkHandled() 
             }
         }
     }
@@ -839,7 +885,7 @@ fun NetflixHistoryCard(movie: Movie, progressPercent: Float, onClick: () -> Unit
     }
 }
 
-// 🔥 NEW VIP COUNTDOWN COMPOSABLE
+// 🔥 VIP COUNTDOWN COMPOSABLE
 @Composable
 fun VipCountdownCard(userVipExpiry: Long, theme: ThemeConfig) {
     var dateText by remember { mutableStateOf("Calculating...") }
@@ -963,7 +1009,6 @@ fun ProfileScreen(auth: FirebaseAuth, profileName: String, userVipExpiry: Long, 
                 Text(auth.currentUser?.email?.split("@")?.getOrNull(0) ?: "User", color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Black)
                 Text("Watching as: $profileName", color = theme.primary, fontSize = 14.sp, fontWeight = FontWeight.Bold)
                 
-                // 🔥 INSERTED THE COUNTDOWN CARD HERE
                 if (isVip) {
                     VipCountdownCard(userVipExpiry = userVipExpiry, theme = theme)
                 } else {
