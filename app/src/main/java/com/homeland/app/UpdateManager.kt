@@ -16,8 +16,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
 import com.google.firebase.firestore.FirebaseFirestore
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import java.io.File
+import java.net.HttpURLConnection
+import java.net.URL
 
 @Composable
 fun CheckForUpdates(activity: Activity) {
@@ -28,8 +32,6 @@ fun CheckForUpdates(activity: Activity) {
     var downloadId by remember { mutableStateOf(-1L) }
 
     LaunchedEffect(Unit) {
-        Toast.makeText(activity, "Update Check Started...", Toast.LENGTH_SHORT).show()
-
         val db = FirebaseFirestore.getInstance()
         db.collection("config").document("app_version").get()
             .addOnSuccessListener { doc ->
@@ -37,18 +39,14 @@ fun CheckForUpdates(activity: Activity) {
                     val latestVersion: Long = doc.getLong("latest_version_code") ?: 1L
                     val currentVersion: Long = BuildConfig.VERSION_CODE.toLong()
                     
-                    Toast.makeText(activity, "App: $currentVersion | DB: $latestVersion", Toast.LENGTH_LONG).show()
-                    
                     if (latestVersion > currentVersion) {
                         updateUrl = doc.getString("update_url") ?: ""
                         updateAvailable = true
                     }
-                } else {
-                    Toast.makeText(activity, "Config document not found in DB", Toast.LENGTH_LONG).show()
                 }
             }
             .addOnFailureListener { e ->
-                Toast.makeText(activity, "DB Error: ${e.message}", Toast.LENGTH_LONG).show()
+                Toast.makeText(activity, "Update Check Error: ${e.message}", Toast.LENGTH_LONG).show()
             }
     }
 
@@ -73,7 +71,8 @@ fun CheckForUpdates(activity: Activity) {
                     } else if (status == DownloadManager.STATUS_FAILED) {
                         downloading = false
                         isDownloading = false
-                        Toast.makeText(activity, "Download failed. Try again.", Toast.LENGTH_SHORT).show()
+                        val reason = cursor.getInt(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_REASON))
+                        Toast.makeText(activity, "Download failed. Reason code: $reason", Toast.LENGTH_LONG).show()
                     }
                 }
                 cursor.close()
@@ -102,14 +101,28 @@ fun CheckForUpdates(activity: Activity) {
                         onClick = {
                             if (updateUrl.isNotBlank()) {
                                 isDownloading = true
-                                val request = DownloadManager.Request(Uri.parse(updateUrl))
-                                request.setTitle("Homeland Update")
-                                request.setDescription("Downloading new version...")
-                                request.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-                                request.setDestinationInExternalFilesDir(activity, Environment.DIRECTORY_DOWNLOADS, "homeland_update.apk")
-                                
-                                val downloadManager = activity.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
-                                downloadId = downloadManager.enqueue(request)
+                                // Resolve the redirect on a background thread to avoid ANR
+                                Thread {
+                                    try {
+                                        // This resolves the GitHub 302 redirect
+                                        val finalUrl = resolveRedirect(updateUrl)
+                                        
+                                        val request = DownloadManager.Request(Uri.parse(finalUrl))
+                                        request.setTitle("Homeland Update")
+                                        request.setDescription("Downloading new version...")
+                                        request.setMimeType("application/vnd.android.package-archive")
+                                        request.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                                        request.setDestinationInExternalFilesDir(activity, Environment.DIRECTORY_DOWNLOADS, "homeland_update.apk")
+                                        
+                                        val downloadManager = activity.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+                                        downloadId = downloadManager.enqueue(request)
+                                    } catch (e: Exception) {
+                                        activity.runOnUiThread {
+                                            isDownloading = false
+                                            Toast.makeText(activity, "Link Error: ${e.message}", Toast.LENGTH_LONG).show()
+                                        }
+                                    }
+                                }.start()
                             }
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE50914))
@@ -120,6 +133,30 @@ fun CheckForUpdates(activity: Activity) {
             },
             containerColor = Color(0xFF15171E)
         )
+    }
+}
+
+// 🔥 NEW: Helper to resolve GitHub's 302 redirect to the real download link
+private fun resolveRedirect(url: String): String {
+    var connection: HttpURLConnection? = null
+    return try {
+        connection = URL(url).openConnection() as HttpURLConnection
+        connection.instanceFollowRedirects = false
+        connection.connectTimeout = 15000
+        connection.readTimeout = 15000
+        connection.requestMethod = "HEAD" // Use HEAD to only fetch headers
+
+        val status = connection.responseCode
+        if (status == HttpURLConnection.HTTP_MOVED_TEMP || status == HttpURLConnection.HTTP_MOVED_PERM) {
+            // Return the redirected URL from the 'Location' header
+            connection.getHeaderField("Location") ?: url
+        } else {
+            url // No redirect, use original
+        }
+    } catch (e: Exception) {
+        url // On any error, fall back to original URL
+    } finally {
+        connection?.disconnect()
     }
 }
 
@@ -144,6 +181,8 @@ private fun installApk(activity: Activity, downloadId: Long) {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
             activity.startActivity(intent)
+        } else {
+            Toast.makeText(activity, "APK file not found after download.", Toast.LENGTH_LONG).show()
         }
     }
 }
