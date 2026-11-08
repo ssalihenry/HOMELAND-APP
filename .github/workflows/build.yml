@@ -23,20 +23,29 @@ jobs:
     - name: Decode Keystore
       run: echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > ${{ github.workspace }}/release.keystore
 
-    - name: Setup Gradle
-      uses: gradle/actions/setup-gradle@v3
-      with:
-        gradle-version: '8.4'
+    # 🔥 FIX: Use the Gradle Wrapper (./gradlew) with retries
+    - name: Make gradlew executable
+      run: chmod +x ./gradlew
 
-    # 🔥 BUILD THE RELEASE APK
-    - name: Build Release APK
-      run: gradle assembleRelease
+    - name: Build Release APK (with retry)
+      run: |
+        for i in {1..3}; do
+          echo "Attempt $i..."
+          ./gradlew assembleRelease --no-daemon && break || {
+            if [ $i -eq 3 ]; then
+              echo "All 3 attempts failed."
+              exit 1
+            fi
+            echo "Build failed, retrying in 10 seconds..."
+            sleep 10
+          }
+        done
       env:
         KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
         KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
         KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
 
-    # 🔥 UPLOAD THE APK (Using wildcard *.apk to catch the dynamic name)
+    # 🔥 UPLOAD THE APK
     - name: Upload APK
       uses: actions/upload-artifact@v4
       with:
