@@ -4,6 +4,7 @@ import android.Manifest
 import android.app.DownloadManager
 import android.os.Build
 import android.os.Environment
+import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
@@ -231,7 +232,7 @@ class MainActivity : ComponentActivity() {
                 var savedPin by remember { mutableStateOf(prefs.getString("app_pin", null)) }
                 var isAppUnlocked by remember { mutableStateOf(savedPin == null) }
 
-                // 🔥 NEW: Ban State & Listener
+                // 🔥 Ban State & Listener
                 var isBanned by remember { mutableStateOf(false) }
                 
                 LaunchedEffect(currentUser) {
@@ -246,12 +247,82 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
+                // 🔥 Device Limit State
+                var isDeviceAllowed by remember { mutableStateOf<Boolean?>(null) } // null = checking, true = allowed, false = blocked
+                var deviceLimitError by remember { mutableStateOf("") }
+
+                LaunchedEffect(currentUser) {
+                    if (currentUser == null) {
+                        isDeviceAllowed = true // Auth screen will handle it
+                        return@LaunchedEffect
+                    }
+                    if (currentUser.email == ADMIN_EMAIL) {
+                        isDeviceAllowed = true // Admin bypass
+                        return@LaunchedEffect
+                    }
+
+                    // Get unique hardware ID
+                    val deviceId = Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID) ?: "unknown_device"
+                    val now = System.currentTimeMillis()
+                    val thirtyDaysAgo = now - (30L * 24 * 60 * 60 * 1000) // 30 days
+
+                    db.collection("users").document(currentUser.uid).get().addOnSuccessListener { doc ->
+                        if (doc.exists()) {
+                            val vipExpiry = doc.getLong("homelandVipExpiry") ?: 0L
+                            val maxAllowed = if (vipExpiry > now) 5 else 2 // VIP = 5, Free = 2
+                            
+                            @Suppress("UNCHECKED_CAST")
+                            val activeDevices = (doc.get("activeDevices") as? Map<String, Long>)?.toMutableMap() ?: mutableMapOf()
+
+                            // Cleanup old devices (older than 30 days)
+                            activeDevices.entries.removeAll { it.value < thirtyDaysAgo }
+
+                            if (activeDevices.containsKey(deviceId)) {
+                                // Known device, update timestamp and allow
+                                db.collection("users").document(currentUser.uid).update("activeDevices.$deviceId", now)
+                                isDeviceAllowed = true
+                            } else {
+                                // New device, check limit
+                                if (activeDevices.size < maxAllowed) {
+                                    // Space available, add device and allow
+                                    db.collection("users").document(currentUser.uid).update("activeDevices.$deviceId", now)
+                                    isDeviceAllowed = true
+                                } else {
+                                    // Limit reached
+                                    isDeviceAllowed = false
+                                    deviceLimitError = "Your account is already active on $maxAllowed devices. The limit for ${if (vipExpiry > now) "VIP" else "Free"} users is $maxAllowed. Please log out from another device."
+                                }
+                            }
+                        } else {
+                            // No user document yet, allow to proceed (auth flow will create it)
+                            isDeviceAllowed = true 
+                        }
+                    }.addOnFailureListener {
+                        // If offline, fail open so we don't block users
+                        isDeviceAllowed = true 
+                    }
+                }
+
                 val context = LocalContext.current
                 val isTv = context.packageManager.hasSystemFeature(PackageManager.FEATURE_LEANBACK) || 
                            (context.resources.configuration.uiMode and Configuration.UI_MODE_TYPE_MASK) == Configuration.UI_MODE_TYPE_TELEVISION
 
-                // 🔥 NEW: Check for ban BEFORE maintenance or lock screen
-                if (isBanned && currentUser?.email != ADMIN_EMAIL) {
+                // 🔥 Priority Routing (Device Limit -> Ban -> Maintenance -> Lock -> App)
+                if (isDeviceAllowed == null) {
+                    Box(modifier = Modifier.fillMaxSize().background(appTheme.background), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator(color = appTheme.primary)
+                    }
+                } else if (isDeviceAllowed == false) {
+                    DeviceLimitScreen(
+                        theme = appTheme, 
+                        message = deviceLimitError,
+                        onLogout = {
+                            auth.signOut()
+                            isAuthenticated = false
+                            isDeviceAllowed = null // Reset state for next login
+                        }
+                    )
+                } else if (isBanned && currentUser?.email != ADMIN_EMAIL) {
                     BannedScreen(
                         theme = appTheme,
                         onLogout = {
@@ -362,7 +433,30 @@ fun MaintenanceScreen(theme: ThemeConfig, message: String) {
     }
 }
 
-// 🔥 NEW: BANNED SCREEN
+// 🔥 DEVICE LIMIT SCREEN
+@Composable
+fun DeviceLimitScreen(theme: ThemeConfig, message: String, onLogout: () -> Unit) {
+    Box(modifier = Modifier.fillMaxSize().background(Color(0xFF0B0C10)), contentAlignment = Alignment.Center) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(32.dp)) {
+            Icon(Icons.Default.Devices, contentDescription = "Devices", tint = theme.primary, modifier = Modifier.size(80.dp))
+            Spacer(modifier = Modifier.height(24.dp))
+            Text("Device Limit Reached", color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.Black, textAlign = TextAlign.Center)
+            Spacer(modifier = Modifier.height(16.dp))
+            Text(message, color = Color.Gray, fontSize = 16.sp, textAlign = TextAlign.Center)
+            Spacer(modifier = Modifier.height(32.dp))
+            Button(
+                onClick = onLogout,
+                colors = ButtonDefaults.buttonColors(containerColor = theme.primary),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.height(50.dp).fillMaxWidth(0.6f)
+            ) {
+                Text("Log Out", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+            }
+        }
+    }
+}
+
+// 🔥 BANNED SCREEN
 @Composable
 fun BannedScreen(theme: ThemeConfig, onLogout: () -> Unit) {
     Box(modifier = Modifier.fillMaxSize().background(Color(0xFF0B0C10)), contentAlignment = Alignment.Center) {
@@ -954,7 +1048,22 @@ fun ProfileScreen(auth: FirebaseAuth, profileName: String, userVipExpiry: Long, 
     var newPinInput by remember { mutableStateOf("") }
     var showCouponDialog by remember { mutableStateOf(false) }
     
+    // 🔥 NEW: Admin 2FA States
+    var showAdmin2faDialog by remember { mutableStateOf(false) }
+    var admin2faInput by remember { mutableStateOf("") }
+    var admin2faError by remember { mutableStateOf<String?>(null) }
+    var dbAdminPin by remember { mutableStateOf("123456") } // Default PIN
+
     val prefs = remember { context.getSharedPreferences("homeland_prefs", Context.MODE_PRIVATE) }
+
+    // 🔥 NEW: Fetch Admin PIN from Firestore
+    LaunchedEffect(Unit) {
+        FirebaseFirestore.getInstance().collection("config").document("admin").addSnapshotListener { doc, _ ->
+            if (doc != null && doc.exists()) {
+                dbAdminPin = doc.getString("adminPin") ?: "123456"
+            }
+        }
+    }
 
     var profileHistory by remember { mutableStateOf<List<Pair<Movie, Float>>>(emptyList()) }
     LaunchedEffect(profileName) {
@@ -1051,7 +1160,14 @@ fun ProfileScreen(auth: FirebaseAuth, profileName: String, userVipExpiry: Long, 
                         }
                         
                         if (auth.currentUser?.email == ADMIN_EMAIL) {
-                            SettingsRow(icon = Icons.Default.AdminPanelSettings, title = "Admin Panel", onClick = { showAdminPanel = true }, iconTint = theme.primary, titleColor = theme.primary)
+                            // 🔥 CHANGED: Now triggers 2FA dialog
+                            SettingsRow(
+                                icon = Icons.Default.AdminPanelSettings, 
+                                title = "Admin Panel (2FA)", 
+                                onClick = { showAdmin2faDialog = true }, 
+                                iconTint = theme.primary, 
+                                titleColor = theme.primary
+                            )
                             HorizontalDivider(color = Color.White.copy(alpha = 0.05f))
                         }
                         
@@ -1077,6 +1193,54 @@ fun ProfileScreen(auth: FirebaseAuth, profileName: String, userVipExpiry: Long, 
                 Spacer(modifier = Modifier.height(100.dp))
             }
         }
+    }
+
+    // 🔥 NEW: Admin 2FA Dialog
+    if (showAdmin2faDialog) {
+        AlertDialog(
+            onDismissRequest = { showAdmin2faDialog = false; admin2faInput = ""; admin2faError = null },
+            title = { Text("Admin 2FA Security", color = Color.White) },
+            text = { 
+                Column {
+                    Text("Enter your 6-digit Admin PIN to access the control panel.", color = Color.Gray)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = admin2faInput,
+                        onValueChange = { if (it.length <= 6) admin2faInput = it },
+                        placeholder = { Text("6-digit PIN (Default: 123456)") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                        visualTransformation = PasswordVisualTransformation(),
+                        colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White)
+                    )
+                    if (admin2faError != null) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(admin2faError!!, color = Color.Red, fontSize = 12.sp)
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        if (admin2faInput == dbAdminPin) {
+                            showAdminPanel = true
+                            showAdmin2faDialog = false
+                            admin2faInput = ""
+                            admin2faError = null
+                        } else {
+                            admin2faError = "Incorrect Admin PIN"
+                            admin2faInput = ""
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = theme.primary)
+                ) { Text("Unlock") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showAdmin2faDialog = false; admin2faInput = ""; admin2faError = null }) {
+                    Text("Cancel", color = Color.Gray)
+                }
+            },
+            containerColor = Color(0xFF15171E)
+        )
     }
 
     if (showCouponDialog) {
