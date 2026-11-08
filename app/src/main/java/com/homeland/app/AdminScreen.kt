@@ -12,6 +12,8 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Block
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -26,8 +28,13 @@ import kotlin.random.Random
 val vjList = listOf("VJ Akaana", "VJ Arafa", "VJ Aron", "VJ Ashim", "VJ Ashim J", "VJ Banks", "VJ Baros", "VJ Bonny", "VJ Cabs", "VJ CB", "VJ Dan De", "VJ Eddy", "VJ Emmy", "VJ Fredy", "VJ Geofry", "VJ Ghost King", "VJ Ham", "VJ Harderway", "VJ HD", "VJ Heavy Q", "VJ Henrico", "VJ Isma", "VJ Isma K", "VJ Ivo", "VJ Jimmy", "VJ Jingo", "VJ Jovan", "VJ Jumpers", "VJ Junior", "VJ Kam", "VJ Kamran", "VJ Kevo", "VJ Kevin", "VJ Khan Lee", "VJ Kimuli", "VJ Kin", "VJ Kriss", "VJ Kriss S", "VJ Kriss Sweet", "VJ KS", "VJ Lance", "VJ Lash", "VJ Light", "VJ Little T", "VJ Mark", "VJ Martin K", "VJ MK", "VJ Monks", "VJ Mosco", "VJ Mox", "VJ Muba", "VJ Mukibi", "VJ Mun", "VJ Musa", "VJ Neil", "VJ Nelly", "VJ Nelson", "VJ Omutaka Ice P", "VJ Pauleta", "VJ Pax Woo", "VJ Phoenix", "VJ Raji", "VJ Roddy", "VJ Ronage", "VJ Ronnie", "VJ Ryan", "VJ Sammy", "VJ Shao Khan", "VJ Sharz", "VJ Shield", "VJ Silver", "VJ SMK", "VJ Son", "VJ Soul", "VJ Tom", "VJ Tonny", "VJ Ulio", "VJ Uncle T", "VJ Waza", "VJ Yat", "VJ Zaidi")
 val categories = listOf("Action", "Sci-Fi", "Comedy", "Animation", "Romantic", "Horror", "Adventure")
 
-// 🔥 PATH 2: Changed vipExpiry to homelandVipExpiry
-data class AdminUser(val uid: String = "", val email: String = "", val homelandVipExpiry: Long = 0L)
+// 🔥 PATH 2: Changed vipExpiry to homelandVipExpiry and added isBanned
+data class AdminUser(
+    val uid: String = "", 
+    val email: String = "", 
+    val homelandVipExpiry: Long = 0L,
+    val isBanned: Boolean = false
+)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -72,6 +79,9 @@ fun AdminScreen(onBack: () -> Unit) {
     var themeFontUrl by remember { mutableStateOf("") }
     var themeBgImageUrl by remember { mutableStateOf("") }
     
+    // 🔥 NEW: Custom VIP Days State
+    var customVipDays by remember { mutableStateOf("30") }
+
     // 🔥 NEW: Push Notification State
     var pushTitle by remember { mutableStateOf("") }
     var pushMessage by remember { mutableStateOf("") }
@@ -87,7 +97,7 @@ fun AdminScreen(onBack: () -> Unit) {
     var existingTv by remember { mutableStateOf<List<TvChannel>>(emptyList()) }
 
     LaunchedEffect(selectedTab) {
-        // 🔥 NEW: Also load movies for the Push tab (tab 4)
+        // 🔥 Also load movies for the Push tab (tab 4)
         if (selectedTab == 0 || selectedTab == 4) {
             db.collection("homeland_movies").addSnapshotListener { snap, _ ->
                 if (snap != null) {
@@ -108,8 +118,13 @@ fun AdminScreen(onBack: () -> Unit) {
             db.collection("users").addSnapshotListener { snap, _ ->
                 if (snap != null) {
                     allUsers = snap.documents.map { doc ->
-                        // 🔥 PATH 2: Fetching homelandVipExpiry
-                        AdminUser(uid = doc.id, email = doc.getString("email") ?: "Unknown", homelandVipExpiry = doc.getLong("homelandVipExpiry") ?: 0L)
+                        // 🔥 PATH 2: Fetching homelandVipExpiry and isBanned
+                        AdminUser(
+                            uid = doc.id, 
+                            email = doc.getString("email") ?: "Unknown", 
+                            homelandVipExpiry = doc.getLong("homelandVipExpiry") ?: 0L,
+                            isBanned = doc.getBoolean("isBanned") ?: false
+                        )
                     }
                 }
             }
@@ -364,7 +379,6 @@ fun AdminScreen(onBack: () -> Unit) {
                     val now = System.currentTimeMillis()
                     val threeDaysFromNow = now + (3 * 24 * 60 * 60 * 1000L)
                     
-                    // 🔥 PATH 2: Using homelandVipExpiry
                     val expiringSoonUsers = allUsers.filter { it.homelandVipExpiry > now && it.homelandVipExpiry <= threeDaysFromNow }.sortedBy { it.homelandVipExpiry }
 
                     if (expiringSoonUsers.isNotEmpty()) {
@@ -410,24 +424,83 @@ fun AdminScreen(onBack: () -> Unit) {
                         }
                     }
                 }
+                
+                // 🔥 UPDATED: Manage Users Card with Ban & Custom Days
                 item {
                     Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF15171E)), shape = RoundedCornerShape(16.dp)) {
                         Column(modifier = Modifier.padding(16.dp)) {
                             Text("Manage Users", color = Color.White, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 8.dp))
+                            
+                            // Input for custom VIP days
+                            OutlinedTextField(
+                                value = customVipDays, 
+                                onValueChange = { customVipDays = it }, 
+                                label = { Text("Custom Days (e.g. 30, 90)") }, 
+                                modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp), 
+                                colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White)
+                            )
+
                             allUsers.forEach { user ->
-                                // 🔥 PATH 2: Using homelandVipExpiry
                                 val isVip = user.homelandVipExpiry > System.currentTimeMillis()
-                                Row(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text(user.email, color = Color.White, fontSize = 12.sp)
-                                        Text(if (isVip) "VIP Active" else "Free", color = if (isVip) Color(0xFFE50914) else Color.Gray, fontSize = 10.sp)
+                                
+                                Column(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+                                    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(user.email, color = if (user.isBanned) Color.Red else Color.White, fontSize = 12.sp)
+                                            Text(
+                                                text = when {
+                                                    user.isBanned -> "BANNED"
+                                                    isVip -> "VIP Active"
+                                                    else -> "Free User"
+                                                },
+                                                color = when {
+                                                    user.isBanned -> Color.Red
+                                                    isVip -> Color(0xFFE50914)
+                                                    else -> Color.Gray
+                                                },
+                                                fontSize = 10.sp,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                        }
+                                        
+                                        // 🔥 BAN / UNBAN BUTTON
+                                        IconButton(onClick = {
+                                            db.collection("users").document(user.uid).update("isBanned", !user.isBanned)
+                                                .addOnSuccessListener { 
+                                                    statusMessage = if (!user.isBanned) "User Banned" else "User Unbanned"
+                                                }
+                                        }) {
+                                            Icon(
+                                                imageVector = if (user.isBanned) Icons.Default.CheckCircle else Icons.Default.Block,
+                                                contentDescription = "Ban Status",
+                                                tint = if (user.isBanned) Color.Green else Color.Red
+                                            )
+                                        }
                                     }
-                                    Button(onClick = {
-                                        val base = if (isVip) user.homelandVipExpiry else System.currentTimeMillis()
-                                        // 🔥 PATH 2: Updating homelandVipExpiry
-                                        db.collection("users").document(user.uid).update("homelandVipExpiry", base + (7 * 24 * 60 * 60 * 1000L))
-                                    }, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE50914)), modifier = Modifier.padding(end = 4.dp), contentPadding = PaddingValues(horizontal = 8.dp)) { Text("+7d", fontSize = 10.sp) }
+                                    
+                                    // Action Buttons Row
+                                    Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth().padding(top = 4.dp)) {
+                                        Button(onClick = {
+                                            val base = if (isVip) user.homelandVipExpiry else System.currentTimeMillis()
+                                            db.collection("users").document(user.uid).update("homelandVipExpiry", base + (7 * 24 * 60 * 60 * 1000L))
+                                        }, colors = ButtonDefaults.buttonColors(containerColor = Color.DarkGray), modifier = Modifier.padding(end = 8.dp), contentPadding = PaddingValues(horizontal = 12.dp)) { 
+                                            Text("+7d", fontSize = 10.sp) 
+                                        }
+                                        
+                                        // 🔥 CUSTOM DAYS BUTTON
+                                        Button(onClick = {
+                                            val daysToAdd = customVipDays.toIntOrNull() ?: 0
+                                            if (daysToAdd > 0) {
+                                                val base = if (isVip) user.homelandVipExpiry else System.currentTimeMillis()
+                                                db.collection("users").document(user.uid).update("homelandVipExpiry", base + (daysToAdd.toLong() * 24 * 60 * 60 * 1000L))
+                                                    .addOnSuccessListener { statusMessage = "Added $daysToAdd days for ${user.email}" }
+                                            }
+                                        }, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE50914)), contentPadding = PaddingValues(horizontal = 12.dp)) { 
+                                            Text("+${customVipDays}d", fontSize = 10.sp) 
+                                        }
+                                    }
                                 }
+                                HorizontalDivider(color = Color.White.copy(alpha = 0.05f))
                             }
                         }
                     }
@@ -470,7 +543,7 @@ fun AdminScreen(onBack: () -> Unit) {
                     }
                 }
             } else {
-                // 🔥 UPDATED: PUSH NOTIFICATION TAB
+                // 🔥 PUSH NOTIFICATION TAB
                 item {
                     Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF15171E)), shape = RoundedCornerShape(16.dp)) {
                         Column(modifier = Modifier.padding(16.dp)) {
@@ -482,7 +555,7 @@ fun AdminScreen(onBack: () -> Unit) {
                             
                             Spacer(modifier = Modifier.height(12.dp))
                             
-                            // 🔥 NEW: Dropdown to select a movie
+                            // Dropdown to select a movie
                             ExposedDropdownMenuBox(
                                 expanded = pushMovieExpanded,
                                 onExpandedChange = { pushMovieExpanded = !pushMovieExpanded }
@@ -530,7 +603,7 @@ fun AdminScreen(onBack: () -> Unit) {
                                 val notifData = hashMapOf(
                                     "title" to pushTitle,
                                     "message" to pushMessage,
-                                    "deep_link" to pushDeepLink, // 🔥 Added deep link
+                                    "deep_link" to pushDeepLink, 
                                     "status" to "pending",
                                     "timestamp" to System.currentTimeMillis()
                                 )
