@@ -29,7 +29,7 @@
         android:supportsRtl="true"
         android:banner="@drawable/ic_launcher"
         android:theme="@android:style/Theme.Material.NoActionBar">
-        
+
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -53,6 +53,11 @@
             </intent-filter>
         </service>
 
+        <!-- ✅ NEW: Default notification icon for system-tray notifications -->
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_icon"
+            android:resource="@drawable/ic_launcher" />
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"
@@ -62,6 +67,6 @@
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/file_paths" />
         </provider>
-        
+
     </application>
 </manifest>
