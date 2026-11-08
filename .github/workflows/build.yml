@@ -22,22 +22,51 @@ jobs:
     - name: Decode Keystore
       run: echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > ${{ github.workspace }}/release.keystore
 
-    # 🔥 THE FIX: Download Gradle 8.4 from GitHub's stable mirror
-    #    (avoids the flaky services.gradle.org that has been causing 504s)
-    - name: Install Gradle 8.4 from GitHub Releases
+    # 🔥 DOWNLOAD GRADLE 8.4 FROM 4 DIFFERENT MIRRORS WITH RETRIES
+    - name: Install Gradle 8.4 (multi-mirror, multi-retry)
       run: |
         GRADLE_VERSION="8.4"
         INSTALL_DIR="$RUNNER_TEMP/gradle-${GRADLE_VERSION}"
 
-        echo "Downloading Gradle ${GRADLE_VERSION} from GitHub releases mirror..."
-        curl -fsSL "https://github.com/gradle/gradle-distributions/releases/download/v${GRADLE_VERSION}.0/gradle-${GRADLE_VERSION}-bin.zip" -o /tmp/gradle.zip
+        URLS=(
+          "https://downloads.gradle.org/distributions/gradle-${GRADLE_VERSION}-bin.zip"
+          "https://services.gradle.org/distributions/gradle-${GRADLE_VERSION}-bin.zip"
+          "https://downloads.gradle-dn.com/distributions/gradle-${GRADLE_VERSION}-bin.zip"
+          "https://github.com/gradle/gradle-distributions/releases/download/v${GRADLE_VERSION}.0/gradle-${GRADLE_VERSION}-bin.zip"
+        )
+
+        DOWNLOADED=false
+
+        for url in "${URLS[@]}"; do
+          for attempt in 1 2 3; do
+            echo "----------------------------------------------"
+            echo "URL: $url"
+            echo "Attempt: $attempt / 3"
+            if curl -fsSL --max-time 90 --retry 0 "$url" -o /tmp/gradle.zip; then
+              echo "✅ Download successful"
+              DOWNLOADED=true
+              break 2
+            fi
+            echo "❌ Failed. Waiting 8 seconds..."
+            sleep 8
+          done
+        done
+
+        if [ "$DOWNLOADED" = false ]; then
+          echo ""
+          echo "=============================================="
+          echo "❌ ALL 4 MIRRORS FAILED (12 total attempts)"
+          echo "=============================================="
+          echo "This means GitHub's CDN is down today."
+          echo "The fix: wait 30-60 minutes, then re-run this workflow."
+          echo "Your code is NOT the problem."
+          exit 1
+        fi
 
         echo "Extracting..."
         unzip -q /tmp/gradle.zip -d "$RUNNER_TEMP"
-
         echo "$INSTALL_DIR/bin" >> $GITHUB_PATH
-
-        echo "✅ Gradle ${GRADLE_VERSION} installed at ${INSTALL_DIR}"
+        echo "✅ Gradle ${GRADLE_VERSION} installed"
 
     - name: Verify Gradle version
       run: gradle --version
