@@ -2,10 +2,14 @@ package com.homeland.app
 
 import android.Manifest
 import android.app.DownloadManager
+import android.media.AudioManager
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.os.Build
 import android.os.Environment
+import android.os.VibrationEffect
+import android.os.Vibrator
+import android.os.VibratorManager
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -90,6 +94,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import java.io.File
+import kotlin.random.Random
 
 const val ADMIN_EMAIL = "ssalihenry136@gmail.com"
 const val WHATSAPP_NUMBER = "256742199254" 
@@ -104,7 +109,6 @@ data class ThemeConfig(
     val bgImageUrl: String = ""
 )
 
-// 🔥 NEW: Language Translation Helper
 fun translate(key: String, lang: String): String {
     val translations = mapOf(
         "English" to mapOf("home" to "Home", "tv" to "TV Live", "list" to "My List", "profile" to "Profile", "kids" to "Kids Mode", "lang" to "Language"),
@@ -115,6 +119,25 @@ fun translate(key: String, lang: String): String {
         "Japanese" to mapOf("home" to "ホーム", "tv" to "テレビ", "list" to "マイリスト", "profile" to "プロフィール", "kids" to "キッズモード", "lang" to "言語")
     )
     return translations[lang]?.get(key) ?: key
+}
+
+// 🔥 NEW: Haptic feedback helper
+fun vibrate(context: Context, isStrong: Boolean = false) {
+    try {
+        val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            val manager = context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager
+            manager.defaultVibrator
+        } else {
+            @Suppress("DEPRECATION")
+            context.getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            vibrator.vibrate(VibrationEffect.createOneShot(if (isStrong) 35L else 12L, VibrationEffect.DEFAULT_AMPLITUDE))
+        } else {
+            @Suppress("DEPRECATION")
+            vibrator.vibrate(if (isStrong) 35L else 12L)
+        }
+    } catch (e: Exception) {}
 }
 
 @Composable
@@ -246,14 +269,11 @@ class MainActivity : ComponentActivity() {
                 var savedPin by remember { mutableStateOf(prefs.getString("app_pin", null)) }
                 var isAppUnlocked by remember { mutableStateOf(savedPin == null) }
 
-                // 🔥 NEW: Onboarding state
                 var showOnboarding by remember { mutableStateOf(!prefs.getBoolean("onboarding_seen", false)) }
 
-                // 🔥 NEW: Language & Kids Mode states
                 var appLanguage by remember { mutableStateOf(prefs.getString("app_language", "English") ?: "English") }
                 var kidsMode by remember { mutableStateOf(prefs.getBoolean("kids_mode", false)) }
 
-                // 🔥 Ban State & Listener
                 var isBanned by remember { mutableStateOf(false) }
                 
                 LaunchedEffect(currentUser) {
@@ -268,7 +288,6 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                // 🔥 Device Limit State
                 var isDeviceAllowed by remember { mutableStateOf<Boolean?>(null) }
                 var deviceLimitError by remember { mutableStateOf("") }
 
@@ -381,6 +400,7 @@ class MainActivity : ComponentActivity() {
                                 onLanguageChanged = { appLanguage = it; prefs.edit().putString("app_language", it).apply() },
                                 kidsMode = kidsMode,
                                 onKidsModeChanged = { kidsMode = it; prefs.edit().putBoolean("kids_mode", it).apply() },
+                                isTv = true,
                                 onLogout = { isAuthenticated = false }, 
                                 onSwitchProfile = { }
                             )
@@ -406,6 +426,7 @@ class MainActivity : ComponentActivity() {
                                     onLanguageChanged = { appLanguage = it; prefs.edit().putString("app_language", it).apply() },
                                     kidsMode = kidsMode,
                                     onKidsModeChanged = { kidsMode = it; prefs.edit().putBoolean("kids_mode", it).apply() },
+                                    isTv = false,
                                     onLogout = { isAuthenticated = false; showProfileSelector = false }, 
                                     onSwitchProfile = { showProfileSelector = true }
                                 )
@@ -608,17 +629,25 @@ fun HomelandApp(
     onLanguageChanged: (String) -> Unit,
     kidsMode: Boolean,
     onKidsModeChanged: (Boolean) -> Unit,
+    isTv: Boolean,
     onLogout: () -> Unit, 
     onSwitchProfile: () -> Unit
 ) {
     val context = LocalContext.current
     val db = FirebaseFirestore.getInstance()
     val prefs = remember { context.getSharedPreferences("homeland_prefs", Context.MODE_PRIVATE) }
+    val audioManager = remember { context.getSystemService(Context.AUDIO_SERVICE) as AudioManager }
     var selectedTab by remember { mutableStateOf(0) }
     var currentlyPlaying by remember { mutableStateOf<Movie?>(null) }
     var viewingDetails by remember { mutableStateOf<Movie?>(null) }
     var userVipExpiry by remember { mutableLongStateOf(0L) }
     var showVipModal by remember { mutableStateOf(false) }
+
+    // 🔥 NEW: Search hoisted for remote control
+    var globalSearchQuery by remember { mutableStateOf("") }
+
+    // 🔥 NEW: TV Session
+    var tvSessionCode by remember { mutableStateOf<String?>(null) }
 
     var pendingAdultMovie by remember { mutableStateOf<Movie?>(null) }
     var showAdultPinPrompt by remember { mutableStateOf(false) }
@@ -640,6 +669,78 @@ fun HomelandApp(
             showWifiWarning = true
         } else {
             currentlyPlaying = movie
+        }
+    }
+
+    // 🔥 NEW: Generate TV session code
+    LaunchedEffect(isTv, auth.currentUser) {
+        if (isTv && auth.currentUser != null) {
+            val existing = prefs.getString("tv_session_code", null)
+            val code = existing ?: (100000 + Random.nextInt(900000)).toString()
+            prefs.edit().putString("tv_session_code", code).apply()
+            tvSessionCode = code
+            db.collection("tv_sessions").document(code).set(
+                mapOf(
+                    "userId" to auth.currentUser.uid,
+                    "email" to (auth.currentUser.email ?: ""),
+                    "createdAt" to System.currentTimeMillis(),
+                    "lastSeen" to System.currentTimeMillis(),
+                    "status" to "idle",
+                    "currentTitle" to "",
+                    "currentTab" to 0
+                )
+            )
+        }
+    }
+
+    // 🔥 NEW: Listen for remote commands on TV
+    LaunchedEffect(tvSessionCode) {
+        if (tvSessionCode != null) {
+            val listener = db.collection("tv_sessions").document(tvSessionCode!!)
+                .collection("commands")
+                .whereEqualTo("processed", false)
+                .addSnapshotListener { snap, _ ->
+                    snap?.documents?.forEach { cmdDoc ->
+                        val type = cmdDoc.getString("type") ?: return@forEach
+                        val value = cmdDoc.getString("value") ?: ""
+                        when (type) {
+                            "tab" -> selectedTab = value.toIntOrNull() ?: 0
+                            "back" -> {
+                                if (currentlyPlaying != null) currentlyPlaying = null
+                                else if (viewingDetails != null) viewingDetails = null
+                                else if (showVipModal) showVipModal = false
+                                else if (showAdultPinPrompt) { showAdultPinPrompt = false; pendingAdultMovie = null }
+                                else if (selectedTab != 0) selectedTab = 0
+                            }
+                            "search" -> {
+                                globalSearchQuery = value
+                                selectedTab = 0
+                            }
+                            "clear_search" -> globalSearchQuery = ""
+                            "volume_up" -> {
+                                audioManager.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_RAISE, AudioManager.FLAG_SHOW_UI)
+                            }
+                            "volume_down" -> {
+                                audioManager.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_LOWER, AudioManager.FLAG_SHOW_UI)
+                            }
+                            "close_player" -> currentlyPlaying = null
+                            // Note: play/pause/seek handled by PlayerScreen.kt after its update
+                        }
+                        cmdDoc.reference.update("processed", true)
+                    }
+                }
+        }
+    }
+
+    // 🔥 NEW: Update TV session status on changes
+    LaunchedEffect(currentlyPlaying, selectedTab, tvSessionCode) {
+        if (tvSessionCode != null) {
+            db.collection("tv_sessions").document(tvSessionCode!!).update(
+                "status", if (currentlyPlaying != null) "playing" else "idle",
+                "currentTitle", currentlyPlaying?.title ?: "",
+                "currentTab", selectedTab,
+                "lastSeen", System.currentTimeMillis()
+            )
         }
     }
 
@@ -752,16 +853,14 @@ fun HomelandApp(
         )
     }
 
-    val isTv = context.packageManager.hasSystemFeature(PackageManager.FEATURE_LEANBACK) || (context.resources.configuration.uiMode and Configuration.UI_MODE_TYPE_MASK) == Configuration.UI_MODE_TYPE_TELEVISION
-
     if (isTv) {
         Row(modifier = Modifier.fillMaxSize().background(theme.background)) {
             NavigationRail(containerColor = Color(0xFF15171E), modifier = Modifier.fillMaxHeight()) {
                 Spacer(modifier = Modifier.height(32.dp))
-                NavigationRailItem(selected = selectedTab == 0, onClick = { selectedTab = 0 }, icon = { Icon(Icons.Default.Home, "Home") }, label = { Text(translate("home", appLanguage)) }, colors = NavigationRailItemDefaults.colors(selectedIconColor = theme.primary, selectedTextColor = theme.primary, unselectedIconColor = Color.Gray))
-                NavigationRailItem(selected = selectedTab == 1, onClick = { selectedTab = 1 }, icon = { Icon(Icons.Default.Tv, "TV") }, label = { Text(translate("tv", appLanguage)) }, colors = NavigationRailItemDefaults.colors(selectedIconColor = theme.primary, selectedTextColor = theme.primary, unselectedIconColor = Color.Gray))
-                NavigationRailItem(selected = selectedTab == 2, onClick = { selectedTab = 2 }, icon = { Icon(Icons.Default.Favorite, "My List") }, label = { Text(translate("list", appLanguage)) }, colors = NavigationRailItemDefaults.colors(selectedIconColor = theme.primary, selectedTextColor = theme.primary, unselectedIconColor = Color.Gray))
-                NavigationRailItem(selected = selectedTab == 3, onClick = { selectedTab = 3 }, icon = { Icon(Icons.Default.Person, "Profile") }, label = { Text(translate("profile", appLanguage)) }, colors = NavigationRailItemDefaults.colors(selectedIconColor = theme.primary, selectedTextColor = theme.primary, unselectedIconColor = Color.Gray))
+                NavigationRailItem(selected = selectedTab == 0, onClick = { vibrate(context); selectedTab = 0 }, icon = { Icon(Icons.Default.Home, "Home") }, label = { Text(translate("home", appLanguage)) }, colors = NavigationRailItemDefaults.colors(selectedIconColor = theme.primary, selectedTextColor = theme.primary, unselectedIconColor = Color.Gray))
+                NavigationRailItem(selected = selectedTab == 1, onClick = { vibrate(context); selectedTab = 1 }, icon = { Icon(Icons.Default.Tv, "TV") }, label = { Text(translate("tv", appLanguage)) }, colors = NavigationRailItemDefaults.colors(selectedIconColor = theme.primary, selectedTextColor = theme.primary, unselectedIconColor = Color.Gray))
+                NavigationRailItem(selected = selectedTab == 2, onClick = { vibrate(context); selectedTab = 2 }, icon = { Icon(Icons.Default.Favorite, "My List") }, label = { Text(translate("list", appLanguage)) }, colors = NavigationRailItemDefaults.colors(selectedIconColor = theme.primary, selectedTextColor = theme.primary, unselectedIconColor = Color.Gray))
+                NavigationRailItem(selected = selectedTab == 3, onClick = { vibrate(context); selectedTab = 3 }, icon = { Icon(Icons.Default.Person, "Profile") }, label = { Text(translate("profile", appLanguage)) }, colors = NavigationRailItemDefaults.colors(selectedIconColor = theme.primary, selectedTextColor = theme.primary, unselectedIconColor = Color.Gray))
             }
 
             Box(modifier = Modifier.fillMaxSize()) {
@@ -770,10 +869,10 @@ fun HomelandApp(
                 
                 Box(modifier = Modifier.fillMaxSize()) {
                     when (selectedTab) {
-                        0 -> HomeScreen(theme = theme, profileName = profileName, userVipExpiry = userVipExpiry, kidsMode = kidsMode, onDetails = { viewingDetails = it })
+                        0 -> HomeScreen(theme = theme, profileName = profileName, userVipExpiry = userVipExpiry, kidsMode = kidsMode, searchQuery = globalSearchQuery, onSearchQueryChange = { globalSearchQuery = it }, onDetails = { viewingDetails = it })
                         1 -> TvLiveScreen(theme = theme, userVipExpiry = userVipExpiry, kidsMode = kidsMode, onPlayMedia = { tryPlay(it) })
                         2 -> MyListScreen(theme = theme, profileName = profileName, userVipExpiry = userVipExpiry, kidsMode = kidsMode, onDetails = { viewingDetails = it })
-                        3 -> ProfileScreen(auth, profileName = profileName, userVipExpiry, theme, savedPin = savedPin, wifiOnlyMode = wifiOnlyMode, onWifiOnlyChanged = { wifiOnlyMode = it; prefs.edit().putBoolean("wifi_only", it).apply() }, appLanguage = appLanguage, onLanguageChanged = onLanguageChanged, kidsMode = kidsMode, onKidsModeChanged = onKidsModeChanged, onLogout, onSwitchProfile, onPlay = { tryPlay(it) })
+                        3 -> ProfileScreen(auth, profileName = profileName, userVipExpiry, theme, savedPin = savedPin, wifiOnlyMode = wifiOnlyMode, onWifiOnlyChanged = { wifiOnlyMode = it; prefs.edit().putBoolean("wifi_only", it).apply() }, appLanguage = appLanguage, onLanguageChanged = onLanguageChanged, kidsMode = kidsMode, onKidsModeChanged = onKidsModeChanged, isTv = true, tvSessionCode = tvSessionCode, onLogout, onSwitchProfile, onPlay = { tryPlay(it) })
                     }
                 }
             }
@@ -783,10 +882,10 @@ fun HomelandApp(
             bottomBar = {
                 Box(modifier = Modifier.fillMaxWidth().background(Color(0xFF0B0C10).copy(alpha = 0.94f)).border(width = 1.dp, color = Color.White.copy(alpha = 0.08f), shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp))) {
                     NavigationBar(containerColor = Color.Transparent) {
-                        NavigationBarItem(selected = selectedTab == 0, onClick = { selectedTab = 0 }, icon = { Icon(Icons.Default.Home, "Home") }, label = { Text(translate("home", appLanguage)) }, colors = NavigationBarItemDefaults.colors(selectedIconColor = theme.primary, selectedTextColor = theme.primary, unselectedIconColor = Color.Gray, unselectedTextColor = Color.Gray, indicatorColor = theme.primary.copy(alpha = 0.2f)))
-                        NavigationBarItem(selected = selectedTab == 1, onClick = { selectedTab = 1 }, icon = { Icon(Icons.Default.Tv, "TV Live") }, label = { Text(translate("tv", appLanguage)) }, colors = NavigationBarItemDefaults.colors(selectedIconColor = theme.primary, selectedTextColor = theme.primary, unselectedIconColor = Color.Gray, unselectedTextColor = Color.Gray, indicatorColor = theme.primary.copy(alpha = 0.2f)))
-                        NavigationBarItem(selected = selectedTab == 2, onClick = { selectedTab = 2 }, icon = { Icon(Icons.Default.Favorite, "My List") }, label = { Text(translate("list", appLanguage)) }, colors = NavigationBarItemDefaults.colors(selectedIconColor = theme.primary, selectedTextColor = theme.primary, unselectedIconColor = Color.Gray, unselectedTextColor = Color.Gray, indicatorColor = theme.primary.copy(alpha = 0.2f)))
-                        NavigationBarItem(selected = selectedTab == 3, onClick = { selectedTab = 3 }, icon = { Icon(Icons.Default.Person, "Profile") }, label = { Text(translate("profile", appLanguage)) }, colors = NavigationBarItemDefaults.colors(selectedIconColor = theme.primary, selectedTextColor = theme.primary, unselectedIconColor = Color.Gray, unselectedTextColor = Color.Gray, indicatorColor = theme.primary.copy(alpha = 0.2f)))
+                        NavigationBarItem(selected = selectedTab == 0, onClick = { vibrate(context); selectedTab = 0 }, icon = { Icon(Icons.Default.Home, "Home") }, label = { Text(translate("home", appLanguage)) }, colors = NavigationBarItemDefaults.colors(selectedIconColor = theme.primary, selectedTextColor = theme.primary, unselectedIconColor = Color.Gray, unselectedTextColor = Color.Gray, indicatorColor = theme.primary.copy(alpha = 0.2f)))
+                        NavigationBarItem(selected = selectedTab == 1, onClick = { vibrate(context); selectedTab = 1 }, icon = { Icon(Icons.Default.Tv, "TV Live") }, label = { Text(translate("tv", appLanguage)) }, colors = NavigationBarItemDefaults.colors(selectedIconColor = theme.primary, selectedTextColor = theme.primary, unselectedIconColor = Color.Gray, unselectedTextColor = Color.Gray, indicatorColor = theme.primary.copy(alpha = 0.2f)))
+                        NavigationBarItem(selected = selectedTab == 2, onClick = { vibrate(context); selectedTab = 2 }, icon = { Icon(Icons.Default.Favorite, "My List") }, label = { Text(translate("list", appLanguage)) }, colors = NavigationBarItemDefaults.colors(selectedIconColor = theme.primary, selectedTextColor = theme.primary, unselectedIconColor = Color.Gray, unselectedTextColor = Color.Gray, indicatorColor = theme.primary.copy(alpha = 0.2f)))
+                        NavigationBarItem(selected = selectedTab == 3, onClick = { vibrate(context); selectedTab = 3 }, icon = { Icon(Icons.Default.Person, "Profile") }, label = { Text(translate("profile", appLanguage)) }, colors = NavigationBarItemDefaults.colors(selectedIconColor = theme.primary, selectedTextColor = theme.primary, unselectedIconColor = Color.Gray, unselectedTextColor = Color.Gray, indicatorColor = theme.primary.copy(alpha = 0.2f)))
                     }
                 }
             }
@@ -797,10 +896,10 @@ fun HomelandApp(
                 
                 Box(modifier = Modifier.fillMaxSize()) {
                     when (selectedTab) {
-                        0 -> HomeScreen(theme = theme, profileName = profileName, userVipExpiry = userVipExpiry, kidsMode = kidsMode, onDetails = { viewingDetails = it })
+                        0 -> HomeScreen(theme = theme, profileName = profileName, userVipExpiry = userVipExpiry, kidsMode = kidsMode, searchQuery = globalSearchQuery, onSearchQueryChange = { globalSearchQuery = it }, onDetails = { viewingDetails = it })
                         1 -> TvLiveScreen(theme = theme, userVipExpiry = userVipExpiry, kidsMode = kidsMode, onPlayMedia = { tryPlay(it) })
                         2 -> MyListScreen(theme = theme, profileName = profileName, userVipExpiry = userVipExpiry, kidsMode = kidsMode, onDetails = { viewingDetails = it })
-                        3 -> ProfileScreen(auth, profileName = profileName, userVipExpiry, theme, savedPin = savedPin, wifiOnlyMode = wifiOnlyMode, onWifiOnlyChanged = { wifiOnlyMode = it; prefs.edit().putBoolean("wifi_only", it).apply() }, appLanguage = appLanguage, onLanguageChanged = onLanguageChanged, kidsMode = kidsMode, onKidsModeChanged = onKidsModeChanged, onLogout, onSwitchProfile, onPlay = { tryPlay(it) })
+                        3 -> ProfileScreen(auth, profileName = profileName, userVipExpiry, theme, savedPin = savedPin, wifiOnlyMode = wifiOnlyMode, onWifiOnlyChanged = { wifiOnlyMode = it; prefs.edit().putBoolean("wifi_only", it).apply() }, appLanguage = appLanguage, onLanguageChanged = onLanguageChanged, kidsMode = kidsMode, onKidsModeChanged = onKidsModeChanged, isTv = false, tvSessionCode = null, onLogout, onSwitchProfile, onPlay = { tryPlay(it) })
                     }
                 }
             }
@@ -808,12 +907,12 @@ fun HomelandApp(
     }
 }
 
-// 🔥 NEW: REDESIGNED PROFILE SELECTOR WITH AVATARS
 @Composable
 fun ProfileSelectorScreen(theme: ThemeConfig, onProfileSelected: (String) -> Unit) {
     val profiles = listOf("Me", "Kids", "Guest")
     val avatarColors = listOf(Color(0xFFE50914), Color(0xFF10B981), Color(0xFF3B82F6), Color(0xFFFCDC04), Color(0xFF8B5CF6))
     val avatarIcons = listOf(Icons.Default.Person, Icons.Default.ChildCare, Icons.Default.PersonOutline, Icons.Default.Star, Icons.Default.Face)
+    val context = LocalContext.current
     
     Box(modifier = Modifier.fillMaxSize().background(theme.background)) {
         if (theme.bgImageUrl.isNotEmpty()) {
@@ -831,7 +930,7 @@ fun ProfileSelectorScreen(theme: ThemeConfig, onProfileSelected: (String) -> Uni
                 profiles.forEachIndexed { index, profile ->
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
-                        modifier = Modifier.clickable { onProfileSelected(profile) }
+                        modifier = Modifier.clickable { vibrate(context); onProfileSelected(profile) }
                     ) {
                         Box(
                             modifier = Modifier.size(100.dp).clip(RoundedCornerShape(20.dp)).background(avatarColors[index % avatarColors.size].copy(alpha = 0.2f)).border(2.dp, avatarColors[index % avatarColors.size], RoundedCornerShape(20.dp)),
@@ -847,7 +946,7 @@ fun ProfileSelectorScreen(theme: ThemeConfig, onProfileSelected: (String) -> Uni
             
             Spacer(modifier = Modifier.height(48.dp))
             Button(
-                onClick = { onProfileSelected("New Profile") }, 
+                onClick = { vibrate(context); onProfileSelected("New Profile") }, 
                 colors = ButtonDefaults.buttonColors(containerColor = theme.primary),
                 shape = RoundedCornerShape(12.dp),
                 modifier = Modifier.height(50.dp)
@@ -884,7 +983,7 @@ fun DownloadsScreen(theme: ThemeConfig, onBack: () -> Unit, onPlay: (Movie) -> U
             LazyColumn(modifier = Modifier.fillMaxSize()) {
                 items(downloadedFiles) { file ->
                     Row(
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp).background(Color(0xFF15171E), RoundedCornerShape(12.dp)).clickable { onPlay(Movie(title = file.nameWithoutExtension, videoUrl = file.absolutePath)) }.padding(16.dp),
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp).background(Color(0xFF15171E), RoundedCornerShape(12.dp)).clickable { vibrate(context); onPlay(Movie(title = file.nameWithoutExtension, videoUrl = file.absolutePath)) }.padding(16.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Icon(Icons.Default.Movie, contentDescription = "Movie", tint = theme.primary, modifier = Modifier.size(32.dp))
@@ -903,8 +1002,9 @@ fun DownloadsScreen(theme: ThemeConfig, onBack: () -> Unit, onPlay: (Movie) -> U
 
 @Composable
 fun QuickActionButton(icon: ImageVector, label: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    val context = LocalContext.current
     Column(
-        modifier = modifier.clip(RoundedCornerShape(12.dp)).background(Color(0xFF15171E).copy(alpha = 0.8f)).clickable { onClick() }.padding(vertical = 12.dp),
+        modifier = modifier.clip(RoundedCornerShape(12.dp)).background(Color(0xFF15171E).copy(alpha = 0.8f)).clickable { vibrate(context); onClick() }.padding(vertical = 12.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Icon(icon, contentDescription = label, tint = Color.White, modifier = Modifier.size(24.dp))
@@ -984,12 +1084,15 @@ fun ProfileScreen(
     wifiOnlyMode: Boolean = false, onWifiOnlyChanged: (Boolean) -> Unit = {},
     appLanguage: String, onLanguageChanged: (String) -> Unit,
     kidsMode: Boolean, onKidsModeChanged: (Boolean) -> Unit,
+    isTv: Boolean,
+    tvSessionCode: String?,
     onLogout: () -> Unit, onSwitchProfile: () -> Unit, onPlay: (Movie) -> Unit
 ) {
     val context = LocalContext.current
     var showAdminPanel by remember { mutableStateOf(false) }
     var showDownloads by remember { mutableStateOf(false) }
     var showLanguageDialog by remember { mutableStateOf(false) }
+    var showTvRemoteDialog by remember { mutableStateOf(false) }
     var couponCode by remember { mutableStateOf("") }
     val isVip = userVipExpiry > System.currentTimeMillis()
 
@@ -1076,11 +1179,35 @@ fun ProfileScreen(
                         SettingsRow(icon = Icons.Default.Lock, title = if (savedPin != null) "App Lock (Enabled)" else "Setup App Lock", onClick = { showPinDialog = true })
                         HorizontalDivider(color = Color.White.copy(alpha = 0.05f))
                         
-                        // 🔥 NEW: Language Setting
+                        // 🔥 NEW: TV Remote button (only shows on Phone)
+                        if (!isTv) {
+                            SettingsRow(icon = Icons.Default.SettingsRemote, title = "TV Remote Control", onClick = { showTvRemoteDialog = true }, iconTint = theme.primary, titleColor = theme.primary)
+                            HorizontalDivider(color = Color.White.copy(alpha = 0.05f))
+                        }
+                        
+                        // 🔥 NEW: TV Session Code Display (only shows on TV)
+                        if (isTv && tvSessionCode != null) {
+                            Row(modifier = Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.Cast, contentDescription = "TV Code", tint = Color(0xFF10B981), modifier = Modifier.size(22.dp))
+                                Spacer(modifier = Modifier.width(16.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text("Your TV Control Code", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                                    Text("Open the app on your phone to control this TV", color = Color.Gray, fontSize = 11.sp)
+                                }
+                                Text(
+                                    tvSessionCode.replaceFirst("(\\d{3})(\\d{3})".toRegex(), "$1 $2"),
+                                    color = Color(0xFF10B981),
+                                    fontSize = 20.sp,
+                                    fontWeight = FontWeight.Black,
+                                    letterSpacing = 2.sp
+                                )
+                            }
+                            HorizontalDivider(color = Color.White.copy(alpha = 0.05f))
+                        }
+                        
                         SettingsRow(icon = Icons.Default.Language, title = "${translate("lang", appLanguage)}: $appLanguage", onClick = { showLanguageDialog = true })
                         HorizontalDivider(color = Color.White.copy(alpha = 0.05f))
                         
-                        // 🔥 NEW: Kids Mode Toggle
                         SettingsRowWithSwitch(icon = Icons.Default.ChildCare, title = translate("kids", appLanguage), checked = kidsMode, onCheckedChange = onKidsModeChanged)
                         HorizontalDivider(color = Color.White.copy(alpha = 0.05f))
                         
@@ -1114,7 +1241,14 @@ fun ProfileScreen(
         }
     }
 
-    // 🔥 NEW: Language Picker Dialog
+    // 🔥 NEW: TV Remote connection dialog
+    if (showTvRemoteDialog) {
+        TVRemoteConnectDialog(
+            theme = theme,
+            onDismiss = { showTvRemoteDialog = false }
+        )
+    }
+
     if (showLanguageDialog) {
         AlertDialog(
             onDismissRequest = { showLanguageDialog = false },
@@ -1123,7 +1257,7 @@ fun ProfileScreen(
                 Column {
                     listOf("English", "Luganda", "Lunyankole", "Arabic", "Chinese", "Japanese").forEach { lang ->
                         Row(
-                            modifier = Modifier.fillMaxWidth().clickable { onLanguageChanged(lang); showLanguageDialog = false }.padding(vertical = 12.dp),
+                            modifier = Modifier.fillMaxWidth().clickable { vibrate(context); onLanguageChanged(lang); showLanguageDialog = false }.padding(vertical = 12.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             RadioButton(
@@ -1255,6 +1389,285 @@ fun ProfileScreen(
     }
 }
 
+// 🔥 NEW: TV Remote Connection Dialog (Phone side)
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun TVRemoteConnectDialog(theme: ThemeConfig, onDismiss: () -> Unit) {
+    val context = LocalContext.current
+    var codeInput by remember { mutableStateOf("") }
+    var connectedCode by remember { mutableStateOf<String?>(null) }
+    var errorMsg by remember { mutableStateOf<String?>(null) }
+    var tvStatus by remember { mutableStateOf("idle") }
+    var tvTitle by remember { mutableStateOf("") }
+    var isConnecting by remember { mutableStateOf(false) }
+    var searchInput by remember { mutableStateOf("") }
+
+    val db = FirebaseFirestore.getInstance()
+
+    LaunchedEffect(connectedCode) {
+        if (connectedCode != null) {
+            val listener = db.collection("tv_sessions").document(connectedCode!!)
+                .addSnapshotListener { doc, _ ->
+                    if (doc != null && doc.exists()) {
+                        tvStatus = doc.getString("status") ?: "idle"
+                        tvTitle = doc.getString("currentTitle") ?: ""
+                    } else {
+                        errorMsg = "TV disconnected."
+                        connectedCode = null
+                    }
+                }
+            // Note: listener cleanup on dispose happens when composable leaves
+        }
+    }
+
+    fun sendCommand(type: String, value: String = "") {
+        if (connectedCode == null) return
+        vibrate(context, isStrong = true)
+        db.collection("tv_sessions").document(connectedCode!!).collection("commands").add(
+            mapOf(
+                "type" to type,
+                "value" to value,
+                "processed" to false,
+                "timestamp" to System.currentTimeMillis()
+            )
+        )
+    }
+
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(
+            shape = RoundedCornerShape(24.dp),
+            color = Color(0xFF0B0C10),
+            modifier = Modifier.fillMaxWidth().fillMaxHeight(0.92f)
+        ) {
+            if (connectedCode == null) {
+                // CONNECTION SCREEN
+                Column(
+                    modifier = Modifier.fillMaxSize().padding(24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Icon(Icons.Default.SettingsRemote, contentDescription = "Remote", tint = theme.primary, modifier = Modifier.size(64.dp))
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text("Connect to TV", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Black)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        "Open Homeland on your TV, go to Profile, and enter the 6-digit code shown there.",
+                        color = Color.Gray,
+                        fontSize = 13.sp,
+                        textAlign = TextAlign.Center
+                    )
+                    Spacer(modifier = Modifier.height(24.dp))
+                    
+                    OutlinedTextField(
+                        value = codeInput,
+                        onValueChange = { if (it.length <= 6 && it.all { c -> c.isDigit() }) codeInput = it },
+                        placeholder = { Text("Enter 6-digit code", color = Color.Gray) },
+                        modifier = Modifier.fillMaxWidth(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = Color.White,
+                            unfocusedTextColor = Color.White,
+                            focusedBorderColor = theme.primary,
+                            unfocusedBorderColor = Color.DarkGray
+                        )
+                    )
+                    
+                    if (errorMsg != null) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(errorMsg!!, color = Color.Red, fontSize = 13.sp)
+                    }
+                    
+                    Spacer(modifier = Modifier.height(20.dp))
+                    
+                    Button(
+                        onClick = {
+                            if (codeInput.length == 6) {
+                                isConnecting = true
+                                errorMsg = null
+                                db.collection("tv_sessions").document(codeInput).get()
+                                    .addOnSuccessListener { doc ->
+                                        isConnecting = false
+                                        if (doc.exists()) {
+                                            connectedCode = codeInput
+                                            vibrate(context, isStrong = true)
+                                        } else {
+                                            errorMsg = "Invalid code. Check the TV screen."
+                                        }
+                                    }
+                                    .addOnFailureListener {
+                                        isConnecting = false
+                                        errorMsg = "Network error. Try again."
+                                    }
+                            } else {
+                                errorMsg = "Please enter 6 digits"
+                            }
+                        },
+                        enabled = !isConnecting,
+                        modifier = Modifier.fillMaxWidth().height(52.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = theme.primary),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        if (isConnecting) CircularProgressIndicator(color = Color.White, modifier = Modifier.size(22.dp))
+                        else Text("Connect", fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                    }
+                    
+                    Spacer(modifier = Modifier.height(12.dp))
+                    TextButton(onClick = onDismiss) { Text("Cancel", color = Color.Gray) }
+                }
+            } else {
+                // REMOTE CONTROL SCREEN
+                Column(
+                    modifier = Modifier.fillMaxSize().padding(20.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    // Status bar
+                    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Box(modifier = Modifier.size(10.dp).clip(CircleShape).background(if (tvStatus == "playing") Color(0xFF10B981) else Color.Yellow))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                if (tvStatus == "playing") "Playing on TV" else "Connected to TV",
+                                color = Color.White,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            if (tvTitle.isNotEmpty()) {
+                                Text(tvTitle, color = Color.Gray, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            }
+                        }
+                        IconButton(onClick = { connectedCode = null; codeInput = ""; tvStatus = "idle"; tvTitle = "" }) {
+                            Icon(Icons.Default.Close, "Disconnect", tint = Color.White)
+                        }
+                    }
+                    
+                    Spacer(modifier = Modifier.height(16.dp))
+                    
+                    // Tab navigation
+                    Text("Navigate", color = Color.Gray, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.align(Alignment.Start))
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        RemoteTabButton(icon = Icons.Default.Home, label = "Home", onClick = { sendCommand("tab", "0") }, theme = theme, modifier = Modifier.weight(1f))
+                        RemoteTabButton(icon = Icons.Default.Tv, label = "TV", onClick = { sendCommand("tab", "1") }, theme = theme, modifier = Modifier.weight(1f))
+                        RemoteTabButton(icon = Icons.Default.Favorite, label = "List", onClick = { sendCommand("tab", "2") }, theme = theme, modifier = Modifier.weight(1f))
+                        RemoteTabButton(icon = Icons.Default.Person, label = "Profile", onClick = { sendCommand("tab", "3") }, theme = theme, modifier = Modifier.weight(1f))
+                    }
+                    
+                    Spacer(modifier = Modifier.height(20.dp))
+                    
+                    // D-Pad
+                    Text("Control", color = Color.Gray, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.align(Alignment.Start))
+                    Spacer(modifier = Modifier.height(8.dp))
+                    
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        // Up
+                        Box(
+                            modifier = Modifier.size(72.dp).clip(CircleShape).background(Color(0xFF15171E)).clickable { vibrate(context, true); sendCommand("volume_up") },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(Icons.Default.VolumeUp, "Volume Up", tint = Color.White, modifier = Modifier.size(32.dp))
+                        }
+                        
+                        Spacer(modifier = Modifier.height(12.dp))
+                        
+                        // Middle row: Back, Play/Pause, Vol Down
+                        Row(horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                            // Back
+                            Box(
+                                modifier = Modifier.size(72.dp).clip(CircleShape).background(Color(0xFF15171E)).clickable { vibrate(context, true); sendCommand("back") },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(Icons.Default.ArrowBack, "Back", tint = Color.White, modifier = Modifier.size(32.dp))
+                            }
+                            
+                            // Play/Pause (Bigger)
+                            Box(
+                                modifier = Modifier.size(88.dp).clip(CircleShape).background(theme.primary).clickable { 
+                                    vibrate(context, true)
+                                    sendCommand("close_player")
+                                },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(Icons.Default.PlayArrow, "Close Player", tint = Color.White, modifier = Modifier.size(44.dp))
+                            }
+                            
+                            // Vol Down
+                            Box(
+                                modifier = Modifier.size(72.dp).clip(CircleShape).background(Color(0xFF15171E)).clickable { vibrate(context, true); sendCommand("volume_down") },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(Icons.Default.VolumeDown, "Volume Down", tint = Color.White, modifier = Modifier.size(32.dp))
+                            }
+                        }
+                        
+                        Spacer(modifier = Modifier.height(12.dp))
+                        
+                        // Down
+                        Box(
+                            modifier = Modifier.size(72.dp).clip(CircleShape).background(Color(0xFF15171E)).clickable { vibrate(context, true); sendCommand("close_player") },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(Icons.Default.Pause, "Close Player", tint = Color.White, modifier = Modifier.size(32.dp))
+                        }
+                    }
+                    
+                    Spacer(modifier = Modifier.height(20.dp))
+                    
+                    // Search
+                    Text("Search on TV", color = Color.Gray, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.align(Alignment.Start))
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        OutlinedTextField(
+                            value = searchInput,
+                            onValueChange = { searchInput = it },
+                            placeholder = { Text("Type movie name...", color = Color.Gray, fontSize = 13.sp) },
+                            modifier = Modifier.weight(1f),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedTextColor = Color.White,
+                                unfocusedTextColor = Color.White,
+                                focusedBorderColor = theme.primary,
+                                unfocusedBorderColor = Color.DarkGray
+                            )
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Button(
+                            onClick = { sendCommand("search", searchInput); searchInput = "" },
+                            colors = ButtonDefaults.buttonColors(containerColor = theme.primary),
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.height(56.dp)
+                        ) {
+                            Icon(Icons.Default.Search, "Search", tint = Color.White)
+                        }
+                    }
+                    
+                    Spacer(modifier = Modifier.weight(1f))
+                    
+                    Text(
+                        "Player controls (play/pause/seek) will activate after PlayerScreen update",
+                        color = Color.Gray,
+                        fontSize = 10.sp,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.padding(top = 8.dp)
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun RemoteTabButton(icon: ImageVector, label: String, onClick: () -> Unit, theme: ThemeConfig, modifier: Modifier = Modifier) {
+    Column(
+        modifier = modifier.clip(RoundedCornerShape(12.dp)).background(Color(0xFF15171E)).clickable { onClick() }.padding(vertical = 12.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Icon(icon, contentDescription = label, tint = theme.primary, modifier = Modifier.size(22.dp))
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(label, color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Medium)
+    }
+}
+
 @Composable
 fun MovieDetailsScreen(movie: Movie, userVipExpiry: Long, onPlay: (Movie) -> Unit, onBack: () -> Unit) {
     val isLocked = movie.isVip && userVipExpiry < System.currentTimeMillis()
@@ -1307,7 +1720,7 @@ fun MovieDetailsScreen(movie: Movie, userVipExpiry: Long, onPlay: (Movie) -> Uni
 
                 if (!isSeries) {
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Button(onClick = { onPlay(movie) }, modifier = Modifier.weight(1f).height(56.dp), colors = ButtonDefaults.buttonColors(containerColor = Color.White), shape = RoundedCornerShape(12.dp)) {
+                        Button(onClick = { vibrate(context, true); onPlay(movie) }, modifier = Modifier.weight(1f).height(56.dp), colors = ButtonDefaults.buttonColors(containerColor = Color.White), shape = RoundedCornerShape(12.dp)) {
                             Icon(Icons.Default.PlayArrow, null, tint = Color.Black, modifier = Modifier.size(28.dp)); Spacer(modifier = Modifier.width(8.dp)); Text(if (isLocked) "Unlock VIP" else "Play Now", color = Color.Black, fontSize = 16.sp, fontWeight = FontWeight.Bold)
                         }
                         Button(onClick = { downloadUrlToUse = movie.videoUrl; downloadTitleToUse = movie.title; showDownloadDialog = true }, modifier = Modifier.height(56.dp).width(60.dp), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF15171E)), shape = RoundedCornerShape(12.dp), contentPadding = PaddingValues(0.dp)) {
@@ -1323,7 +1736,7 @@ fun MovieDetailsScreen(movie: Movie, userVipExpiry: Long, onPlay: (Movie) -> Uni
                 LazyColumn(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
                     items(movie.episodes) { ep ->
                         val epLabel = "${ep.season} • ${ep.episode}"
-                        Row(modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp).background(if (selectedEpisode == ep) Color.White else Color(0xFF15171E), RoundedCornerShape(12.dp)).clickable { if (isLocked) onPlay(movie) else { selectedEpisode = ep; onPlay(Movie(title = "$epLabel - ${movie.title}", videoUrl = ep.url, subtitleUrl = ep.subtitleUrl, isAdult = movie.isAdult)) } }.padding(horizontal = 16.dp, vertical = 12.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                        Row(modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp).background(if (selectedEpisode == ep) Color.White else Color(0xFF15171E), RoundedCornerShape(12.dp)).clickable { vibrate(context); if (isLocked) onPlay(movie) else { selectedEpisode = ep; onPlay(Movie(title = "$epLabel - ${movie.title}", videoUrl = ep.url, subtitleUrl = ep.subtitleUrl, isAdult = movie.isAdult)) } }.padding(horizontal = 16.dp, vertical = 12.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                             Text(epLabel, color = if (selectedEpisode == ep) Color.Black else Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Icon(Icons.Default.PlayArrow, "Play", tint = if (selectedEpisode == ep) Color.Black else Color.White)
@@ -1342,12 +1755,19 @@ fun MovieDetailsScreen(movie: Movie, userVipExpiry: Long, onPlay: (Movie) -> Uni
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
-fun HomeScreen(theme: ThemeConfig, profileName: String, userVipExpiry: Long, kidsMode: Boolean, onDetails: (Movie) -> Unit) {
+fun HomeScreen(
+    theme: ThemeConfig, 
+    profileName: String, 
+    userVipExpiry: Long, 
+    kidsMode: Boolean, 
+    searchQuery: String,
+    onSearchQueryChange: (String) -> Unit,
+    onDetails: (Movie) -> Unit
+) {
     val db = FirebaseFirestore.getInstance()
     var movies by remember { mutableStateOf<List<Movie>>(emptyList()) }
     var featuredMovies by remember { mutableStateOf<List<Movie>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
-    var searchQuery by remember { mutableStateOf("") }
     var selectedCategory by remember { mutableStateOf("All") }
 
     var lastVisibleMovie by remember { mutableStateOf<com.google.firebase.firestore.DocumentSnapshot?>(null) }
@@ -1400,7 +1820,15 @@ fun HomeScreen(theme: ThemeConfig, profileName: String, userVipExpiry: Long, kid
                 Text(text = " TV", color = theme.primary, fontSize = 18.sp, fontWeight = FontWeight.Black, letterSpacing = 1.sp)
             }
 
-            OutlinedTextField(value = searchQuery, onValueChange = { searchQuery = it }, placeholder = { Text("Search titles...", color = Color.Gray, fontSize = 14.sp) }, leadingIcon = { Icon(Icons.Default.Search, "Search", tint = Color.Gray) }, modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Color.Transparent, unfocusedBorderColor = Color.Transparent, focusedContainerColor = Color(0xFF15171E), unfocusedContainerColor = Color(0xFF15171E), focusedTextColor = Color.White, unfocusedTextColor = Color.White), shape = RoundedCornerShape(12.dp))
+            OutlinedTextField(
+                value = searchQuery, 
+                onValueChange = { onSearchQueryChange(it) }, 
+                placeholder = { Text("Search titles...", color = Color.Gray, fontSize = 14.sp) }, 
+                leadingIcon = { Icon(Icons.Default.Search, "Search", tint = Color.Gray) }, 
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), 
+                colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Color.Transparent, unfocusedBorderColor = Color.Transparent, focusedContainerColor = Color(0xFF15171E), unfocusedContainerColor = Color(0xFF15171E), focusedTextColor = Color.White, unfocusedTextColor = Color.White), 
+                shape = RoundedCornerShape(12.dp)
+            )
 
             if (featuredMovies.isNotEmpty() && searchQuery.isEmpty() && selectedCategory == "All") {
                 val pagerState = rememberPagerState(pageCount = { featuredMovies.size })
@@ -1430,7 +1858,7 @@ fun HomeScreen(theme: ThemeConfig, profileName: String, userVipExpiry: Long, kid
                                 Row(verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Default.Star, null, tint = Color(0xFFFCDC04), modifier = Modifier.size(14.dp)); Text(" 4.0  •  ${movie.year}  •  ${movie.videoTag}", color = Color.LightGray, fontSize = 12.sp) }
                                 Spacer(modifier = Modifier.height(12.dp))
                                 Row {
-                                    Button(onClick = { onDetails(movie) }, colors = ButtonDefaults.buttonColors(containerColor = Color.White), shape = RoundedCornerShape(8.dp), modifier = Modifier.padding(end = 8.dp)) { Icon(Icons.Default.PlayArrow, null, tint = Color.Black); Text("Play Now", color = Color.Black, fontWeight = FontWeight.Bold) }
+                                    Button(onClick = { vibrate(context, true); onDetails(movie) }, colors = ButtonDefaults.buttonColors(containerColor = Color.White), shape = RoundedCornerShape(8.dp), modifier = Modifier.padding(end = 8.dp)) { Icon(Icons.Default.PlayArrow, null, tint = Color.Black); Text("Play Now", color = Color.Black, fontWeight = FontWeight.Bold) }
                                     OutlinedButton(onClick = { onDetails(movie) }, shape = RoundedCornerShape(8.dp), colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)) { Icon(Icons.Default.Info, null); Text("Details") }
                                 }
                             }
@@ -1464,6 +1892,7 @@ fun MovieCard(movie: Movie, theme: ThemeConfig, profileName: String, userVipExpi
     var isFav by remember { mutableStateOf(false) }
     val isLocked = movie.isVip && userVipExpiry < System.currentTimeMillis()
     var isFocused by remember { mutableStateOf(false) }
+    val context = LocalContext.current
 
     LaunchedEffect(uid, profileName) {
         if (uid != null) {
@@ -1475,7 +1904,7 @@ fun MovieCard(movie: Movie, theme: ThemeConfig, profileName: String, userVipExpi
         }
     }
 
-    Box(modifier = Modifier.fillMaxWidth().aspectRatio(2f / 3f).clip(RoundedCornerShape(12.dp)).background(Color(0xFF15171E)).onFocusChanged { isFocused = it.isFocused }.border(if (isFocused) 3.dp else 0.dp, Color.White, RoundedCornerShape(12.dp)).clickable { onDetails(movie) }) {
+    Box(modifier = Modifier.fillMaxWidth().aspectRatio(2f / 3f).clip(RoundedCornerShape(12.dp)).background(Color(0xFF15171E)).onFocusChanged { isFocused = it.isFocused }.border(if (isFocused) 3.dp else 0.dp, Color.White, RoundedCornerShape(12.dp)).clickable { vibrate(context); onDetails(movie) }) {
         SubcomposeAsyncImage(model = ImageRequest.Builder(LocalContext.current).data(movie.poster).crossfade(true).build(), contentDescription = movie.title, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize(), loading = { ShimmerBox(modifier = Modifier.fillMaxSize()) }, error = { Box(modifier = Modifier.fillMaxSize().background(Color(0xFF15171E)), contentAlignment = Alignment.Center) { Icon(Icons.Default.Movie, null, tint = Color.Gray) } })
         Box(modifier = Modifier.fillMaxSize().background(Brush.verticalGradient(colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.3f), Color.Black.copy(alpha = 0.8f), Color.Black))))
         Column(modifier = Modifier.align(Alignment.BottomStart).padding(8.dp)) {
@@ -1485,7 +1914,7 @@ fun MovieCard(movie: Movie, theme: ThemeConfig, profileName: String, userVipExpi
         }
         if (isLocked) { Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.4f)), contentAlignment = Alignment.Center) { Icon(Icons.Default.Lock, "Locked", tint = Color(0xFFFCDC04), modifier = Modifier.size(32.dp)) } }
         if (movie.isAdult) { Box(modifier = Modifier.align(Alignment.TopStart).padding(6.dp).background(Color.Red, RoundedCornerShape(4.dp)).padding(horizontal = 4.dp, vertical = 2.dp)) { Text("18+", color = Color.White, fontSize = 9.sp, fontWeight = FontWeight.Black) } }
-        IconButton(onClick = { if (uid != null) { val dbRef = db.collection("users").document(uid); if (isFav) dbRef.update("favorites.$profileName", FieldValue.arrayRemove(movie.id)) else dbRef.update("favorites.$profileName", FieldValue.arrayUnion(movie.id)); isFav = !isFav } }, modifier = Modifier.align(Alignment.TopEnd).padding(4.dp)) {
+        IconButton(onClick = { if (uid != null) { vibrate(context, true); val dbRef = db.collection("users").document(uid); if (isFav) dbRef.update("favorites.$profileName", FieldValue.arrayRemove(movie.id)) else dbRef.update("favorites.$profileName", FieldValue.arrayUnion(movie.id)); isFav = !isFav } }, modifier = Modifier.align(Alignment.TopEnd).padding(4.dp)) {
             Icon(imageVector = if (isFav) Icons.Default.Favorite else Icons.Default.FavoriteBorder, contentDescription = "Fav", tint = if (isFav) theme.primary else Color.White)
         }
     }
@@ -1525,6 +1954,7 @@ fun TvLiveScreen(theme: ThemeConfig, userVipExpiry: Long, kidsMode: Boolean, onP
     val db = FirebaseFirestore.getInstance()
     var channels by remember { mutableStateOf<List<TvChannel>>(emptyList()) }
     var selectedCategory by remember { mutableStateOf("All") }
+    val context = LocalContext.current
 
     DisposableEffect(Unit) {
         val listener = db.collection("homeland_tv").orderBy("name", Query.Direction.ASCENDING).addSnapshotListener { snapshot, _ ->
@@ -1546,7 +1976,7 @@ fun TvLiveScreen(theme: ThemeConfig, userVipExpiry: Long, kidsMode: Boolean, onP
             Text("Featured Channels", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(start = 16.dp, top = 16.dp, bottom = 8.dp))
             LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 items(displayFeatured) { channel ->
-                    Box(modifier = Modifier.width(200.dp).height(110.dp).clip(RoundedCornerShape(16.dp)).clickable { onPlayMedia(Movie(title = channel.name, videoUrl = channel.streamUrl, isVip = channel.isVip)) }) {
+                    Box(modifier = Modifier.width(200.dp).height(110.dp).clip(RoundedCornerShape(16.dp)).clickable { vibrate(context); onPlayMedia(Movie(title = channel.name, videoUrl = channel.streamUrl, isVip = channel.isVip)) }) {
                         SubcomposeAsyncImage(model = ImageRequest.Builder(LocalContext.current).data(channel.logo).crossfade(true).build(), contentDescription = channel.name, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize(), loading = { ShimmerBox(modifier = Modifier.fillMaxSize()) })
                         Box(modifier = Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black))))
                         Column(modifier = Modifier.align(Alignment.BottomStart).padding(12.dp)) {
@@ -1568,7 +1998,7 @@ fun TvLiveScreen(theme: ThemeConfig, userVipExpiry: Long, kidsMode: Boolean, onP
                 val isLocked = channel.isVip && userVipExpiry < System.currentTimeMillis()
                 var isFocused by remember { mutableStateOf(false) }
                 Box {
-                    Column(modifier = Modifier.fillMaxWidth().height(160.dp).clip(RoundedCornerShape(16.dp)).onFocusChanged { isFocused = it.isFocused }.border(if (isFocused) 3.dp else 0.dp, Color.White, RoundedCornerShape(16.dp)).background(Color(0xFF15171E)).clickable { onPlayMedia(Movie(title = channel.name, videoUrl = channel.streamUrl, isVip = channel.isVip)) }.padding(12.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+                    Column(modifier = Modifier.fillMaxWidth().height(160.dp).clip(RoundedCornerShape(16.dp)).onFocusChanged { isFocused = it.isFocused }.border(if (isFocused) 3.dp else 0.dp, Color.White, RoundedCornerShape(16.dp)).background(Color(0xFF15171E)).clickable { vibrate(context); onPlayMedia(Movie(title = channel.name, videoUrl = channel.streamUrl, isVip = channel.isVip)) }.padding(12.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
                         SubcomposeAsyncImage(model = ImageRequest.Builder(LocalContext.current).data(channel.logo).crossfade(true).build(), contentDescription = channel.name, contentScale = ContentScale.Fit, modifier = Modifier.size(80.dp).clip(RoundedCornerShape(8.dp)), loading = { ShimmerBox(modifier = Modifier.fillMaxSize()) }, error = { Box(modifier = Modifier.fillMaxSize().background(Color(0xFF15171E)), contentAlignment = Alignment.Center) { Icon(Icons.Default.Tv, null, tint = Color.Gray) } })
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(channel.name, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
