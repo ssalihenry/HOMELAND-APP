@@ -82,6 +82,9 @@ fun AdminScreen(onBack: () -> Unit) {
     // 🔥 NEW: Custom VIP Days State
     var customVipDays by remember { mutableStateOf("30") }
 
+    // 🔥 NEW: Admin 2FA PIN State
+    var newAdminPin by remember { mutableStateOf("") }
+
     // 🔥 NEW: Push Notification State
     var pushTitle by remember { mutableStateOf("") }
     var pushMessage by remember { mutableStateOf("") }
@@ -539,6 +542,44 @@ fun AdminScreen(onBack: () -> Unit) {
                                 db.collection("config").document("maintenance").set(hashMapOf("active" to isMaintenanceActive, "message" to maintenanceMsg))
                                     .addOnSuccessListener { statusMessage = "Maintenance settings updated!" }
                             }, modifier = Modifier.fillMaxWidth().height(50.dp), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE50914))) { Text("Save Maintenance Settings") }
+                        }
+                    }
+                }
+                // 🔥 NEW: ADMIN SECURITY (2FA) CARD
+                item {
+                    Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF15171E)), shape = RoundedCornerShape(16.dp)) {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Text("Admin Security (2FA)", color = Color.White, fontWeight = FontWeight.Bold)
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text("Change your 6-digit PIN used to open this panel.", color = Color.Gray, fontSize = 12.sp)
+                            Spacer(modifier = Modifier.height(8.dp))
+                            
+                            OutlinedTextField(
+                                value = newAdminPin, 
+                                onValueChange = { if (it.length <= 6) newAdminPin = it }, 
+                                label = { Text("New 6-digit PIN") }, 
+                                modifier = Modifier.fillMaxWidth(), 
+                                colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White)
+                            )
+                            
+                            Spacer(modifier = Modifier.height(16.dp))
+                            
+                            Button(onClick = {
+                                if (newAdminPin.length == 6) {
+                                    db.collection("config").document("admin").set(hashMapOf("adminPin" to newAdminPin), com.google.firebase.firestore.SetOptions.merge())
+                                        .addOnSuccessListener { 
+                                            statusMessage = "Success! Admin PIN updated."
+                                            newAdminPin = ""
+                                        }
+                                        .addOnFailureListener { 
+                                            statusMessage = "Error: ${it.message}" 
+                                        }
+                                } else {
+                                    statusMessage = "PIN must be exactly 6 digits."
+                                }
+                            }, modifier = Modifier.fillMaxWidth().height(50.dp), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE50914))) { 
+                                Text("Save New Admin PIN") 
+                            }
                         }
                     }
                 }
