@@ -20,11 +20,10 @@ const db = admin.firestore();
 
 async function checkAndSendNotifications() {
   try {
-    // 3. Look for pending notifications in the database
+    // 3. Look for pending notifications (Removed .orderBy to avoid Firestore index errors)
     const snapshot = await db.collection('push_notifications')
                             .where('status', '==', 'pending')
-                            .orderBy('timestamp', 'asc')
-                            .limit(1)
+                            .limit(20) // Process up to 20 at a time
                             .get();
 
     if (snapshot.empty) {
@@ -32,30 +31,44 @@ async function checkAndSendNotifications() {
       return;
     }
 
-    // 4. Grab the first pending notification
-    const doc = snapshot.docs[0];
-    const data = doc.data();
-    
-    console.log(`Sending notification: "${data.title}" to topic 'homeland_updates'...`);
+    console.log(`Found ${snapshot.size} pending notification(s).`);
 
-    // 5. Send the notification via Firebase Cloud Messaging
-    const message = {
-      notification: {
-        title: data.title,
-        body: data.message,
-      },
-      topic: 'homeland_updates' // The Android app is subscribed to this topic
-    };
+    // 4. Loop through pending notifications
+    for (const doc of snapshot.docs) {
+      const data = doc.data();
+      console.log(`Sending notification: "${data.title}" to topic 'homeland_updates'...`);
 
-    const response = await admin.messaging().send(message);
-    console.log('Successfully sent message:', response);
+      try {
+        // 5. Send the notification via FCM
+        const message = {
+          notification: {
+            title: data.title || 'Homeland',
+            body: data.message || 'New update available!',
+          },
+          topic: 'homeland_updates', // The Android app is subscribed to this topic
+          android: {
+            priority: 'high',
+            notification: {
+              channelId: 'homeland_default_channel', // MUST match your Kotlin service
+              sound: 'default'
+            }
+          }
+        };
 
-    // 6. Mark the notification as sent so we don't send it again
-    await doc.ref.update({ status: 'sent' });
-    console.log("Notification marked as 'sent' in database.");
+        const response = await admin.messaging().send(message);
+        console.log(`✅ Successfully sent doc=${doc.id}:`, response);
 
+        // 6. Mark as sent
+        await doc.ref.update({ status: 'sent' });
+      } catch (error) {
+        // If a specific message fails, mark it as failed so it doesn't block the queue forever
+        console.error(`❌ Error sending doc=${doc.id}:`, error.message);
+        await doc.ref.update({ status: 'failed', error: error.message });
+      }
+    }
+    console.log("Run complete.");
   } catch (error) {
-    console.error("Error sending notification:", error);
+    console.error("Fatal error during queue check:", error);
   }
 }
 
