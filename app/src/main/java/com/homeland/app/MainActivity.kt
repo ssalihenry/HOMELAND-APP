@@ -78,6 +78,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.window.Dialog
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -121,7 +122,6 @@ fun translate(key: String, lang: String): String {
     return translations[lang]?.get(key) ?: key
 }
 
-// 🔥 NEW: Haptic feedback helper
 fun vibrate(context: Context, isStrong: Boolean = false) {
     try {
         val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
@@ -643,10 +643,8 @@ fun HomelandApp(
     var userVipExpiry by remember { mutableLongStateOf(0L) }
     var showVipModal by remember { mutableStateOf(false) }
 
-    // 🔥 NEW: Search hoisted for remote control
     var globalSearchQuery by remember { mutableStateOf("") }
 
-    // 🔥 NEW: TV Session
     var tvSessionCode by remember { mutableStateOf<String?>(null) }
 
     var pendingAdultMovie by remember { mutableStateOf<Movie?>(null) }
@@ -672,17 +670,18 @@ fun HomelandApp(
         }
     }
 
-    // 🔥 NEW: Generate TV session code
+    // 🔥 FIXED: Local val user to allow smart cast
     LaunchedEffect(isTv, auth.currentUser) {
-        if (isTv && auth.currentUser != null) {
+        val user = auth.currentUser
+        if (isTv && user != null) {
             val existing = prefs.getString("tv_session_code", null)
             val code = existing ?: (100000 + Random.nextInt(900000)).toString()
             prefs.edit().putString("tv_session_code", code).apply()
             tvSessionCode = code
             db.collection("tv_sessions").document(code).set(
                 mapOf(
-                    "userId" to auth.currentUser.uid,
-                    "email" to (auth.currentUser.email ?: ""),
+                    "userId" to user.uid,
+                    "email" to (user.email ?: ""),
                     "createdAt" to System.currentTimeMillis(),
                     "lastSeen" to System.currentTimeMillis(),
                     "status" to "idle",
@@ -693,7 +692,6 @@ fun HomelandApp(
         }
     }
 
-    // 🔥 NEW: Listen for remote commands on TV
     LaunchedEffect(tvSessionCode) {
         if (tvSessionCode != null) {
             val listener = db.collection("tv_sessions").document(tvSessionCode!!)
@@ -724,7 +722,6 @@ fun HomelandApp(
                                 audioManager.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_LOWER, AudioManager.FLAG_SHOW_UI)
                             }
                             "close_player" -> currentlyPlaying = null
-                            // Note: play/pause/seek handled by PlayerScreen.kt after its update
                         }
                         cmdDoc.reference.update("processed", true)
                     }
@@ -732,7 +729,6 @@ fun HomelandApp(
         }
     }
 
-    // 🔥 NEW: Update TV session status on changes
     LaunchedEffect(currentlyPlaying, selectedTab, tvSessionCode) {
         if (tvSessionCode != null) {
             db.collection("tv_sessions").document(tvSessionCode!!).update(
@@ -800,9 +796,10 @@ fun HomelandApp(
         )
     }
 
+    // 🔥 FIXED: Pass tvSessionCode to PlayerScreen
     if (currentlyPlaying != null) {
         val movie = currentlyPlaying!!
-        PlayerScreen(title = movie.title, videoUrl = movie.videoUrl, episodes = movie.episodes, startPosition = 0L, subtitleUrl = movie.subtitleUrl.ifBlank { null }, onClose = { currentlyPlaying = null })
+        PlayerScreen(title = movie.title, videoUrl = movie.videoUrl, episodes = movie.episodes, startPosition = 0L, subtitleUrl = movie.subtitleUrl.ifBlank { null }, tvSessionCode = tvSessionCode, onClose = { currentlyPlaying = null })
         return 
     }
 
@@ -1179,13 +1176,11 @@ fun ProfileScreen(
                         SettingsRow(icon = Icons.Default.Lock, title = if (savedPin != null) "App Lock (Enabled)" else "Setup App Lock", onClick = { showPinDialog = true })
                         HorizontalDivider(color = Color.White.copy(alpha = 0.05f))
                         
-                        // 🔥 NEW: TV Remote button (only shows on Phone)
                         if (!isTv) {
                             SettingsRow(icon = Icons.Default.SettingsRemote, title = "TV Remote Control", onClick = { showTvRemoteDialog = true }, iconTint = theme.primary, titleColor = theme.primary)
                             HorizontalDivider(color = Color.White.copy(alpha = 0.05f))
                         }
                         
-                        // 🔥 NEW: TV Session Code Display (only shows on TV)
                         if (isTv && tvSessionCode != null) {
                             Row(modifier = Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                                 Icon(Icons.Default.Cast, contentDescription = "TV Code", tint = Color(0xFF10B981), modifier = Modifier.size(22.dp))
@@ -1241,7 +1236,6 @@ fun ProfileScreen(
         }
     }
 
-    // 🔥 NEW: TV Remote connection dialog
     if (showTvRemoteDialog) {
         TVRemoteConnectDialog(
             theme = theme,
@@ -1389,7 +1383,6 @@ fun ProfileScreen(
     }
 }
 
-// 🔥 NEW: TV Remote Connection Dialog (Phone side)
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TVRemoteConnectDialog(theme: ThemeConfig, onDismiss: () -> Unit) {
@@ -1416,7 +1409,6 @@ fun TVRemoteConnectDialog(theme: ThemeConfig, onDismiss: () -> Unit) {
                         connectedCode = null
                     }
                 }
-            // Note: listener cleanup on dispose happens when composable leaves
         }
     }
 
@@ -1440,7 +1432,6 @@ fun TVRemoteConnectDialog(theme: ThemeConfig, onDismiss: () -> Unit) {
             modifier = Modifier.fillMaxWidth().fillMaxHeight(0.92f)
         ) {
             if (connectedCode == null) {
-                // CONNECTION SCREEN
                 Column(
                     modifier = Modifier.fillMaxSize().padding(24.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
@@ -1514,12 +1505,10 @@ fun TVRemoteConnectDialog(theme: ThemeConfig, onDismiss: () -> Unit) {
                     TextButton(onClick = onDismiss) { Text("Cancel", color = Color.Gray) }
                 }
             } else {
-                // REMOTE CONTROL SCREEN
                 Column(
                     modifier = Modifier.fillMaxSize().padding(20.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    // Status bar
                     Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Box(modifier = Modifier.size(10.dp).clip(CircleShape).background(if (tvStatus == "playing") Color(0xFF10B981) else Color.Yellow))
                         Spacer(modifier = Modifier.width(8.dp))
@@ -1541,7 +1530,6 @@ fun TVRemoteConnectDialog(theme: ThemeConfig, onDismiss: () -> Unit) {
                     
                     Spacer(modifier = Modifier.height(16.dp))
                     
-                    // Tab navigation
                     Text("Navigate", color = Color.Gray, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.align(Alignment.Start))
                     Spacer(modifier = Modifier.height(8.dp))
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -1553,7 +1541,6 @@ fun TVRemoteConnectDialog(theme: ThemeConfig, onDismiss: () -> Unit) {
                     
                     Spacer(modifier = Modifier.height(20.dp))
                     
-                    // D-Pad
                     Text("Control", color = Color.Gray, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.align(Alignment.Start))
                     Spacer(modifier = Modifier.height(8.dp))
                     
@@ -1561,7 +1548,6 @@ fun TVRemoteConnectDialog(theme: ThemeConfig, onDismiss: () -> Unit) {
                         modifier = Modifier.fillMaxWidth(),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        // Up
                         Box(
                             modifier = Modifier.size(72.dp).clip(CircleShape).background(Color(0xFF15171E)).clickable { vibrate(context, true); sendCommand("volume_up") },
                             contentAlignment = Alignment.Center
@@ -1571,9 +1557,7 @@ fun TVRemoteConnectDialog(theme: ThemeConfig, onDismiss: () -> Unit) {
                         
                         Spacer(modifier = Modifier.height(12.dp))
                         
-                        // Middle row: Back, Play/Pause, Vol Down
                         Row(horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                            // Back
                             Box(
                                 modifier = Modifier.size(72.dp).clip(CircleShape).background(Color(0xFF15171E)).clickable { vibrate(context, true); sendCommand("back") },
                                 contentAlignment = Alignment.Center
@@ -1581,18 +1565,17 @@ fun TVRemoteConnectDialog(theme: ThemeConfig, onDismiss: () -> Unit) {
                                 Icon(Icons.Default.ArrowBack, "Back", tint = Color.White, modifier = Modifier.size(32.dp))
                             }
                             
-                            // Play/Pause (Bigger)
+                            // 🔥 FIXED: Big red button now sends "toggle_play"
                             Box(
                                 modifier = Modifier.size(88.dp).clip(CircleShape).background(theme.primary).clickable { 
                                     vibrate(context, true)
-                                    sendCommand("close_player")
+                                    sendCommand("toggle_play")
                                 },
                                 contentAlignment = Alignment.Center
                             ) {
-                                Icon(Icons.Default.PlayArrow, "Close Player", tint = Color.White, modifier = Modifier.size(44.dp))
+                                Icon(Icons.Default.PlayArrow, "Play/Pause", tint = Color.White, modifier = Modifier.size(44.dp))
                             }
                             
-                            // Vol Down
                             Box(
                                 modifier = Modifier.size(72.dp).clip(CircleShape).background(Color(0xFF15171E)).clickable { vibrate(context, true); sendCommand("volume_down") },
                                 contentAlignment = Alignment.Center
@@ -1603,18 +1586,17 @@ fun TVRemoteConnectDialog(theme: ThemeConfig, onDismiss: () -> Unit) {
                         
                         Spacer(modifier = Modifier.height(12.dp))
                         
-                        // Down
+                        // 🔥 FIXED: Pause button now sends "pause"
                         Box(
-                            modifier = Modifier.size(72.dp).clip(CircleShape).background(Color(0xFF15171E)).clickable { vibrate(context, true); sendCommand("close_player") },
+                            modifier = Modifier.size(72.dp).clip(CircleShape).background(Color(0xFF15171E)).clickable { vibrate(context, true); sendCommand("pause") },
                             contentAlignment = Alignment.Center
                         ) {
-                            Icon(Icons.Default.Pause, "Close Player", tint = Color.White, modifier = Modifier.size(32.dp))
+                            Icon(Icons.Default.Pause, "Pause", tint = Color.White, modifier = Modifier.size(32.dp))
                         }
                     }
                     
                     Spacer(modifier = Modifier.height(20.dp))
                     
-                    // Search
                     Text("Search on TV", color = Color.Gray, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.align(Alignment.Start))
                     Spacer(modifier = Modifier.height(8.dp))
                     Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -1644,8 +1626,8 @@ fun TVRemoteConnectDialog(theme: ThemeConfig, onDismiss: () -> Unit) {
                     Spacer(modifier = Modifier.weight(1f))
                     
                     Text(
-                        "Player controls (play/pause/seek) will activate after PlayerScreen update",
-                        color = Color.Gray,
+                        "Full player control: Play, Pause, Seek available now",
+                        color = Color(0xFF10B981),
                         fontSize = 10.sp,
                         textAlign = TextAlign.Center,
                         modifier = Modifier.padding(top = 8.dp)
