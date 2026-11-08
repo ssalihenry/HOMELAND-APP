@@ -1,6 +1,7 @@
 package com.homeland.app
 
 import android.Manifest
+import android.app.Activity
 import android.app.DownloadManager
 import android.media.AudioManager
 import android.net.ConnectivityManager
@@ -670,7 +671,6 @@ fun HomelandApp(
         }
     }
 
-    // 🔥 FIXED: Local val user to allow smart cast
     LaunchedEffect(isTv, auth.currentUser) {
         val user = auth.currentUser
         if (isTv && user != null) {
@@ -701,6 +701,7 @@ fun HomelandApp(
                     snap?.documents?.forEach { cmdDoc ->
                         val type = cmdDoc.getString("type") ?: return@forEach
                         val value = cmdDoc.getString("value") ?: ""
+                        val act = context as? Activity
                         when (type) {
                             "tab" -> selectedTab = value.toIntOrNull() ?: 0
                             "back" -> {
@@ -722,6 +723,28 @@ fun HomelandApp(
                                 audioManager.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_LOWER, AudioManager.FLAG_SHOW_UI)
                             }
                             "close_player" -> currentlyPlaying = null
+                            
+                            // 🔥 NEW DPAD EVENTS
+                            "dpad_up" -> {
+                                act?.dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DPAD_UP))
+                                act?.dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_DPAD_UP))
+                            }
+                            "dpad_down" -> {
+                                act?.dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DPAD_DOWN))
+                                act?.dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_DPAD_DOWN))
+                            }
+                            "dpad_left" -> {
+                                act?.dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DPAD_LEFT))
+                                act?.dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_DPAD_LEFT))
+                            }
+                            "dpad_right" -> {
+                                act?.dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DPAD_RIGHT))
+                                act?.dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_DPAD_RIGHT))
+                            }
+                            "dpad_center" -> {
+                                act?.dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DPAD_CENTER))
+                                act?.dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_DPAD_CENTER))
+                            }
                         }
                         cmdDoc.reference.update("processed", true)
                     }
@@ -796,7 +819,6 @@ fun HomelandApp(
         )
     }
 
-    // 🔥 FIXED: Pass tvSessionCode to PlayerScreen
     if (currentlyPlaying != null) {
         val movie = currentlyPlaying!!
         PlayerScreen(title = movie.title, videoUrl = movie.videoUrl, episodes = movie.episodes, startPosition = 0L, subtitleUrl = movie.subtitleUrl.ifBlank { null }, tvSessionCode = tvSessionCode, onClose = { currentlyPlaying = null })
@@ -1506,7 +1528,7 @@ fun TVRemoteConnectDialog(theme: ThemeConfig, onDismiss: () -> Unit) {
                 }
             } else {
                 Column(
-                    modifier = Modifier.fillMaxSize().padding(20.dp),
+                    modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -1530,6 +1552,7 @@ fun TVRemoteConnectDialog(theme: ThemeConfig, onDismiss: () -> Unit) {
                     
                     Spacer(modifier = Modifier.height(16.dp))
                     
+                    // Tabs
                     Text("Navigate", color = Color.Gray, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.align(Alignment.Start))
                     Spacer(modifier = Modifier.height(8.dp))
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -1541,62 +1564,90 @@ fun TVRemoteConnectDialog(theme: ThemeConfig, onDismiss: () -> Unit) {
                     
                     Spacer(modifier = Modifier.height(20.dp))
                     
-                    Text("Control", color = Color.Gray, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.align(Alignment.Start))
+                    // D-PAD
+                    Text("D-Pad", color = Color.Gray, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.align(Alignment.Start))
                     Spacer(modifier = Modifier.height(8.dp))
                     
-                    Column(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Box(
-                            modifier = Modifier.size(72.dp).clip(CircleShape).background(Color(0xFF15171E)).clickable { vibrate(context, true); sendCommand("volume_up") },
+                            modifier = Modifier.size(60.dp).clip(CircleShape).background(Color(0xFF15171E)).clickable { sendCommand("dpad_up") },
                             contentAlignment = Alignment.Center
                         ) {
-                            Icon(Icons.Default.VolumeUp, "Volume Up", tint = Color.White, modifier = Modifier.size(32.dp))
+                            Icon(Icons.Default.KeyboardArrowUp, "Up", tint = Color.White, modifier = Modifier.size(36.dp))
                         }
-                        
-                        Spacer(modifier = Modifier.height(12.dp))
-                        
-                        Row(horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
                             Box(
-                                modifier = Modifier.size(72.dp).clip(CircleShape).background(Color(0xFF15171E)).clickable { vibrate(context, true); sendCommand("back") },
+                                modifier = Modifier.size(60.dp).clip(CircleShape).background(Color(0xFF15171E)).clickable { sendCommand("dpad_left") },
                                 contentAlignment = Alignment.Center
                             ) {
-                                Icon(Icons.Default.ArrowBack, "Back", tint = Color.White, modifier = Modifier.size(32.dp))
+                                Icon(Icons.Default.KeyboardArrowLeft, "Left", tint = Color.White, modifier = Modifier.size(36.dp))
                             }
-                            
-                            // 🔥 FIXED: Big red button now sends "toggle_play"
                             Box(
-                                modifier = Modifier.size(88.dp).clip(CircleShape).background(theme.primary).clickable { 
-                                    vibrate(context, true)
-                                    sendCommand("toggle_play")
-                                },
+                                modifier = Modifier.size(70.dp).clip(CircleShape).background(theme.primary).clickable { sendCommand("dpad_center") },
                                 contentAlignment = Alignment.Center
                             ) {
-                                Icon(Icons.Default.PlayArrow, "Play/Pause", tint = Color.White, modifier = Modifier.size(44.dp))
+                                Text("OK", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Black)
                             }
-                            
                             Box(
-                                modifier = Modifier.size(72.dp).clip(CircleShape).background(Color(0xFF15171E)).clickable { vibrate(context, true); sendCommand("volume_down") },
+                                modifier = Modifier.size(60.dp).clip(CircleShape).background(Color(0xFF15171E)).clickable { sendCommand("dpad_right") },
                                 contentAlignment = Alignment.Center
                             ) {
-                                Icon(Icons.Default.VolumeDown, "Volume Down", tint = Color.White, modifier = Modifier.size(32.dp))
+                                Icon(Icons.Default.KeyboardArrowRight, "Right", tint = Color.White, modifier = Modifier.size(36.dp))
                             }
                         }
-                        
-                        Spacer(modifier = Modifier.height(12.dp))
-                        
-                        // 🔥 FIXED: Pause button now sends "pause"
+                        Spacer(modifier = Modifier.height(4.dp))
                         Box(
-                            modifier = Modifier.size(72.dp).clip(CircleShape).background(Color(0xFF15171E)).clickable { vibrate(context, true); sendCommand("pause") },
+                            modifier = Modifier.size(60.dp).clip(CircleShape).background(Color(0xFF15171E)).clickable { sendCommand("dpad_down") },
                             contentAlignment = Alignment.Center
                         ) {
-                            Icon(Icons.Default.Pause, "Pause", tint = Color.White, modifier = Modifier.size(32.dp))
+                            Icon(Icons.Default.KeyboardArrowDown, "Down", tint = Color.White, modifier = Modifier.size(36.dp))
                         }
                     }
                     
                     Spacer(modifier = Modifier.height(20.dp))
                     
+                    // MEDIA CONTROLS
+                    Text("Media & System", color = Color.Gray, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.align(Alignment.Start))
+                    Spacer(modifier = Modifier.height(8.dp))
+                    
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
+                        // Back
+                        Box(
+                            modifier = Modifier.size(60.dp).clip(CircleShape).background(Color(0xFF15171E)).clickable { sendCommand("back") },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(Icons.Default.ArrowBack, "Back", tint = Color.White, modifier = Modifier.size(28.dp))
+                        }
+                        
+                        // Play/Pause
+                        Box(
+                            modifier = Modifier.size(72.dp).clip(CircleShape).background(Color(0xFF15171E)).clickable { sendCommand("toggle_play") },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(Icons.Default.PlayArrow, "Play/Pause", tint = Color.White, modifier = Modifier.size(36.dp))
+                        }
+                        
+                        // Volume Up
+                        Box(
+                            modifier = Modifier.size(60.dp).clip(CircleShape).background(Color(0xFF15171E)).clickable { sendCommand("volume_up") },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(Icons.Default.VolumeUp, "Volume Up", tint = Color.White, modifier = Modifier.size(28.dp))
+                        }
+                        
+                        // Volume Down
+                        Box(
+                            modifier = Modifier.size(60.dp).clip(CircleShape).background(Color(0xFF15171E)).clickable { sendCommand("volume_down") },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(Icons.Default.VolumeDown, "Volume Down", tint = Color.White, modifier = Modifier.size(28.dp))
+                        }
+                    }
+                    
+                    Spacer(modifier = Modifier.height(20.dp))
+                    
+                    // Search
                     Text("Search on TV", color = Color.Gray, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.align(Alignment.Start))
                     Spacer(modifier = Modifier.height(8.dp))
                     Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -1623,15 +1674,7 @@ fun TVRemoteConnectDialog(theme: ThemeConfig, onDismiss: () -> Unit) {
                         }
                     }
                     
-                    Spacer(modifier = Modifier.weight(1f))
-                    
-                    Text(
-                        "Full player control: Play, Pause, Seek available now",
-                        color = Color(0xFF10B981),
-                        fontSize = 10.sp,
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier.padding(top = 8.dp)
-                    )
+                    Spacer(modifier = Modifier.height(16.dp))
                 }
             }
         }
