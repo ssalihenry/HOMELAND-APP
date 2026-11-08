@@ -11,6 +11,12 @@ import android.view.ViewGroup
 import android.widget.FrameLayout
 import androidx.annotation.OptIn
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
@@ -26,22 +32,26 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.key.*
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
+import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
@@ -83,8 +93,14 @@ fun PlayerScreen(
     var showSleepMenu by remember { mutableStateOf(false) }
     var sleepTimerMillis by remember { mutableLongStateOf(0L) }
 
-    // 🔥 NEW: AUDIO ONLY STATE
     var isAudioOnly by remember { mutableStateOf(false) }
+
+    var hasError by remember { mutableStateOf(false) }
+    var errorMessage by remember { mutableStateOf("") }
+
+    // 🔥 NEW: Loading & Buffering states
+    var hasStartedPlaying by remember { mutableStateOf(false) }
+    var isBuffering by remember { mutableStateOf(true) }
 
     var dataUsedMb by remember { mutableDoubleStateOf(0.0) }
 
@@ -136,7 +152,6 @@ fun PlayerScreen(
             }
     }
 
-    // 🔥 NEW: DISABLE VIDEO TRACK WHEN IN AUDIO ONLY MODE (To save data)
     LaunchedEffect(isAudioOnly) {
         val params = trackSelector.buildUponParameters()
         if (isAudioOnly) {
@@ -150,6 +165,35 @@ fun PlayerScreen(
     LaunchedEffect(exoPlayer) {
         val listener = object : Player.Listener {
             override fun onIsPlayingChanged(playing: Boolean) { isPlaying = playing }
+
+            // 🔥 NEW: Track buffering state
+            override fun onPlaybackStateChanged(playbackState: Int) {
+                when (playbackState) {
+                    Player.STATE_BUFFERING -> isBuffering = true
+                    Player.STATE_READY -> {
+                        isBuffering = false
+                        hasStartedPlaying = true
+                    }
+                    Player.STATE_ENDED -> isBuffering = false
+                    Player.STATE_IDLE -> isBuffering = false
+                }
+            }
+            
+            override fun onPlayerError(error: PlaybackException) {
+                super.onPlayerError(error)
+                hasError = true
+                isBuffering = false
+                errorMessage = when (error.errorCode) {
+                    PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED -> "No internet connection. Please check your network."
+                    PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT -> "Connection timed out. The server took too long to respond."
+                    PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS -> "Video source unavailable. It may be offline or broken."
+                    PlaybackException.ERROR_CODE_IO_FILE_NOT_FOUND -> "Video not found on the server."
+                    PlaybackException.ERROR_CODE_IO_CLEARTEXT_NOT_PERMITTED -> "This video uses an insecure connection."
+                    PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED -> "The video file is corrupted or unreadable."
+                    PlaybackException.ERROR_CODE_DECODER_INIT_FAILED -> "This device cannot decode this video format."
+                    else -> "Something went wrong: ${error.errorCodeName}"
+                }
+            }
         }
         exoPlayer.addListener(listener)
 
@@ -165,7 +209,6 @@ fun PlayerScreen(
             if (exoPlayer.isPlaying) {
                 val formatBitrate = exoPlayer.videoFormat?.bitrate
                 val currentBitrate = if (formatBitrate != null && formatBitrate > 0) formatBitrate else 1200000
-                // If audio only, assume ~128kbps
                 val effectiveBitrate = if (isAudioOnly) 128000 else currentBitrate
                 val bytesPerSecond = effectiveBitrate / 8
                 val mbPerSecond = bytesPerSecond.toDouble() / (1024 * 1024)
@@ -186,7 +229,7 @@ fun PlayerScreen(
     }
 
     LaunchedEffect(showControls, isPlaying) {
-        if (showControls && isPlaying && !showResumeDialog) {
+        if (showControls && isPlaying && !showResumeDialog && !hasError && hasStartedPlaying) {
             delay(3000)
             showControls = false
         }
@@ -238,7 +281,7 @@ fun PlayerScreen(
             }
             .clickable { showControls = !showControls }
     ) {
-        // PLAYER VIEW (Hidden when Audio Only)
+        // VIDEO VIEW
         if (!isAudioOnly) {
             AndroidView(
                 factory = { ctx ->
@@ -255,7 +298,6 @@ fun PlayerScreen(
                 modifier = Modifier.fillMaxSize()
             )
         } else {
-            // 🔥 NEW: AUDIO ONLY UI (Music Style Background)
             Box(
                 modifier = Modifier.fillMaxSize().background(Color(0xFF0B0C10)),
                 contentAlignment = Alignment.Center
@@ -275,14 +317,14 @@ fun PlayerScreen(
             }
         }
 
-        // 🔥 GESTURE DETECTOR OVERLAY (Disabled in Audio Only mode for brightness/seek)
+        // GESTURE DETECTOR
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .pointerInput(isAudioOnly) {
+                .pointerInput(isAudioOnly, hasError, hasStartedPlaying) {
                     detectDragGestures(
                         onDragStart = { offset ->
-                            if (showControls || isAudioOnly) return@detectDragGestures 
+                            if (showControls || isAudioOnly || hasError || !hasStartedPlaying) return@detectDragGestures 
                             
                             val isLeftSide = offset.x < configuration.screenWidthDp / 2
                             gestureType = if (isLeftSide) "brightness" else "volume"
@@ -336,7 +378,7 @@ fun PlayerScreen(
                 }
         )
 
-        // GESTURE OVERLAY UI
+        // GESTURE OVERLAY
         if (showGestureOverlay) {
             Box(
                 modifier = Modifier
@@ -363,7 +405,7 @@ fun PlayerScreen(
             }
         }
 
-        // DATA METER (Top Left)
+        // DATA METER
         Box(
             modifier = Modifier
                 .align(Alignment.TopStart)
@@ -379,7 +421,7 @@ fun PlayerScreen(
             )
         }
 
-        // WATERMARK (Top Right)
+        // WATERMARK
         Box(
             modifier = Modifier
                 .align(Alignment.TopEnd)
@@ -390,8 +432,95 @@ fun PlayerScreen(
             Text("HOMELAND APP", color = Color.White.copy(alpha = 0.7f), fontSize = 10.sp, fontWeight = FontWeight.Bold)
         }
 
-        // CONTROLS OVERLAY
-        AnimatedVisibility(visible = showControls, enter = fadeIn(), exit = fadeOut(), modifier = Modifier.fillMaxSize()) {
+        // 🔥 NEW: INITIAL LOADING SCREEN
+        if (!hasStartedPlaying && !hasError) {
+            Box(
+                modifier = Modifier.fillMaxSize().background(Color(0xFF0B0C10)),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    val infiniteTransition = rememberInfiniteTransition(label = "load")
+                    val scale by infiniteTransition.animateFloat(
+                        initialValue = 1f,
+                        targetValue = 1.12f,
+                        animationSpec = infiniteRepeatable(
+                            animation = tween(700, easing = FastOutSlowInEasing),
+                            repeatMode = RepeatMode.Reverse
+                        ),
+                        label = "pulse"
+                    )
+
+                    Box(
+                        modifier = Modifier
+                            .size(100.dp)
+                            .graphicsLayer { scaleX = scale; scaleY = scale }
+                            .clip(RoundedCornerShape(20.dp))
+                            .background(Color(0xFFE50914)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text("H", color = Color.White, fontSize = 56.sp, fontWeight = FontWeight.Black)
+                    }
+
+                    Spacer(modifier = Modifier.height(32.dp))
+
+                    Text(
+                        title,
+                        color = Color.White,
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.Bold,
+                        textAlign = TextAlign.Center,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(horizontal = 32.dp)
+                    )
+
+                    Spacer(modifier = Modifier.height(28.dp))
+
+                    CircularProgressIndicator(
+                        color = Color(0xFFE50914),
+                        strokeWidth = 3.dp,
+                        modifier = Modifier.size(44.dp)
+                    )
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    Text(
+                        "Preparing your stream...",
+                        color = Color.Gray,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+            }
+        }
+
+        // 🔥 NEW: BUFFERING SPINNER (mid-playback / Live TV)
+        if (hasStartedPlaying && isBuffering && !hasError) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .background(Color.Black.copy(alpha = 0.75f), RoundedCornerShape(16.dp))
+                    .padding(horizontal = 28.dp, vertical = 22.dp)
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    CircularProgressIndicator(
+                        color = Color(0xFFE50914),
+                        strokeWidth = 3.dp,
+                        modifier = Modifier.size(42.dp)
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text(
+                        "Buffering...",
+                        color = Color.White,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+            }
+        }
+
+        // CONTROLS OVERLAY (only after video has started)
+        AnimatedVisibility(visible = showControls && !hasError && hasStartedPlaying, enter = fadeIn(), exit = fadeOut(), modifier = Modifier.fillMaxSize()) {
             Box(modifier = Modifier.fillMaxSize().safeDrawingPadding()) {
                 
                 Row(
@@ -419,7 +548,6 @@ fun PlayerScreen(
                     
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
                         
-                        // 🔥 NEW: AUDIO ONLY TOGGLE
                         IconButton(onClick = { isAudioOnly = !isAudioOnly }) { 
                             Icon(
                                 imageVector = Icons.Default.Headphones, 
@@ -512,7 +640,7 @@ fun PlayerScreen(
             }
         }
         
-        if (sleepTimerMillis > 0 && !showControls) {
+        if (sleepTimerMillis > 0 && !showControls && !hasError && hasStartedPlaying) {
             Box(
                 modifier = Modifier
                     .align(Alignment.TopCenter)
@@ -528,6 +656,82 @@ fun PlayerScreen(
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Bold
                 )
+            }
+        }
+
+        // SIGNAL LOST SCREEN
+        if (hasError) {
+            Box(
+                modifier = Modifier.fillMaxSize().background(Color(0xFF0B0C10).copy(alpha = 0.96f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.padding(32.dp)
+                ) {
+                    val infiniteTransition = rememberInfiniteTransition(label = "signal")
+                    val pulseAlpha by infiniteTransition.animateFloat(
+                        initialValue = 1f,
+                        targetValue = 0.35f,
+                        animationSpec = infiniteRepeatable(
+                            animation = tween(1000),
+                            repeatMode = RepeatMode.Reverse
+                        ),
+                        label = "pulse"
+                    )
+                    
+                    Box(
+                        modifier = Modifier.size(130.dp).background(Color(0xFF15171E), CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            Icons.Default.WifiOff,
+                            contentDescription = "Signal Lost",
+                            tint = Color(0xFFE50914).copy(alpha = pulseAlpha),
+                            modifier = Modifier.size(70.dp)
+                        )
+                    }
+                    
+                    Spacer(modifier = Modifier.height(32.dp))
+                    
+                    Text("Signal Lost", color = Color.White, fontSize = 30.sp, fontWeight = FontWeight.Black)
+                    
+                    Spacer(modifier = Modifier.height(12.dp))
+                    
+                    Text(
+                        errorMessage,
+                        color = Color.Gray,
+                        fontSize = 14.sp,
+                        textAlign = TextAlign.Center,
+                        lineHeight = 20.sp,
+                        modifier = Modifier.padding(horizontal = 16.dp)
+                    )
+                    
+                    Spacer(modifier = Modifier.height(40.dp))
+                    
+                    Button(
+                        onClick = {
+                            hasError = false
+                            hasStartedPlaying = false
+                            isBuffering = true
+                            exoPlayer.prepare()
+                            exoPlayer.playWhenReady = true
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE50914)),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.height(56.dp).fillMaxWidth(0.75f)
+                    ) {
+                        Icon(Icons.Default.Refresh, contentDescription = null, tint = Color.White)
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Text("Retry", fontSize = 17.sp, fontWeight = FontWeight.Bold)
+                    }
+                    
+                    Spacer(modifier = Modifier.height(16.dp))
+                    
+                    TextButton(onClick = { exoPlayer.pause(); onClose() }) {
+                        Text("Close Player", color = Color.Gray, fontSize = 15.sp, fontWeight = FontWeight.Medium)
+                    }
+                }
             }
         }
 
