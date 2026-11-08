@@ -19,43 +19,36 @@ jobs:
         java-version: '17'
         distribution: 'temurin'
 
-    # 🔥 DECODE THE KEYSTORE
     - name: Decode Keystore
       run: echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > ${{ github.workspace }}/release.keystore
 
-    # 🔥 FIX: Generate the Gradle Wrapper for version 8.4
-    #    This uses the runner's pre-installed Gradle to create wrapper files
-    #    that will force the build to use Gradle 8.4.
-    - name: Generate Gradle Wrapper (if missing)
+    # 🔥 THE FIX: Download Gradle 8.4 from GitHub's stable mirror
+    #    (avoids the flaky services.gradle.org that has been causing 504s)
+    - name: Install Gradle 8.4 from GitHub Releases
       run: |
-        if [ ! -f "./gradlew" ]; then
-          echo "Gradle wrapper not found. Generating for Gradle 8.4..."
-          gradle wrapper --gradle-version 8.4
-          chmod +x ./gradlew
-        else
-          echo "Gradle wrapper already exists."
-        fi
+        GRADLE_VERSION="8.4"
+        INSTALL_DIR="$RUNNER_TEMP/gradle-${GRADLE_VERSION}"
 
-    # 🔥 BUILD THE RELEASE APK (with retries)
+        echo "Downloading Gradle ${GRADLE_VERSION} from GitHub releases mirror..."
+        curl -fsSL "https://github.com/gradle/gradle-distributions/releases/download/v${GRADLE_VERSION}.0/gradle-${GRADLE_VERSION}-bin.zip" -o /tmp/gradle.zip
+
+        echo "Extracting..."
+        unzip -q /tmp/gradle.zip -d "$RUNNER_TEMP"
+
+        echo "$INSTALL_DIR/bin" >> $GITHUB_PATH
+
+        echo "✅ Gradle ${GRADLE_VERSION} installed at ${INSTALL_DIR}"
+
+    - name: Verify Gradle version
+      run: gradle --version
+
     - name: Build Release APK
-      run: |
-        for i in 1 2 3; do
-          echo "===== Attempt $i ====="
-          ./gradlew assembleRelease --no-daemon && break || {
-            if [ $i -eq 3 ]; then
-              echo "All 3 attempts failed."
-              exit 1
-            fi
-            echo "Retrying in 15 seconds..."
-            sleep 15
-          }
-        done
+      run: gradle assembleRelease --no-daemon
       env:
         KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
         KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
         KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
 
-    # 🔥 UPLOAD THE APK
     - name: Upload APK
       uses: actions/upload-artifact@v4
       with:
