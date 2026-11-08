@@ -2,6 +2,8 @@ package com.homeland.app
 
 import android.Manifest
 import android.app.DownloadManager
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.os.Build
 import android.os.Environment
 import android.provider.Settings
@@ -86,6 +88,7 @@ import com.google.firebase.firestore.Query
 import com.google.firebase.messaging.FirebaseMessaging
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.launch
 import java.io.File
 
 const val ADMIN_EMAIL = "ssalihenry136@gmail.com"
@@ -148,13 +151,11 @@ fun downloadFile(context: Context, url: String, fileName: String, saveToPublic: 
 }
 
 class MainActivity : ComponentActivity() {
-    // Holds the incoming deep link Movie ID
     private var deepLinkMovieId by mutableStateOf<String?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         
-        // Check if opened via link
         handleIntent(intent)
         
         try {
@@ -232,6 +233,9 @@ class MainActivity : ComponentActivity() {
                 var savedPin by remember { mutableStateOf(prefs.getString("app_pin", null)) }
                 var isAppUnlocked by remember { mutableStateOf(savedPin == null) }
 
+                // 🔥 NEW: Onboarding state
+                var showOnboarding by remember { mutableStateOf(!prefs.getBoolean("onboarding_seen", false)) }
+
                 // 🔥 Ban State & Listener
                 var isBanned by remember { mutableStateOf(false) }
                 
@@ -248,57 +252,49 @@ class MainActivity : ComponentActivity() {
                 }
 
                 // 🔥 Device Limit State
-                var isDeviceAllowed by remember { mutableStateOf<Boolean?>(null) } // null = checking, true = allowed, false = blocked
+                var isDeviceAllowed by remember { mutableStateOf<Boolean?>(null) }
                 var deviceLimitError by remember { mutableStateOf("") }
 
                 LaunchedEffect(currentUser) {
                     if (currentUser == null) {
-                        isDeviceAllowed = true // Auth screen will handle it
+                        isDeviceAllowed = true
                         return@LaunchedEffect
                     }
                     if (currentUser.email == ADMIN_EMAIL) {
-                        isDeviceAllowed = true // Admin bypass
+                        isDeviceAllowed = true
                         return@LaunchedEffect
                     }
 
-                    // Get unique hardware ID
                     val deviceId = Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID) ?: "unknown_device"
                     val now = System.currentTimeMillis()
-                    val thirtyDaysAgo = now - (30L * 24 * 60 * 60 * 1000) // 30 days
+                    val thirtyDaysAgo = now - (30L * 24 * 60 * 60 * 1000)
 
                     db.collection("users").document(currentUser.uid).get().addOnSuccessListener { doc ->
                         if (doc.exists()) {
                             val vipExpiry = doc.getLong("homelandVipExpiry") ?: 0L
-                            val maxAllowed = if (vipExpiry > now) 5 else 2 // VIP = 5, Free = 2
+                            val maxAllowed = if (vipExpiry > now) 5 else 2
                             
                             @Suppress("UNCHECKED_CAST")
                             val activeDevices = (doc.get("activeDevices") as? Map<String, Long>)?.toMutableMap() ?: mutableMapOf()
 
-                            // Cleanup old devices (older than 30 days)
                             activeDevices.entries.removeAll { it.value < thirtyDaysAgo }
 
                             if (activeDevices.containsKey(deviceId)) {
-                                // Known device, update timestamp and allow
                                 db.collection("users").document(currentUser.uid).update("activeDevices.$deviceId", now)
                                 isDeviceAllowed = true
                             } else {
-                                // New device, check limit
                                 if (activeDevices.size < maxAllowed) {
-                                    // Space available, add device and allow
                                     db.collection("users").document(currentUser.uid).update("activeDevices.$deviceId", now)
                                     isDeviceAllowed = true
                                 } else {
-                                    // Limit reached
                                     isDeviceAllowed = false
                                     deviceLimitError = "Your account is already active on $maxAllowed devices. The limit for ${if (vipExpiry > now) "VIP" else "Free"} users is $maxAllowed. Please log out from another device."
                                 }
                             }
                         } else {
-                            // No user document yet, allow to proceed (auth flow will create it)
                             isDeviceAllowed = true 
                         }
                     }.addOnFailureListener {
-                        // If offline, fail open so we don't block users
                         isDeviceAllowed = true 
                     }
                 }
@@ -307,8 +303,16 @@ class MainActivity : ComponentActivity() {
                 val isTv = context.packageManager.hasSystemFeature(PackageManager.FEATURE_LEANBACK) || 
                            (context.resources.configuration.uiMode and Configuration.UI_MODE_TYPE_MASK) == Configuration.UI_MODE_TYPE_TELEVISION
 
-                // 🔥 Priority Routing (Device Limit -> Ban -> Maintenance -> Lock -> App)
-                if (isDeviceAllowed == null) {
+                // 🔥 NEW: Show Onboarding first (only once)
+                if (showOnboarding) {
+                    OnboardingScreen(
+                        theme = appTheme,
+                        onComplete = {
+                            prefs.edit().putBoolean("onboarding_seen", true).apply()
+                            showOnboarding = false
+                        }
+                    )
+                } else if (isDeviceAllowed == null) {
                     Box(modifier = Modifier.fillMaxSize().background(appTheme.background), contentAlignment = Alignment.Center) {
                         CircularProgressIndicator(color = appTheme.primary)
                     }
@@ -319,7 +323,7 @@ class MainActivity : ComponentActivity() {
                         onLogout = {
                             auth.signOut()
                             isAuthenticated = false
-                            isDeviceAllowed = null // Reset state for next login
+                            isDeviceAllowed = null
                         }
                     )
                 } else if (isBanned && currentUser?.email != ADMIN_EMAIL) {
@@ -391,14 +395,12 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    // Catch links when the app is already open
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
         handleIntent(intent)
     }
 
-    // Extract the Movie ID from the URL
     private fun handleIntent(intent: Intent?) {
         val data: Uri? = intent?.data
         if (data != null) {
@@ -418,6 +420,93 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+// 🔥 NEW: ONBOARDING SCREEN
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+fun OnboardingScreen(theme: ThemeConfig, onComplete: () -> Unit) {
+    val pagerState = rememberPagerState(pageCount = { 3 })
+    val coroutineScope = rememberCoroutineScope()
+    
+    Box(modifier = Modifier.fillMaxSize().background(Color(0xFF0B0C10))) {
+        HorizontalPager(state = pagerState, modifier = Modifier.fillMaxSize()) { page ->
+            Column(
+                modifier = Modifier.fillMaxSize().padding(32.dp).systemBarsPadding(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                val icon = when(page) {
+                    0 -> Icons.Default.Movie
+                    1 -> Icons.Default.Tv
+                    else -> Icons.Default.Star
+                }
+                val title = when(page) {
+                    0 -> "Unlimited Movies"
+                    1 -> "Live TV Channels"
+                    else -> "VIP Exclusive Content"
+                }
+                val description = when(page) {
+                    0 -> "Stream the latest VJ movies, blockbusters, and exclusive homeland content in HD."
+                    1 -> "Watch live news, sports, music, and entertainment channels from around the world."
+                    else -> "Subscribe to VIP for unlimited access on up to 5 devices, downloads, and zero ads."
+                }
+                
+                Box(
+                    modifier = Modifier.size(160.dp).clip(CircleShape).background(theme.primary.copy(alpha = 0.15f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(icon, contentDescription = null, tint = theme.primary, modifier = Modifier.size(90.dp))
+                }
+                
+                Spacer(modifier = Modifier.height(40.dp))
+                
+                Text(title, color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.Black, textAlign = TextAlign.Center)
+                Spacer(modifier = Modifier.height(16.dp))
+                Text(description, color = Color.Gray, fontSize = 16.sp, textAlign = TextAlign.Center, lineHeight = 24.sp)
+            }
+        }
+        
+        // Skip button
+        TextButton(
+            onClick = onComplete,
+            modifier = Modifier.align(Alignment.TopEnd).padding(16.dp).systemBarsPadding()
+        ) {
+            Text("Skip", color = Color.Gray, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+        }
+        
+        Column(
+            modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(32.dp).systemBarsPadding(),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                repeat(3) { index ->
+                    Box(
+                        modifier = Modifier
+                            .size(if (pagerState.currentPage == index) 24.dp else 8.dp, 8.dp)
+                            .clip(CircleShape)
+                            .background(if (pagerState.currentPage == index) theme.primary else Color.DarkGray)
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.height(32.dp))
+            
+            Button(
+                onClick = {
+                    if (pagerState.currentPage < 2) {
+                        coroutineScope.launch { pagerState.animateScrollToPage(pagerState.currentPage + 1) }
+                    } else {
+                        onComplete()
+                    }
+                },
+                modifier = Modifier.fillMaxWidth().height(56.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = theme.primary),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Text(if (pagerState.currentPage < 2) "Next" else "Get Started", fontSize = 16.sp, fontWeight = FontWeight.Bold)
+            }
+        }
+    }
+}
+
 @Composable
 fun MaintenanceScreen(theme: ThemeConfig, message: String) {
     Box(modifier = Modifier.fillMaxSize().background(Color(0xFF0B0C10)), contentAlignment = Alignment.Center) {
@@ -433,7 +522,6 @@ fun MaintenanceScreen(theme: ThemeConfig, message: String) {
     }
 }
 
-// 🔥 DEVICE LIMIT SCREEN
 @Composable
 fun DeviceLimitScreen(theme: ThemeConfig, message: String, onLogout: () -> Unit) {
     Box(modifier = Modifier.fillMaxSize().background(Color(0xFF0B0C10)), contentAlignment = Alignment.Center) {
@@ -456,7 +544,6 @@ fun DeviceLimitScreen(theme: ThemeConfig, message: String, onLogout: () -> Unit)
     }
 }
 
-// 🔥 BANNED SCREEN
 @Composable
 fun BannedScreen(theme: ThemeConfig, onLogout: () -> Unit) {
     Box(modifier = Modifier.fillMaxSize().background(Color(0xFF0B0C10)), contentAlignment = Alignment.Center) {
@@ -568,6 +655,7 @@ fun HomelandApp(
 ) {
     val context = LocalContext.current
     val db = FirebaseFirestore.getInstance()
+    val prefs = remember { context.getSharedPreferences("homeland_prefs", Context.MODE_PRIVATE) }
     var selectedTab by remember { mutableStateOf(0) }
     var currentlyPlaying by remember { mutableStateOf<Movie?>(null) }
     var viewingDetails by remember { mutableStateOf<Movie?>(null) }
@@ -577,6 +665,27 @@ fun HomelandApp(
     var pendingAdultMovie by remember { mutableStateOf<Movie?>(null) }
     var showAdultPinPrompt by remember { mutableStateOf(false) }
     var adultPinInput by remember { mutableStateOf("") }
+
+    // 🔥 NEW: WiFi Only State
+    var wifiOnlyMode by remember { mutableStateOf(prefs.getBoolean("wifi_only", false)) }
+    var showWifiWarning by remember { mutableStateOf(false) }
+    var pendingPlayMovie by remember { mutableStateOf<Movie?>(null) }
+
+    // 🔥 NEW: Helper to check network and decide how to play
+    fun isOnWifi(): Boolean {
+        val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        val nc = cm.getNetworkCapabilities(cm.activeNetwork) ?: return false
+        return nc.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) || nc.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)
+    }
+
+    fun tryPlay(movie: Movie) {
+        if (wifiOnlyMode && !isOnWifi()) {
+            pendingPlayMovie = movie
+            showWifiWarning = true
+        } else {
+            currentlyPlaying = movie
+        }
+    }
 
     LaunchedEffect(auth.currentUser) {
         auth.currentUser?.uid?.let { uid ->
@@ -651,10 +760,11 @@ fun HomelandApp(
                 Button(
                     onClick = {
                         if (adultPinInput == savedPin) {
-                            currentlyPlaying = pendingAdultMovie
+                            val movieToPlay = pendingAdultMovie
                             showAdultPinPrompt = false
                             pendingAdultMovie = null
                             adultPinInput = ""
+                            if (movieToPlay != null) tryPlay(movieToPlay)
                         } else {
                             Toast.makeText(context, "Incorrect PIN", Toast.LENGTH_SHORT).show()
                             adultPinInput = ""
@@ -689,7 +799,8 @@ fun HomelandApp(
                     pendingAdultMovie = movieToPlay
                     showAdultPinPrompt = true
                 } else {
-                    currentlyPlaying = movieToPlay; viewingDetails = null 
+                    viewingDetails = null
+                    tryPlay(movieToPlay)
                 }
             },
             onBack = { viewingDetails = null }
@@ -710,6 +821,30 @@ fun HomelandApp(
                 }, colors = ButtonDefaults.buttonColors(containerColor = theme.primary)) { Text("Subscribe via WhatsApp") }
             },
             dismissButton = { TextButton(onClick = { showVipModal = false }) { Text("Cancel", color = Color.Gray) } },
+            containerColor = Color(0xFF15171E)
+        )
+    }
+
+    // 🔥 NEW: WiFi Warning Dialog
+    if (showWifiWarning && pendingPlayMovie != null) {
+        AlertDialog(
+            onDismissRequest = { showWifiWarning = false; pendingPlayMovie = null },
+            title = { Text("Wi-Fi Only Mode", color = Color.White) },
+            text = { Text("You are currently on Mobile Data but Wi-Fi Only streaming is enabled. Playing this video will use your mobile data. Continue anyway?", color = Color.Gray) },
+            confirmButton = {
+                Button(
+                    onClick = { 
+                        val movie = pendingPlayMovie
+                        showWifiWarning = false
+                        pendingPlayMovie = null
+                        if (movie != null) currentlyPlaying = movie
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE50914))
+                ) { Text("Continue Anyway") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showWifiWarning = false; pendingPlayMovie = null }) { Text("Cancel", color = Color.Gray) }
+            },
             containerColor = Color(0xFF15171E)
         )
     }
@@ -739,9 +874,12 @@ fun HomelandApp(
                 Box(modifier = Modifier.fillMaxSize()) {
                     when (selectedTab) {
                         0 -> HomeScreen(theme = theme, profileName = profileName, userVipExpiry = userVipExpiry, onDetails = { viewingDetails = it })
-                        1 -> TvLiveScreen(theme = theme, userVipExpiry = userVipExpiry, onPlayMedia = { currentlyPlaying = it })
+                        1 -> TvLiveScreen(theme = theme, userVipExpiry = userVipExpiry, onPlayMedia = { tryPlay(it) })
                         2 -> MyListScreen(theme = theme, profileName = profileName, userVipExpiry = userVipExpiry, onDetails = { viewingDetails = it })
-                        3 -> ProfileScreen(auth, profileName = profileName, userVipExpiry, theme, savedPin = savedPin, onLogout, onSwitchProfile, onPlay = { currentlyPlaying = it })
+                        3 -> ProfileScreen(auth, profileName = profileName, userVipExpiry, theme, savedPin = savedPin, wifiOnlyMode = wifiOnlyMode, onWifiOnlyChanged = { 
+                            wifiOnlyMode = it
+                            prefs.edit().putBoolean("wifi_only", it).apply()
+                        }, onLogout, onSwitchProfile, onPlay = { tryPlay(it) })
                     }
                 }
             }
@@ -773,9 +911,12 @@ fun HomelandApp(
                 Box(modifier = Modifier.fillMaxSize()) {
                     when (selectedTab) {
                         0 -> HomeScreen(theme = theme, profileName = profileName, userVipExpiry = userVipExpiry, onDetails = { viewingDetails = it })
-                        1 -> TvLiveScreen(theme = theme, userVipExpiry = userVipExpiry, onPlayMedia = { currentlyPlaying = it })
+                        1 -> TvLiveScreen(theme = theme, userVipExpiry = userVipExpiry, onPlayMedia = { tryPlay(it) })
                         2 -> MyListScreen(theme = theme, profileName = profileName, userVipExpiry = userVipExpiry, onDetails = { viewingDetails = it })
-                        3 -> ProfileScreen(auth, profileName = profileName, userVipExpiry, theme, savedPin = savedPin, onLogout, onSwitchProfile, onPlay = { currentlyPlaying = it })
+                        3 -> ProfileScreen(auth, profileName = profileName, userVipExpiry, theme, savedPin = savedPin, wifiOnlyMode = wifiOnlyMode, onWifiOnlyChanged = { 
+                            wifiOnlyMode = it
+                            prefs.edit().putBoolean("wifi_only", it).apply()
+                        }, onLogout, onSwitchProfile, onPlay = { tryPlay(it) })
                     }
                 }
             }
@@ -875,8 +1016,6 @@ fun DownloadsScreen(theme: ThemeConfig, onBack: () -> Unit, onPlay: (Movie) -> U
     }
 }
 
-// --- PROFILE SCREEN COMPONENTS ---
-
 @Composable
 fun QuickActionButton(icon: ImageVector, label: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
     Column(
@@ -913,6 +1052,32 @@ fun SettingsRow(
         Text(title, color = titleColor, fontSize = 15.sp, fontWeight = FontWeight.Medium)
         Spacer(modifier = Modifier.weight(1f))
         Icon(Icons.Default.KeyboardArrowRight, contentDescription = "Go", tint = Color.Gray, modifier = Modifier.size(20.dp))
+    }
+}
+
+// 🔥 NEW: Settings row with toggle switch
+@Composable
+fun SettingsRowWithSwitch(
+    icon: ImageVector,
+    title: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+    iconTint: Color = Color.White,
+    titleColor: Color = Color.White
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(16.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(icon, contentDescription = title, tint = iconTint, modifier = Modifier.size(22.dp))
+        Spacer(modifier = Modifier.width(16.dp))
+        Text(title, color = titleColor, fontSize = 15.sp, fontWeight = FontWeight.Medium)
+        Spacer(modifier = Modifier.weight(1f))
+        Switch(
+            checked = checked,
+            onCheckedChange = onCheckedChange,
+            colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = Color(0xFFE50914))
+        )
     }
 }
 
@@ -979,7 +1144,6 @@ fun NetflixHistoryCard(movie: Movie, progressPercent: Float, onClick: () -> Unit
     }
 }
 
-// 🔥 VIP COUNTDOWN COMPOSABLE
 @Composable
 fun VipCountdownCard(userVipExpiry: Long, theme: ThemeConfig) {
     var dateText by remember { mutableStateOf("Calculating...") }
@@ -1035,7 +1199,18 @@ fun VipCountdownCard(userVipExpiry: Long, theme: ThemeConfig) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ProfileScreen(auth: FirebaseAuth, profileName: String, userVipExpiry: Long, theme: ThemeConfig, savedPin: String?, onLogout: () -> Unit, onSwitchProfile: () -> Unit, onPlay: (Movie) -> Unit) {
+fun ProfileScreen(
+    auth: FirebaseAuth, 
+    profileName: String, 
+    userVipExpiry: Long, 
+    theme: ThemeConfig, 
+    savedPin: String?, 
+    wifiOnlyMode: Boolean = false,
+    onWifiOnlyChanged: (Boolean) -> Unit = {},
+    onLogout: () -> Unit, 
+    onSwitchProfile: () -> Unit, 
+    onPlay: (Movie) -> Unit
+) {
     val context = LocalContext.current
     var showAdminPanel by remember { mutableStateOf(false) }
     var showDownloads by remember { mutableStateOf(false) }
@@ -1048,15 +1223,13 @@ fun ProfileScreen(auth: FirebaseAuth, profileName: String, userVipExpiry: Long, 
     var newPinInput by remember { mutableStateOf("") }
     var showCouponDialog by remember { mutableStateOf(false) }
     
-    // 🔥 NEW: Admin 2FA States
     var showAdmin2faDialog by remember { mutableStateOf(false) }
     var admin2faInput by remember { mutableStateOf("") }
     var admin2faError by remember { mutableStateOf<String?>(null) }
-    var dbAdminPin by remember { mutableStateOf("123456") } // Default PIN
+    var dbAdminPin by remember { mutableStateOf("123456") }
 
     val prefs = remember { context.getSharedPreferences("homeland_prefs", Context.MODE_PRIVATE) }
 
-    // 🔥 NEW: Fetch Admin PIN from Firestore
     LaunchedEffect(Unit) {
         FirebaseFirestore.getInstance().collection("config").document("admin").addSnapshotListener { doc, _ ->
             if (doc != null && doc.exists()) {
@@ -1154,13 +1327,21 @@ fun ProfileScreen(auth: FirebaseAuth, profileName: String, userVipExpiry: Long, 
                         SettingsRow(icon = Icons.Default.Lock, title = if (savedPin != null) "App Lock (Enabled)" else "Setup App Lock", onClick = { showPinDialog = true })
                         HorizontalDivider(color = Color.White.copy(alpha = 0.05f))
                         
+                        // 🔥 NEW: WiFi Only Switch
+                        SettingsRowWithSwitch(
+                            icon = Icons.Default.Wifi,
+                            title = "Wi-Fi Only Streaming",
+                            checked = wifiOnlyMode,
+                            onCheckedChange = { onWifiOnlyChanged(it) }
+                        )
+                        HorizontalDivider(color = Color.White.copy(alpha = 0.05f))
+                        
                         if (!isVip) {
                             SettingsRow(icon = Icons.Default.ConfirmationNumber, title = "Redeem Coupon", onClick = { showCouponDialog = true })
                             HorizontalDivider(color = Color.White.copy(alpha = 0.05f))
                         }
                         
                         if (auth.currentUser?.email == ADMIN_EMAIL) {
-                            // 🔥 CHANGED: Now triggers 2FA dialog
                             SettingsRow(
                                 icon = Icons.Default.AdminPanelSettings, 
                                 title = "Admin Panel (2FA)", 
@@ -1195,7 +1376,6 @@ fun ProfileScreen(auth: FirebaseAuth, profileName: String, userVipExpiry: Long, 
         }
     }
 
-    // 🔥 NEW: Admin 2FA Dialog
     if (showAdmin2faDialog) {
         AlertDialog(
             onDismissRequest = { showAdmin2faDialog = false; admin2faInput = ""; admin2faError = null },
