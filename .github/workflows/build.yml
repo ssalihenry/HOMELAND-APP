@@ -23,20 +23,25 @@ jobs:
     - name: Decode Keystore
       run: echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > ${{ github.workspace }}/release.keystore
 
-    # 🔥 Try to provision Gradle 8.4. If GitHub's CDN is down, continue anyway
-    #    (the Ubuntu runner has a pre-installed Gradle we can fall back to)
-    - name: Setup Gradle (optional - ignore errors)
-      uses: gradle/actions/setup-gradle@v3
-      with:
-        gradle-version: '8.4'
-      continue-on-error: true
+    # 🔥 FIX: Generate the Gradle Wrapper for version 8.4
+    #    This uses the runner's pre-installed Gradle to create wrapper files
+    #    that will force the build to use Gradle 8.4.
+    - name: Generate Gradle Wrapper (if missing)
+      run: |
+        if [ ! -f "./gradlew" ]; then
+          echo "Gradle wrapper not found. Generating for Gradle 8.4..."
+          gradle wrapper --gradle-version 8.4
+          chmod +x ./gradlew
+        else
+          echo "Gradle wrapper already exists."
+        fi
 
-    # 🔥 BUILD THE RELEASE APK (with 3 retries in case of transient failures)
+    # 🔥 BUILD THE RELEASE APK (with retries)
     - name: Build Release APK
       run: |
         for i in 1 2 3; do
           echo "===== Attempt $i ====="
-          gradle assembleRelease --no-daemon && break || {
+          ./gradlew assembleRelease --no-daemon && break || {
             if [ $i -eq 3 ]; then
               echo "All 3 attempts failed."
               exit 1
