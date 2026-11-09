@@ -56,10 +56,15 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
+import androidx.media3.common.MimeTypes // 🔥 NEW IMPORT
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.datasource.DefaultDataSource // 🔥 NEW IMPORT
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.source.ProgressiveMediaSource // 🔥 NEW IMPORT
+import androidx.media3.extractor.DefaultExtractorsFactory // 🔥 NEW IMPORT
+import androidx.media3.extractor.ts.TsExtractor // 🔥 NEW IMPORT
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
@@ -145,7 +150,30 @@ fun PlayerScreen(
                     }
                     setMediaItems(mediaItems)
                 } else {
-                    setMediaItem(MediaItem.fromUri(videoUrl))
+                    // 🔥 FIX FOR .TS STREAMS
+                    val isTsStream = videoUrl.contains(".ts")
+                    val mimeType = if (isTsStream) MimeTypes.APPLICATION_MPEGTS else null
+
+                    val extractorsFactory = DefaultExtractorsFactory().apply {
+                        setTsExtractorFlags(
+                            TsExtractor.FLAG_ALLOW_NON_IDR_KEYFRAMES or
+                            TsExtractor.FLAG_DETECT_ACCESS_UNITS
+                        )
+                    }
+
+                    val mediaItem = MediaItem.Builder()
+                        .setUri(videoUrl)
+                        .apply {
+                            if (mimeType != null) setMimeType(mimeType)
+                        }
+                        .build()
+
+                    setMediaSource(
+                        ProgressiveMediaSource.Factory(
+                            DefaultDataSource.Factory(context),
+                            extractorsFactory
+                        ).createMediaSource(mediaItem)
+                    )
                 }
                 
                 if (startPosition <= 5000L) {
@@ -246,6 +274,7 @@ fun PlayerScreen(
                     PlaybackException.ERROR_CODE_IO_FILE_NOT_FOUND -> "Video not found on the server."
                     PlaybackException.ERROR_CODE_IO_CLEARTEXT_NOT_PERMITTED -> "This video uses an insecure connection."
                     PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED -> "The video file is corrupted or unreadable."
+                    PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED -> "This stream format is not supported. Please try another source."
                     PlaybackException.ERROR_CODE_DECODER_INIT_FAILED -> "This device cannot decode this video format."
                     else -> "Something went wrong: ${error.errorCodeName}"
                 }
