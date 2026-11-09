@@ -190,6 +190,123 @@ fun downloadFile(context: Context, url: String, fileName: String, saveToPublic: 
     }
 }
 
+// 🔥 NEW: PREMIUM PAYMENT DIALOG
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun PaymentDialog(
+    userEmail: String,
+    onDismiss: () -> Unit
+) {
+    var tidInput by remember { mutableStateOf("") }
+    var isLoading by remember { mutableStateOf(false) }
+    var isSuccess by remember { mutableStateOf(false) }
+
+    Dialog(onDismissRequest = onDismiss) {
+        Card(
+            modifier = Modifier.fillMaxWidth().padding(16.dp),
+            shape = RoundedCornerShape(32.dp),
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF15171E).copy(alpha = 0.95f)),
+            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.1f))
+        ) {
+            Column(
+                modifier = Modifier.padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                if (isSuccess) {
+                    Icon(Icons.Default.CheckCircle, contentDescription = "Success", tint = Color.Green, modifier = Modifier.size(64.dp))
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text("Payment Submitted!", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text("Your VIP will be activated shortly after we verify your Transaction ID.", color = Color.Gray, fontSize = 14.sp, textAlign = TextAlign.Center)
+                    Spacer(modifier = Modifier.height(24.dp))
+                    Button(onClick = onDismiss, modifier = Modifier.fillMaxWidth().height(50.dp), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE50914)), shape = RoundedCornerShape(50)) {
+                        Text("Close", fontWeight = FontWeight.Bold)
+                    }
+                } else {
+                    Text("Upgrade to VIP", color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Black)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text("Pay via MTN/Airtel to unlock all premium content.", color = Color.Gray, fontSize = 13.sp, textAlign = TextAlign.Center)
+                    Spacer(modifier = Modifier.height(24.dp))
+
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = Color.Black.copy(alpha = 0.3f)),
+                        shape = RoundedCornerShape(16.dp),
+                        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.05f)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text("Send Money To:", color = Color.Gray, fontSize = 12.sp)
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text("0772 123 456", color = Color(0xFFFCDC04), fontSize = 24.sp, fontWeight = FontWeight.Black, letterSpacing = 2.sp)
+                            Text("Name: Homeland Media", color = Color.White, fontSize = 14.sp)
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(24.dp))
+
+                    Text("Enter Transaction ID (TID)", color = Color.White, fontSize = 14.sp, modifier = Modifier.align(Alignment.Start).padding(bottom = 8.dp))
+                    
+                    OutlinedTextField(
+                        value = tidInput,
+                        onValueChange = { tidInput = it },
+                        placeholder = { Text("e.g. 1234567890", color = Color.Gray) },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(50),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = Color.White,
+                            unfocusedTextColor = Color.White,
+                            focusedBorderColor = Color(0xFFE50914),
+                            unfocusedBorderColor = Color.DarkGray,
+                            focusedContainerColor = Color.Black.copy(alpha = 0.3f),
+                            unfocusedContainerColor = Color.Black.copy(alpha = 0.3f)
+                        )
+                    )
+
+                    Spacer(modifier = Modifier.height(24.dp))
+
+                    Button(
+                        onClick = {
+                            if (tidInput.isNotBlank()) {
+                                isLoading = true
+                                val requestData = hashMapOf(
+                                    "email" to userEmail,
+                                    "tid" to tidInput.trim(),
+                                    "status" to "pending",
+                                    "timestamp" to System.currentTimeMillis()
+                                )
+                                FirebaseFirestore.getInstance().collection("payment_requests").add(requestData)
+                                    .addOnSuccessListener {
+                                        isLoading = false
+                                        isSuccess = true
+                                    }
+                                    .addOnFailureListener {
+                                        isLoading = false
+                                        // Handle error silently or show toast
+                                    }
+                            }
+                        },
+                        enabled = !isLoading && tidInput.isNotBlank(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(56.dp)
+                            .shadow(12.dp, RoundedCornerShape(50), spotColor = Color(0xFFE50914), ambientColor = Color(0xFFE50914)),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE50914)),
+                        shape = RoundedCornerShape(50)
+                    ) {
+                        if (isLoading) CircularProgressIndicator(color = Color.White, modifier = Modifier.size(24.dp))
+                        else Text("Submit Payment", fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                    }
+                    
+                    Spacer(modifier = Modifier.height(12.dp))
+                    TextButton(onClick = onDismiss) {
+                        Text("Cancel", color = Color.Gray)
+                    }
+                }
+            }
+        }
+    }
+}
+
 class MainActivity : ComponentActivity() {
     private var deepLinkMovieId by mutableStateOf<String?>(null)
 
@@ -646,6 +763,7 @@ fun HomelandApp(
     var viewingDetails by remember { mutableStateOf<Movie?>(null) }
     var userVipExpiry by remember { mutableLongStateOf(0L) }
     var showVipModal by remember { mutableStateOf(false) }
+    var showPaymentDialog by remember { mutableStateOf(false) } // 🔥 NEW
 
     var globalSearchQuery by remember { mutableStateOf("") }
 
@@ -813,9 +931,14 @@ fun HomelandApp(
         if (currentlyPlaying != null) currentlyPlaying = null 
         else if (viewingDetails != null) viewingDetails = null 
         else if (showVipModal) showVipModal = false 
+        else if (showPaymentDialog) showPaymentDialog = false // 🔥 NEW
         else if (showAdultPinPrompt) { showAdultPinPrompt = false; pendingAdultMovie = null }
         else if (selectedTab != 0) selectedTab = 0 
         else (context as? androidx.activity.ComponentActivity)?.finish()
+    }
+
+    if (showPaymentDialog) {
+        PaymentDialog(userEmail = auth.currentUser?.email ?: "Unknown", onDismiss = { showPaymentDialog = false })
     }
 
     if (showAdultPinPrompt) {
@@ -863,6 +986,7 @@ fun HomelandApp(
         return
     }
 
+    // 🔥 UPDATED: VIP Modal now opens Payment Dialog
     if (showVipModal) {
         AlertDialog(
             onDismissRequest = { showVipModal = false },
@@ -871,9 +995,8 @@ fun HomelandApp(
             confirmButton = {
                 Button(onClick = { 
                     showVipModal = false
-                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://wa.me/$WHATSAPP_NUMBER?text=Hi, I want to subscribe to Homeland VIP."))
-                    context.startActivity(intent)
-                }, colors = ButtonDefaults.buttonColors(containerColor = theme.primary)) { Text("Subscribe via WhatsApp") }
+                    showPaymentDialog = true 
+                }, colors = ButtonDefaults.buttonColors(containerColor = theme.primary)) { Text("Subscribe Now") }
             },
             dismissButton = { TextButton(onClick = { showVipModal = false }) { Text("Cancel", color = Color.Gray) } },
             containerColor = Color(0xFF15171E)
@@ -1124,7 +1247,6 @@ fun VipCountdownCard(userVipExpiry: Long, theme: ThemeConfig) {
         }
     }
     
-    // 🔥 UPGRADED GLASS VIP CARD
     Card(
         modifier = Modifier.fillMaxWidth().padding(top = 16.dp), 
         colors = CardDefaults.cardColors(containerColor = Color(0xFF15171E).copy(alpha = 0.7f)), 
@@ -1157,6 +1279,8 @@ fun ProfileScreen(
     var showTvRemoteDialog by remember { mutableStateOf(false) }
     var couponCode by remember { mutableStateOf("") }
     val isVip = userVipExpiry > System.currentTimeMillis()
+
+    var showPaymentDialog by remember { mutableStateOf(false) } // 🔥 NEW
 
     var socialLinks by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
     LaunchedEffect(Unit) {
@@ -1228,6 +1352,10 @@ fun ProfileScreen(
         }
     }
 
+    if (showPaymentDialog) {
+        PaymentDialog(userEmail = auth.currentUser?.email ?: "Unknown", onDismiss = { showPaymentDialog = false })
+    }
+
     if (showAdminPanel) {
         AdminScreen(onBack = { showAdminPanel = false })
     } else if (showDownloads) {
@@ -1242,7 +1370,6 @@ fun ProfileScreen(
             Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp).systemBarsPadding(), horizontalAlignment = Alignment.CenterHorizontally) {
                 Spacer(modifier = Modifier.height(24.dp))
                 
-                // 🔥 GLOWING AVATAR
                 Box(
                     modifier = Modifier
                         .size(100.dp)
@@ -1266,7 +1393,7 @@ fun ProfileScreen(
 
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
                     QuickActionButton(icon = Icons.Default.Star, label = "VIP Plans", modifier = Modifier.weight(1f), onClick = {
-                        if (!isVip) { val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://wa.me/$WHATSAPP_NUMBER?text=Hi, I want to subscribe to Homeland VIP.")); context.startActivity(intent) } 
+                        if (!isVip) { showPaymentDialog = true } // 🔥 UPDATED TO OPEN DIALOG
                         else { Toast.makeText(context, "You are already VIP!", Toast.LENGTH_SHORT).show() }
                     })
                     Spacer(modifier = Modifier.width(8.dp))
@@ -1279,7 +1406,6 @@ fun ProfileScreen(
 
                 Spacer(modifier = Modifier.height(24.dp))
 
-                // 🔥 GLASS SETTINGS CARD
                 Card(
                     modifier = Modifier.fillMaxWidth(), 
                     colors = CardDefaults.cardColors(containerColor = Color(0xFF15171E).copy(alpha = 0.7f)), 
@@ -2042,7 +2168,6 @@ fun HomeScreen(
                 Text(text = " TV", color = theme.primary, fontSize = 18.sp, fontWeight = FontWeight.Black, letterSpacing = 1.sp)
             }
 
-            // 🔥 GLASS SEARCH BAR
             OutlinedTextField(
                 value = searchQuery, 
                 onValueChange = { onSearchQueryChange(it) }, 
