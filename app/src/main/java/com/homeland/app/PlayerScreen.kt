@@ -56,7 +56,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
-import androidx.media3.common.MimeTypes // 🔥 NEW IMPORT
+import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
@@ -70,7 +70,10 @@ import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.ListenerRegistration
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlin.math.abs
 
 @OptIn(UnstableApi::class)
@@ -87,6 +90,7 @@ fun PlayerScreen(
     val context = LocalContext.current
     val activity = context as? Activity
     val configuration = LocalConfiguration.current
+    val coroutineScope = rememberCoroutineScope()
     
     var showResumeDialog by remember { mutableStateOf(startPosition > 5000L) }
 
@@ -110,6 +114,7 @@ fun PlayerScreen(
 
     var hasError by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf("") }
+    var retryCount by remember { mutableIntStateOf(0) } // 🔥 NEW: Auto-Retry counter
 
     var hasStartedPlaying by remember { mutableStateOf(false) }
     var isBuffering by remember { mutableStateOf(true) }
@@ -130,8 +135,10 @@ fun PlayerScreen(
     var gestureValue by remember { mutableFloatStateOf(0f) } 
     var seekPreviewTime by remember { mutableLongStateOf(0L) }
 
+    val isM3u8 = remember { videoUrl.contains("m3u8", ignoreCase = true) }
+
     val exoPlayer = remember {
-        // 1. Custom HTTP Data Source to spoof a Browser User-Agent
+        // 1. Custom HTTP Data Source
         val httpDataSourceFactory = DefaultHttpDataSource.Factory()
             .setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
             .setAllowCrossProtocolRedirects(true)
@@ -140,20 +147,23 @@ fun PlayerScreen(
 
         val dataSourceFactory = DefaultDataSource.Factory(context, httpDataSourceFactory)
 
-        // 2. 🔥 NEW: Aggressive Buffer for Live TV
+        // 2. 🔥 DYNAMIC BUFFER (15s for HLS Live, 50s for Movies/TS)
+        val minBuffer = if (isM3u8) 5000 else 15000
+        val maxBuffer = if (isM3u8) 15000 else 50000 // HLS sliding window limit
+        
         val loadControl = DefaultLoadControl.Builder()
             .setBufferDurationsMs(
-                15000, // Min buffer (15s)
-                50000, // Max buffer (50s)
-                2500,  // Buffer for playback (2.5s)
-                5000   // Buffer for rebuffer (5s)
+                minBuffer,
+                maxBuffer,
+                2500,
+                5000
             )
             .build()
 
         ExoPlayer.Builder(context)
             .setTrackSelector(trackSelector)
             .setMediaSourceFactory(DefaultMediaSourceFactory(dataSourceFactory))
-            .setLoadControl(loadControl) // Apply the new buffer
+            .setLoadControl(loadControl)
             .setAudioAttributes(
                 AudioAttributes.Builder()
                     .setUsage(C.USAGE_MEDIA)
@@ -171,14 +181,10 @@ fun PlayerScreen(
                     }
                     setMediaItems(mediaItems)
                 } else {
-                    // 🔥 THE FIX: Check if the link uses m3u8 and force the MIME type
-                    val isM3u8 = videoUrl.contains("m3u8", ignoreCase = true)
                     val mediaItemBuilder = MediaItem.Builder().setUri(videoUrl)
-                    
                     if (isM3u8) {
                         mediaItemBuilder.setMimeType(MimeTypes.APPLICATION_M3U8)
                     }
-
                     setMediaItem(mediaItemBuilder.build())
                 }
                 
@@ -242,10 +248,10 @@ fun PlayerScreen(
                         isBuffering = false
                         hasStartedPlaying = true
                         hasError = false 
+                        retryCount = 0 // 🔥 Reset retry counter on success
                     }
                     Player.STATE_ENDED -> {
                         isBuffering = false
-                        // 🔥 THE FIX: Auto-reconnect for live streams
                         if (episodes.isEmpty()) {
                             exoPlayer.seekTo(0)
                             exoPlayer.prepare()
@@ -258,18 +264,40 @@ fun PlayerScreen(
             
             override fun onPlayerError(error: PlaybackException) {
                 super.onPlayerError(error)
-                hasError = true
-                isBuffering = false
-                errorMessage = when (error.errorCode) {
-                    PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED -> "No internet connection. Please check your network."
-                    PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT -> "Connection timed out. The server took too long to respond."
-                    PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS -> "Video source unavailable. It may be offline or broken."
-                    PlaybackException.ERROR_CODE_IO_FILE_NOT_FOUND -> "Video not found on the server."
-                    PlaybackException.ERROR_CODE_IO_CLEARTEXT_NOT_PERMITTED -> "This video uses an insecure connection."
-                    PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED -> "The video file is corrupted or unreadable."
-                    PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED -> "This stream format is not supported. Please try another source."
-                    PlaybackException.ERROR_CODE_DECODER_INIT_FAILED -> "This device cannot decode this video format."
-                    else -> "Something went wrong: ${error.errorCodeName}"
+                
+                // 🔥 AUTO-RETRY LOGIC
+                if (retryCount < 3 && episodes.isEmpty()) {
+                    retryCount++
+                    isBuffering = true
+                    hasError = false
+                    
+                    coroutineScope.launch {
+                        delay(2000) // Wait 2 seconds before retrying
+                        exoPlayer.stop()
+                        exoPlayer.clearMediaItems()
+                        
+                        // Rebuild the media item to get a fresh connection
+                        val mediaItemBuilder = MediaItem.Builder().setUri(videoUrl)
+                        if (isM3u8) mediaItemBuilder.setMimeType(MimeTypes.APPLICATION_M3U8)
+                        
+                        exoPlayer.setMediaItem(mediaItemBuilder.build())
+                        exoPlayer.prepare()
+                        exoPlayer.playWhenReady = true
+                    }
+                } else {
+                    hasError = true
+                    isBuffering = false
+                    errorMessage = when (error.errorCode) {
+                        PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED -> "No internet connection. Please check your network."
+                        PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT -> "Connection timed out. The server took too long to respond."
+                        PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS -> "Video source unavailable. It may be offline or broken."
+                        PlaybackException.ERROR_CODE_IO_FILE_NOT_FOUND -> "Video not found on the server."
+                        PlaybackException.ERROR_CODE_IO_CLEARTEXT_NOT_PERMITTED -> "This video uses an insecure connection."
+                        PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED -> "The video file is corrupted or unreadable."
+                        PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED -> "This stream format is not supported. Please try another source."
+                        PlaybackException.ERROR_CODE_DECODER_INIT_FAILED -> "This device cannot decode this video format."
+                        else -> "Something went wrong after multiple retries: ${error.errorCodeName}"
+                    }
                 }
             }
         }
@@ -497,7 +525,7 @@ fun PlayerScreen(
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     CircularProgressIndicator(color = Color(0xFFE50914), strokeWidth = 3.dp, modifier = Modifier.size(42.dp))
                     Spacer(modifier = Modifier.height(12.dp))
-                    Text("Buffering...", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                    Text(if (retryCount > 0) "Reconnecting..." else "Buffering...", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Medium)
                 }
             }
         }
@@ -597,7 +625,19 @@ fun PlayerScreen(
                     Spacer(modifier = Modifier.height(12.dp))
                     Text(errorMessage, color = Color.Gray, fontSize = 14.sp, textAlign = TextAlign.Center, lineHeight = 20.sp, modifier = Modifier.padding(horizontal = 16.dp))
                     Spacer(modifier = Modifier.height(40.dp))
-                    Button(onClick = { hasError = false; hasStartedPlaying = false; isBuffering = true; exoPlayer.prepare(); exoPlayer.playWhenReady = true }, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE50914)), shape = RoundedCornerShape(16.dp), modifier = Modifier.height(56.dp).fillMaxWidth(0.85f)) { Icon(Icons.Default.Refresh, contentDescription = null, tint = Color.White); Spacer(modifier = Modifier.width(10.dp)); Text("Retry", fontSize = 17.sp, fontWeight = FontWeight.Bold) }
+                    Button(onClick = { 
+                        hasError = false
+                        hasStartedPlaying = false
+                        isBuffering = true
+                        retryCount = 0
+                        exoPlayer.stop()
+                        exoPlayer.clearMediaItems()
+                        val mediaItemBuilder = MediaItem.Builder().setUri(videoUrl)
+                        if (isM3u8) mediaItemBuilder.setMimeType(MimeTypes.APPLICATION_M3U8)
+                        exoPlayer.setMediaItem(mediaItemBuilder.build())
+                        exoPlayer.prepare()
+                        exoPlayer.playWhenReady = true
+                    }, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE50914)), shape = RoundedCornerShape(16.dp), modifier = Modifier.height(56.dp).fillMaxWidth(0.85f)) { Icon(Icons.Default.Refresh, contentDescription = null, tint = Color.White); Spacer(modifier = Modifier.width(10.dp)); Text("Retry", fontSize = 17.sp, fontWeight = FontWeight.Bold) }
                     Spacer(modifier = Modifier.height(16.dp))
                     TextButton(onClick = { exoPlayer.pause(); onClose() }) { Text("Close Player", color = Color.Gray, fontSize = 15.sp, fontWeight = FontWeight.Medium) }
                 }
