@@ -26,7 +26,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.google.firebase.firestore.FirebaseFirestore
-import com.google.firebase.firestore.Query
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -42,10 +41,21 @@ data class AdminUser(
     val isBanned: Boolean = false
 )
 
+// 🔥 NEW: VIP Plan Data Class
+data class VipPlan(
+    val id: String = "",
+    val name: String = "",
+    val price: String = "",
+    val days: Int = 0
+)
+
 data class PaymentRequest(
     val id: String = "",
     val email: String = "",
     val tid: String = "",
+    val planName: String = "",
+    val price: String = "",
+    val days: Int = 0,
     val timestamp: Long = 0L
 )
 
@@ -116,9 +126,13 @@ fun AdminScreen(onBack: () -> Unit) {
     var twitterLink by remember { mutableStateOf("") }
     var instagramLink by remember { mutableStateOf("") }
 
-    // 🔥 NEW: Payments State
+    // 🔥 NEW: Plans & Payments State
+    var vipPlans by remember { mutableStateOf<List<VipPlan>>(emptyList()) }
+    var newPlanName by remember { mutableStateOf("") }
+    var newPlanPrice by remember { mutableStateOf("") }
+    var newPlanDays by remember { mutableStateOf("") }
+    
     var paymentRequests by remember { mutableStateOf<List<PaymentRequest>>(emptyList()) }
-    var daysToGrant by remember { mutableStateOf("30") }
 
     var existingMovies by remember { mutableStateOf<List<Movie>>(emptyList()) }
     var existingTv by remember { mutableStateOf<List<TvChannel>>(emptyList()) }
@@ -153,6 +167,19 @@ fun AdminScreen(onBack: () -> Unit) {
                     }
                 }
             }
+            // 🔥 Listen for VIP Plans
+            db.collection("homeland_vip_plans").addSnapshotListener { snap, _ ->
+                if (snap != null) {
+                    vipPlans = snap.documents.map { doc ->
+                        VipPlan(
+                            id = doc.id,
+                            name = doc.getString("name") ?: "",
+                            price = doc.getString("price") ?: "",
+                            days = doc.getLong("days")?.toInt() ?: 0
+                        )
+                    }
+                }
+            }
         } else if (selectedTab == 3) {
             db.collection("config").document("maintenance").addSnapshotListener { doc, _ ->
                 if (doc != null && doc.exists()) {
@@ -171,7 +198,7 @@ fun AdminScreen(onBack: () -> Unit) {
                 }
             }
         } else if (selectedTab == 6) {
-            // 🔥 NEW: Listen for pending payments
+            // 🔥 Listen for pending payments
             db.collection("payment_requests")
                 .whereEqualTo("status", "pending")
                 .addSnapshotListener { snap, _ ->
@@ -181,6 +208,9 @@ fun AdminScreen(onBack: () -> Unit) {
                                 id = doc.id,
                                 email = doc.getString("email") ?: "Unknown",
                                 tid = doc.getString("tid") ?: "",
+                                planName = doc.getString("planName") ?: "Unknown Plan",
+                                price = doc.getString("price") ?: "0",
+                                days = doc.getLong("days")?.toInt() ?: 0,
                                 timestamp = doc.getLong("timestamp") ?: 0L
                             )
                         }.sortedByDescending { it.timestamp }
@@ -210,7 +240,7 @@ fun AdminScreen(onBack: () -> Unit) {
                     Tab(selected = selectedTab == 0, onClick = { selectedTab = 0 }, text = { Text("Movies") })
                     Tab(selected = selectedTab == 1, onClick = { selectedTab = 1 }, text = { Text("TV Live") })
                     Tab(selected = selectedTab == 2, onClick = { selectedTab = 2 }, text = { Text("VIP") })
-                    Tab(selected = selectedTab == 6, onClick = { selectedTab = 6 }, text = { Text("Payments") }) // 🔥 NEW TAB
+                    Tab(selected = selectedTab == 6, onClick = { selectedTab = 6 }, text = { Text("Payments") }) 
                     Tab(selected = selectedTab == 3, onClick = { selectedTab = 3 }, text = { Text("Theme") })
                     Tab(selected = selectedTab == 4, onClick = { selectedTab = 4 }, text = { Text("Push") })
                     Tab(selected = selectedTab == 5, onClick = { selectedTab = 5 }, text = { Text("Socials") }) 
@@ -229,7 +259,7 @@ fun AdminScreen(onBack: () -> Unit) {
             }
 
             if (selectedTab == 0) {
-                // ... (Existing Movie Logic) ...
+                // ... (Existing Movie Logic - Unchanged) ...
                 item {
                     Card(
                         colors = CardDefaults.cardColors(containerColor = Color(0xFF15171E).copy(alpha = 0.7f)), 
@@ -387,7 +417,7 @@ fun AdminScreen(onBack: () -> Unit) {
                     }
                 }
             } else if (selectedTab == 1) {
-                // ... (Existing TV Logic) ...
+                // ... (Existing TV Logic - Unchanged) ...
                 item {
                     Card(
                         colors = CardDefaults.cardColors(containerColor = Color(0xFF15171E).copy(alpha = 0.7f)), 
@@ -467,7 +497,64 @@ fun AdminScreen(onBack: () -> Unit) {
                     }
                 }
             } else if (selectedTab == 2) {
-                // ... (Existing VIP Logic) ...
+                // 🔥 NEW: VIP PLANS MANAGEMENT
+                item {
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFF15171E).copy(alpha = 0.7f)), 
+                        shape = RoundedCornerShape(24.dp),
+                        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.1f))
+                    ) {
+                        Column(modifier = Modifier.padding(20.dp)) {
+                            Text("Manage VIP Plans", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                            Text("These plans appear to users in the app.", color = Color.Gray, fontSize = 12.sp)
+                            Spacer(modifier = Modifier.height(12.dp))
+
+                            OutlinedTextField(value = newPlanName, onValueChange = { newPlanName = it }, label = { Text("Plan Name (e.g. 1 Month)") }, modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp), shape = RoundedCornerShape(12.dp), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White, focusedBorderColor = Color(0xFFE50914), unfocusedBorderColor = Color.DarkGray, focusedContainerColor = Color.Black.copy(alpha = 0.2f), unfocusedContainerColor = Color.Black.copy(alpha = 0.2f)))
+                            
+                            Row(modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                OutlinedTextField(value = newPlanPrice, onValueChange = { newPlanPrice = it }, label = { Text("Price (e.g. 10,000 UGX)") }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(12.dp), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White, focusedBorderColor = Color(0xFFE50914), unfocusedBorderColor = Color.DarkGray, focusedContainerColor = Color.Black.copy(alpha = 0.2f), unfocusedContainerColor = Color.Black.copy(alpha = 0.2f)))
+                                OutlinedTextField(value = newPlanDays, onValueChange = { newPlanDays = it }, label = { Text("Days (e.g. 30)") }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(12.dp), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White, focusedBorderColor = Color(0xFFE50914), unfocusedBorderColor = Color.DarkGray, focusedContainerColor = Color.Black.copy(alpha = 0.2f), unfocusedContainerColor = Color.Black.copy(alpha = 0.2f)))
+                            }
+
+                            Button(onClick = {
+                                if (newPlanName.isNotBlank() && newPlanPrice.isNotBlank() && newPlanDays.isNotBlank()) {
+                                    val daysInt = newPlanDays.toIntOrNull() ?: 0
+                                    db.collection("homeland_vip_plans").add(hashMapOf(
+                                        "name" to newPlanName,
+                                        "price" to newPlanPrice,
+                                        "days" to daysInt
+                                    )).addOnSuccessListener {
+                                        statusMessage = "Plan added successfully!"
+                                        newPlanName = ""; newPlanPrice = ""; newPlanDays = ""
+                                    }
+                                }
+                            }, modifier = Modifier.fillMaxWidth().height(50.dp).shadow(8.dp, RoundedCornerShape(12.dp), spotColor = Color(0xFFE50914), ambientColor = Color(0xFFE50914)), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE50914)), shape = RoundedCornerShape(12.dp)) {
+                                Text("Add Plan", fontWeight = FontWeight.Bold)
+                            }
+
+                            Spacer(modifier = Modifier.height(16.dp))
+                            HorizontalDivider(color = Color.White.copy(alpha = 0.1f))
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            if (vipPlans.isEmpty()) {
+                                Text("No plans created yet.", color = Color.Gray, fontSize = 14.sp)
+                            } else {
+                                vipPlans.forEach { plan ->
+                                    Row(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(plan.name, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                            Text("${plan.price} • ${plan.days} Days", color = Color(0xFFFCDC04), fontSize = 12.sp)
+                                        }
+                                        IconButton(onClick = { db.collection("homeland_vip_plans").document(plan.id).delete() }) {
+                                            Icon(Icons.Default.Delete, "Delete", tint = Color.Red)
+                                        }
+                                    }
+                                    HorizontalDivider(color = Color.White.copy(alpha = 0.05f))
+                                }
+                            }
+                        }
+                    }
+                }
                 item {
                     val now = System.currentTimeMillis()
                     val threeDaysFromNow = now + (3 * 24 * 60 * 60 * 1000L)
@@ -612,7 +699,7 @@ fun AdminScreen(onBack: () -> Unit) {
                     }
                 }
             } else if (selectedTab == 6) {
-                // 🔥 NEW: PAYMENTS TAB
+                // 🔥 NEW: PAYMENTS TAB (AUTOMATIC DURATION)
                 item {
                     Card(
                         colors = CardDefaults.cardColors(containerColor = Color(0xFF15171E).copy(alpha = 0.7f)), 
@@ -621,17 +708,8 @@ fun AdminScreen(onBack: () -> Unit) {
                     ) {
                         Column(modifier = Modifier.padding(20.dp)) {
                             Text("Pending Payments", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                            Text("Review TIDs and approve to grant VIP.", color = Color.Gray, fontSize = 12.sp)
+                            Text("Approve to grant VIP based on the selected plan.", color = Color.Gray, fontSize = 12.sp)
                             Spacer(modifier = Modifier.height(16.dp))
-
-                            OutlinedTextField(
-                                value = daysToGrant, 
-                                onValueChange = { daysToGrant = it }, 
-                                label = { Text("Days to grant upon approval") }, 
-                                modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp), 
-                                shape = RoundedCornerShape(12.dp),
-                                colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White, focusedBorderColor = Color(0xFFE50914), unfocusedBorderColor = Color.DarkGray, focusedContainerColor = Color.Black.copy(alpha = 0.2f), unfocusedContainerColor = Color.Black.copy(alpha = 0.2f))
-                            )
 
                             if (paymentRequests.isEmpty()) {
                                 Text("No pending payments.", color = Color.Gray, fontSize = 14.sp)
@@ -650,6 +728,13 @@ fun AdminScreen(onBack: () -> Unit) {
                                         Row(verticalAlignment = Alignment.CenterVertically) {
                                             Text("TID: ", color = Color.Gray, fontSize = 12.sp)
                                             Text(req.tid, color = Color(0xFFFCDC04), fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                                        }
+
+                                        Spacer(modifier = Modifier.height(4.dp))
+
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Text("Plan: ", color = Color.Gray, fontSize = 12.sp)
+                                            Text("${req.planName} (${req.price}) - ${req.days} Days", color = Color(0xFF10B981), fontSize = 13.sp, fontWeight = FontWeight.Bold)
                                         }
                                         
                                         Spacer(modifier = Modifier.height(12.dp))
@@ -672,11 +757,10 @@ fun AdminScreen(onBack: () -> Unit) {
                                             
                                             Spacer(modifier = Modifier.width(8.dp))
                                             
-                                            // Approve Button
+                                            // Approve Button (Uses req.days automatically)
                                             Button(
                                                 onClick = {
-                                                    val days = daysToGrant.toIntOrNull() ?: 30
-                                                    val msToAdd = days.toLong() * 24 * 60 * 60 * 1000L
+                                                    val msToAdd = req.days.toLong() * 24 * 60 * 60 * 1000L
                                                     
                                                     // 1. Find user by email
                                                     db.collection("users").whereEqualTo("email", req.email).get().addOnSuccessListener { userSnap ->
@@ -691,7 +775,7 @@ fun AdminScreen(onBack: () -> Unit) {
                                                             
                                                             // 3. Mark request as approved
                                                             db.collection("payment_requests").document(req.id).update("status", "approved")
-                                                                .addOnSuccessListener { statusMessage = "Approved! $days days granted to ${req.email}" }
+                                                                .addOnSuccessListener { statusMessage = "Approved! ${req.days} days granted to ${req.email}" }
                                                         } else {
                                                             statusMessage = "Error: User email not found in database."
                                                         }
