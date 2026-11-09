@@ -61,6 +61,7 @@ import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.exoplayer.DefaultLoadControl // 🔥 NEW IMPORT
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
@@ -129,8 +130,7 @@ fun PlayerScreen(
     var seekPreviewTime by remember { mutableLongStateOf(0L) }
 
     val exoPlayer = remember {
-        // 🔥 THE FIX: Use a custom HTTP Data Source to spoof a Browser User-Agent
-        // This prevents TV servers from blocking the app.
+        // 1. Custom HTTP Data Source to spoof a Browser User-Agent
         val httpDataSourceFactory = DefaultHttpDataSource.Factory()
             .setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
             .setAllowCrossProtocolRedirects(true)
@@ -139,10 +139,20 @@ fun PlayerScreen(
 
         val dataSourceFactory = DefaultDataSource.Factory(context, httpDataSourceFactory)
 
+        // 2. 🔥 NEW: Aggressive Buffer for Live TV
+        val loadControl = DefaultLoadControl.Builder()
+            .setBufferDurationsMs(
+                15000, // Min buffer (15s)
+                50000, // Max buffer (50s)
+                2500,  // Buffer for playback (2.5s)
+                5000   // Buffer for rebuffer (5s)
+            )
+            .build()
+
         ExoPlayer.Builder(context)
             .setTrackSelector(trackSelector)
-            // Let ExoPlayer automatically figure out if it's .m3u8, .ts, or .mp4
             .setMediaSourceFactory(DefaultMediaSourceFactory(dataSourceFactory))
+            .setLoadControl(loadControl) // Apply the new buffer
             .setAudioAttributes(
                 AudioAttributes.Builder()
                     .setUsage(C.USAGE_MEDIA)
@@ -160,7 +170,6 @@ fun PlayerScreen(
                     }
                     setMediaItems(mediaItems)
                 } else {
-                    // Standard initialization (handles m3u8, ts, mp4 automatically)
                     setMediaItem(MediaItem.fromUri(videoUrl))
                 }
                 
@@ -227,8 +236,9 @@ fun PlayerScreen(
                     }
                     Player.STATE_ENDED -> {
                         isBuffering = false
-                        // Auto-reconnect for live streams that drop
-                        if (videoUrl.contains(".ts") || videoUrl.contains(".m3u8")) {
+                        // 🔥 THE FIX: Auto-reconnect for live streams
+                        // We check if it's a single video (not a series with multiple episodes)
+                        if (episodes.isEmpty()) {
                             exoPlayer.seekTo(0)
                             exoPlayer.prepare()
                             exoPlayer.play()
