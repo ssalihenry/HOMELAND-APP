@@ -924,11 +924,10 @@ fun HomelandApp(
     } else {
         Scaffold(
             bottomBar = {
-                // 🔥 NEW: FLOATING GLASS BOTTOM BAR
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 12.dp) // Float it above the bottom
+                        .padding(horizontal = 16.dp, vertical = 12.dp)
                         .clip(RoundedCornerShape(32.dp))
                         .background(Color(0xFF15171E).copy(alpha = 0.85f))
                         .border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(32.dp))
@@ -1056,11 +1055,16 @@ fun DownloadsScreen(theme: ThemeConfig, onBack: () -> Unit, onPlay: (Movie) -> U
 fun QuickActionButton(icon: ImageVector, label: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
     val context = LocalContext.current
     Column(
-        modifier = modifier.clip(RoundedCornerShape(12.dp)).background(Color(0xFF15171E).copy(alpha = 0.8f)).clickable { vibrate(context); onClick() }.padding(vertical = 12.dp),
+        modifier = modifier
+            .clip(RoundedCornerShape(16.dp))
+            .background(Color(0xFF15171E).copy(alpha = 0.6f))
+            .border(1.dp, Color.White.copy(alpha = 0.05f), RoundedCornerShape(16.dp))
+            .clickable { vibrate(context); onClick() }
+            .padding(vertical = 14.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Icon(icon, contentDescription = label, tint = Color.White, modifier = Modifier.size(24.dp))
-        Spacer(modifier = Modifier.height(6.dp))
+        Spacer(modifier = Modifier.height(8.dp))
         Text(label, color = Color.LightGray, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
@@ -1089,7 +1093,7 @@ fun SettingsRowWithSwitch(icon: ImageVector, title: String, checked: Boolean, on
 
 @Composable
 fun NetflixHistoryCard(movie: Movie, progressPercent: Float, onClick: () -> Unit) {
-    Box(modifier = Modifier.width(200.dp).aspectRatio(16f / 9f).clip(RoundedCornerShape(8.dp)).background(Color(0xFF15171E)).clickable { onClick() }) {
+    Box(modifier = Modifier.width(200.dp).aspectRatio(16f / 9f).clip(RoundedCornerShape(12.dp)).border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(12.dp)).background(Color(0xFF15171E).copy(alpha = 0.8f)).clickable { onClick() }) {
         SubcomposeAsyncImage(model = ImageRequest.Builder(LocalContext.current).data(movie.poster).crossfade(true).build(), contentDescription = movie.title, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize(), loading = { ShimmerBox(modifier = Modifier.fillMaxSize()) }, error = { Box(modifier = Modifier.fillMaxSize().background(Color(0xFF15171E))) })
         Box(modifier = Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.7f)))))
         Box(modifier = Modifier.align(Alignment.Center).size(40.dp).clip(CircleShape).background(Color.Black.copy(alpha = 0.5f)), contentAlignment = Alignment.Center) { Icon(Icons.Default.PlayArrow, contentDescription = "Play", tint = Color.White, modifier = Modifier.size(24.dp)) }
@@ -1120,11 +1124,17 @@ fun VipCountdownCard(userVipExpiry: Long, theme: ThemeConfig) {
         }
     }
     
-    Card(modifier = Modifier.fillMaxWidth().padding(top = 16.dp), colors = CardDefaults.cardColors(containerColor = Color(0xFF15171E).copy(alpha = 0.9f)), shape = RoundedCornerShape(12.dp), border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFFCDC04).copy(alpha = 0.5f))) {
-        Column(modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp, horizontal = 16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(dateText, color = Color(0xFFFCDC04), fontSize = 14.sp, fontWeight = FontWeight.Bold)
+    // 🔥 UPGRADED GLASS VIP CARD
+    Card(
+        modifier = Modifier.fillMaxWidth().padding(top = 16.dp), 
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF15171E).copy(alpha = 0.7f)), 
+        shape = RoundedCornerShape(16.dp), 
+        border = BorderStroke(1.dp, Color(0xFFFCDC04).copy(alpha = 0.6f))
+    ) {
+        Column(modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp, horizontal = 16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(dateText, color = Color(0xFFFCDC04), fontSize = 14.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
             Spacer(modifier = Modifier.height(4.dp))
-            Text(timeText, color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Black, letterSpacing = 2.sp)
+            Text(timeText, color = Color.White, fontSize = 26.sp, fontWeight = FontWeight.Black, letterSpacing = 3.sp)
         }
     }
 }
@@ -1232,7 +1242,18 @@ fun ProfileScreen(
             Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp).systemBarsPadding(), horizontalAlignment = Alignment.CenterHorizontally) {
                 Spacer(modifier = Modifier.height(24.dp))
                 
-                Box(modifier = Modifier.size(100.dp).clip(CircleShape).background(Color(0xFF15171E)).border(3.dp, theme.primary, CircleShape), contentAlignment = Alignment.Center) { Icon(Icons.Default.Person, "Avatar", tint = theme.primary, modifier = Modifier.size(60.dp)) }
+                // 🔥 GLOWING AVATAR
+                Box(
+                    modifier = Modifier
+                        .size(100.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xFF15171E))
+                        .border(3.dp, theme.primary, CircleShape)
+                        .shadow(16.dp, CircleShape, spotColor = theme.primary, ambientColor = theme.primary), 
+                    contentAlignment = Alignment.Center
+                ) { 
+                    Icon(Icons.Default.Person, "Avatar", tint = theme.primary, modifier = Modifier.size(60.dp)) 
+                }
                 Spacer(modifier = Modifier.height(16.dp))
                 
                 Text(auth.currentUser?.email?.split("@")?.getOrNull(0) ?: "User", color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Black)
@@ -1258,7 +1279,13 @@ fun ProfileScreen(
 
                 Spacer(modifier = Modifier.height(24.dp))
 
-                Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = Color(0xFF15171E).copy(alpha = 0.9f)), shape = RoundedCornerShape(16.dp)) {
+                // 🔥 GLASS SETTINGS CARD
+                Card(
+                    modifier = Modifier.fillMaxWidth(), 
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFF15171E).copy(alpha = 0.7f)), 
+                    shape = RoundedCornerShape(24.dp),
+                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.05f))
+                ) {
                     Column {
                         SettingsRow(icon = Icons.Default.Lock, title = if (savedPin != null) "App Lock (Enabled)" else "Setup App Lock", onClick = { showPinDialog = true })
                         HorizontalDivider(color = Color.White.copy(alpha = 0.05f))
@@ -2015,14 +2042,26 @@ fun HomeScreen(
                 Text(text = " TV", color = theme.primary, fontSize = 18.sp, fontWeight = FontWeight.Black, letterSpacing = 1.sp)
             }
 
+            // 🔥 GLASS SEARCH BAR
             OutlinedTextField(
                 value = searchQuery, 
                 onValueChange = { onSearchQueryChange(it) }, 
                 placeholder = { Text("Search titles...", color = Color.Gray, fontSize = 14.sp) }, 
                 leadingIcon = { Icon(Icons.Default.Search, "Search", tint = Color.Gray) }, 
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), 
-                colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Color.Transparent, unfocusedBorderColor = Color.Transparent, focusedContainerColor = Color(0xFF15171E), unfocusedContainerColor = Color(0xFF15171E), focusedTextColor = Color.White, unfocusedTextColor = Color.White), 
-                shape = RoundedCornerShape(12.dp)
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp)
+                    .clip(RoundedCornerShape(50))
+                    .border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(50)), 
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = Color.Transparent, 
+                    unfocusedBorderColor = Color.Transparent, 
+                    focusedContainerColor = Color(0xFF15171E).copy(alpha = 0.6f), 
+                    unfocusedContainerColor = Color(0xFF15171E).copy(alpha = 0.6f), 
+                    focusedTextColor = Color.White, 
+                    unfocusedTextColor = Color.White
+                ), 
+                shape = RoundedCornerShape(50)
             )
 
             if (featuredMovies.isNotEmpty() && searchQuery.isEmpty() && selectedCategory == "All") {
@@ -2035,7 +2074,7 @@ fun HomeScreen(
                         LaunchedEffect(movie.id) { delay(3000); trailerExoPlayer.playWhenReady = true }
                         DisposableEffect(movie.id) { onDispose { trailerExoPlayer.release() } }
 
-                        Box(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp).clip(RoundedCornerShape(16.dp))) {
+                        Box(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp).clip(RoundedCornerShape(20.dp))) {
                             SubcomposeAsyncImage(model = ImageRequest.Builder(LocalContext.current).data(movie.poster).crossfade(true).build(), contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize(), loading = { ShimmerBox(modifier = Modifier.fillMaxSize()) }, error = { Box(modifier = Modifier.fillMaxSize().background(Color(0xFF15171E))) })
                             AndroidView(factory = { ctx -> PlayerView(ctx).apply { player = trailerExoPlayer; useController = false; layoutParams = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT) } }, modifier = Modifier.fillMaxSize())
                             Box(modifier = Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.8f), Color.Black))))
@@ -2043,7 +2082,15 @@ fun HomeScreen(
                             
                             Column(modifier = Modifier.align(Alignment.BottomStart).padding(16.dp)) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Box(modifier = Modifier.background(theme.primary, RoundedCornerShape(4.dp)).padding(horizontal = 6.dp, vertical = 2.dp)) { Text("FEATURED", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold) }
+                                    Box(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(4.dp))
+                                            .background(Color(0xFFE50914).copy(alpha = 0.8f))
+                                            .border(1.dp, Color.White.copy(alpha = 0.2f), RoundedCornerShape(4.dp))
+                                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                                    ) { 
+                                        Text("FEATURED", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold) 
+                                    }
                                     Spacer(modifier = Modifier.width(8.dp))
                                     Text(movie.category.uppercase(), color = Color.LightGray, fontSize = 10.sp, fontWeight = FontWeight.Bold)
                                 }
@@ -2066,7 +2113,25 @@ fun HomeScreen(
             }
 
             LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(bottom = 16.dp)) {
-                items(movieCategories) { category -> FilterChip(selected = selectedCategory == category, onClick = { selectedCategory = category }, label = { Text(category) }, colors = FilterChipDefaults.filterChipColors(selectedContainerColor = theme.primary, selectedLabelColor = Color.White, containerColor = Color(0xFF15171E), labelColor = Color.Gray)) }
+                items(movieCategories) { category -> 
+                    FilterChip(
+                        selected = selectedCategory == category, 
+                        onClick = { selectedCategory = category }, 
+                        label = { Text(category) }, 
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = theme.primary, 
+                            selectedLabelColor = Color.White, 
+                            containerColor = Color(0xFF15171E).copy(alpha = 0.6f), 
+                            labelColor = Color.Gray
+                        ),
+                        border = FilterChipDefaults.filterChipBorder(
+                            enabled = true,
+                            selected = selectedCategory == category,
+                            borderColor = Color.White.copy(alpha = 0.1f),
+                            selectedBorderColor = Color.Transparent
+                        )
+                    ) 
+                }
             }
 
             LazyVerticalGrid(state = gridState, columns = GridCells.Adaptive(110.dp), contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -2099,13 +2164,22 @@ fun MovieCard(movie: Movie, theme: ThemeConfig, profileName: String, userVipExpi
         }
     }
 
-    Box(modifier = Modifier.fillMaxWidth().aspectRatio(2f / 3f).clip(RoundedCornerShape(12.dp)).background(Color(0xFF15171E)).onFocusChanged { isFocused = it.isFocused }.border(if (isFocused) 3.dp else 0.dp, Color.White, RoundedCornerShape(12.dp)).clickable { vibrate(context); onDetails(movie) }) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .aspectRatio(2f / 3f)
+            .clip(RoundedCornerShape(16.dp))
+            .background(Color(0xFF15171E).copy(alpha = 0.8f))
+            .onFocusChanged { isFocused = it.isFocused }
+            .border(1.dp, if (isFocused) Color.White else Color.White.copy(alpha = 0.05f), RoundedCornerShape(16.dp))
+            .clickable { vibrate(context); onDetails(movie) }
+    ) {
         SubcomposeAsyncImage(model = ImageRequest.Builder(LocalContext.current).data(movie.poster).crossfade(true).build(), contentDescription = movie.title, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize(), loading = { ShimmerBox(modifier = Modifier.fillMaxSize()) }, error = { Box(modifier = Modifier.fillMaxSize().background(Color(0xFF15171E)), contentAlignment = Alignment.Center) { Icon(Icons.Default.Movie, null, tint = Color.Gray) } })
         Box(modifier = Modifier.fillMaxSize().background(Brush.verticalGradient(colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.3f), Color.Black.copy(alpha = 0.8f), Color.Black))))
-        Column(modifier = Modifier.align(Alignment.BottomStart).padding(8.dp)) {
-            Text(text = movie.title, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis, lineHeight = 14.sp)
-            Spacer(modifier = Modifier.height(2.dp))
-            Text(text = "${movie.videoTag} • ${movie.year}", color = if (movie.isVip) Color(0xFFFCDC04) else Color.LightGray, fontSize = 9.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Column(modifier = Modifier.align(Alignment.BottomStart).padding(10.dp)) {
+            Text(text = movie.title, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis, lineHeight = 15.sp)
+            Spacer(modifier = Modifier.height(3.dp))
+            Text(text = "${movie.videoTag} • ${movie.year}", color = if (movie.isVip) Color(0xFFFCDC04) else Color.LightGray, fontSize = 10.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
         if (isLocked) { Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.4f)), contentAlignment = Alignment.Center) { Icon(Icons.Default.Lock, "Locked", tint = Color(0xFFFCDC04), modifier = Modifier.size(32.dp)) } }
         if (movie.isAdult) { Box(modifier = Modifier.align(Alignment.TopStart).padding(6.dp).background(Color.Red, RoundedCornerShape(4.dp)).padding(horizontal = 4.dp, vertical = 2.dp)) { Text("18+", color = Color.White, fontSize = 9.sp, fontWeight = FontWeight.Black) } }
@@ -2190,7 +2264,6 @@ fun TvLiveScreen(theme: ThemeConfig, userVipExpiry: Long, kidsMode: Boolean, onP
             Text("Featured Channels", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(start = 16.dp, top = 16.dp, bottom = 8.dp))
             LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 items(displayFeatured) { channel ->
-                    // 🔥 FEATURED CARD (Glass Style)
                     Box(
                         modifier = Modifier
                             .width(220.dp)
@@ -2211,7 +2284,6 @@ fun TvLiveScreen(theme: ThemeConfig, userVipExpiry: Long, kidsMode: Boolean, onP
                         Column(modifier = Modifier.align(Alignment.BottomStart).padding(12.dp)) {
                             Text(channel.name, color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold)
                             
-                            // Glass LIVE Badge
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 modifier = Modifier
@@ -2259,7 +2331,6 @@ fun TvLiveScreen(theme: ThemeConfig, userVipExpiry: Long, kidsMode: Boolean, onP
                 val isLocked = channel.isVip && userVipExpiry < System.currentTimeMillis()
                 var isFocused by remember { mutableStateOf(false) }
                 Box {
-                    // 🔥 CHANNEL CARD (Frosted Glass)
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -2280,14 +2351,13 @@ fun TvLiveScreen(theme: ThemeConfig, userVipExpiry: Long, kidsMode: Boolean, onP
                             modifier = Modifier
                                 .size(80.dp)
                                 .clip(RoundedCornerShape(16.dp))
-                                .shadow(4.dp, RoundedCornerShape(16.dp)), // Shadow behind logo
+                                .shadow(4.dp, RoundedCornerShape(16.dp)),
                             loading = { ShimmerBox(modifier = Modifier.fillMaxSize()) }, 
                             error = { Box(modifier = Modifier.fillMaxSize().background(Color(0xFF15171E)), contentAlignment = Alignment.Center) { Icon(Icons.Default.Tv, null, tint = Color.Gray) } }
                         )
                         Spacer(modifier = Modifier.height(12.dp))
                         Text(channel.name, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         
-                        // Glass LIVE Badge
                         Row(
                             verticalAlignment = Alignment.CenterVertically, 
                             modifier = Modifier
