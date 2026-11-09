@@ -23,9 +23,11 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
@@ -34,6 +36,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import coil.compose.AsyncImage
 import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.android.gms.auth.api.signin.GoogleSignInOptions
 import com.google.android.gms.common.api.ApiException
@@ -58,10 +61,16 @@ fun AuthScreen(
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var showForgotPassword by remember { mutableStateOf(false) }
 
-    // Social Links State
+    // 🔥 NEW: Background Image State
+    var bgImageUrl by remember { mutableStateOf("") }
+
+    // Social Links State & Theme Fetch
     var socialLinks by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
     LaunchedEffect(Unit) {
-        FirebaseFirestore.getInstance().collection("config").document("social_links")
+        val db = FirebaseFirestore.getInstance()
+        
+        // Fetch Social Links
+        db.collection("config").document("social_links")
             .addSnapshotListener { snapshot, _ ->
                 if (snapshot != null && snapshot.exists()) {
                     socialLinks = mapOf(
@@ -71,6 +80,14 @@ fun AuthScreen(
                         "twitter" to (snapshot.getString("twitter") ?: ""),
                         "instagram" to (snapshot.getString("instagram") ?: "")
                     )
+                }
+            }
+            
+        // 🔥 NEW: Fetch Theme Background Image
+        db.collection("config").document("theme")
+            .addSnapshotListener { doc, _ ->
+                if (doc != null && doc.exists()) {
+                    bgImageUrl = doc.getString("bgImageUrl") ?: ""
                 }
             }
     }
@@ -144,7 +161,7 @@ fun AuthScreen(
         }
     }
 
-    // 🔥 BEAUTIFUL CINEMATIC BACKGROUND
+    // 🔥 UPDATED BEAUTIFUL BACKGROUND
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -157,14 +174,27 @@ fun AuthScreen(
             .systemBarsPadding(),
         contentAlignment = Alignment.Center
     ) {
+        // If a background image is set in Admin, show it here!
+        if (bgImageUrl.isNotEmpty()) {
+            AsyncImage(
+                model = bgImageUrl,
+                contentDescription = "App Background",
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize().blur(20.dp)
+            )
+            // Dark overlay to keep text readable
+            Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.5f)))
+        }
+
         Card(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(24.dp)
                 .shadow(16.dp, RoundedCornerShape(32.dp), ambientColor = Color.Black, spotColor = Color.Black),
             shape = RoundedCornerShape(32.dp),
-            colors = CardDefaults.cardColors(containerColor = Color(0xFF15171E).copy(alpha = 0.85f)),
-            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.08f))
+            // Made the card slightly more transparent so the background shines through
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF15171E).copy(alpha = 0.75f)),
+            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.1f))
         ) {
             Column(
                 modifier = Modifier
@@ -182,7 +212,7 @@ fun AuthScreen(
                 )
                 Text(
                     text = if (isLoginMode) "Welcome Back" else "Create an Account",
-                    color = Color.Gray,
+                    color = Color.LightGray,
                     fontSize = 16.sp,
                     fontWeight = FontWeight.Medium,
                     modifier = Modifier.padding(bottom = 32.dp)
@@ -198,7 +228,7 @@ fun AuthScreen(
                     )
                 }
 
-                // 🔥 PILL-SHAPED ELEGANT INPUTS
+                // PILL-SHAPED ELEGANT INPUTS
                 OutlinedTextField(
                     value = email, 
                     onValueChange = { email = it }, 
@@ -213,8 +243,8 @@ fun AuthScreen(
                         unfocusedTextColor = Color.White, 
                         focusedBorderColor = Color(0xFFE50914), 
                         unfocusedBorderColor = Color.DarkGray,
-                        focusedContainerColor = Color.Black.copy(alpha = 0.2f),
-                        unfocusedContainerColor = Color.Black.copy(alpha = 0.2f)
+                        focusedContainerColor = Color.Black.copy(alpha = 0.3f),
+                        unfocusedContainerColor = Color.Black.copy(alpha = 0.3f)
                     )
                 )
 
@@ -233,8 +263,8 @@ fun AuthScreen(
                         unfocusedTextColor = Color.White, 
                         focusedBorderColor = Color(0xFFE50914), 
                         unfocusedBorderColor = Color.DarkGray,
-                        focusedContainerColor = Color.Black.copy(alpha = 0.2f),
-                        unfocusedContainerColor = Color.Black.copy(alpha = 0.2f)
+                        focusedContainerColor = Color.Black.copy(alpha = 0.3f),
+                        unfocusedContainerColor = Color.Black.copy(alpha = 0.3f)
                     )
                 )
 
@@ -249,7 +279,7 @@ fun AuthScreen(
                             onCheckedChange = { rememberMe = it }, 
                             colors = CheckboxDefaults.colors(checkedColor = Color(0xFFE50914), uncheckedColor = Color.Gray)
                         )
-                        Text("Remember Me", color = Color.Gray, fontSize = 12.sp)
+                        Text("Remember Me", color = Color.LightGray, fontSize = 12.sp)
                     }
                     if (isLoginMode) {
                         TextButton(onClick = { showForgotPassword = true }) {
@@ -260,7 +290,7 @@ fun AuthScreen(
                 
                 Spacer(modifier = Modifier.height(24.dp))
 
-                // 🔥 GLOWING PRIMARY BUTTON
+                // GLOWING PRIMARY BUTTON
                 Button(
                     onClick = {
                         if (email.isBlank() || password.isBlank()) { errorMessage = "Please fill in all fields."; return@Button }
@@ -315,7 +345,7 @@ fun AuthScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     HorizontalDivider(modifier = Modifier.weight(1f), color = Color.DarkGray)
-                    Text(" OR ", color = Color.Gray, modifier = Modifier.padding(horizontal = 12.dp), fontSize = 12.sp)
+                    Text(" OR ", color = Color.LightGray, modifier = Modifier.padding(horizontal = 12.dp), fontSize = 12.sp)
                     HorizontalDivider(modifier = Modifier.weight(1f), color = Color.DarkGray)
                 }
 
@@ -341,7 +371,7 @@ fun AuthScreen(
                 TextButton(onClick = { isLoginMode = !isLoginMode; errorMessage = null }) {
                     Text(
                         text = if (isLoginMode) "Don't have an account? Register" else "Already have an account? Log In", 
-                        color = Color.Gray, 
+                        color = Color.LightGray, 
                         fontSize = 14.sp
                     )
                 }
@@ -351,7 +381,7 @@ fun AuthScreen(
                     Spacer(modifier = Modifier.height(24.dp))
                     HorizontalDivider(modifier = Modifier.fillMaxWidth(), color = Color.DarkGray.copy(alpha = 0.3f))
                     Spacer(modifier = Modifier.height(16.dp))
-                    Text("Follow Us", color = Color.Gray, fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 12.dp))
+                    Text("Follow Us", color = Color.LightGray, fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 12.dp))
                     
                     val uriHandler = LocalUriHandler.current
                     
