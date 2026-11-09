@@ -28,7 +28,6 @@ import kotlin.random.Random
 val vjList = listOf("VJ Akaana", "VJ Arafa", "VJ Aron", "VJ Ashim", "VJ Ashim J", "VJ Banks", "VJ Baros", "VJ Bonny", "VJ Cabs", "VJ CB", "VJ Dan De", "VJ Eddy", "VJ Emmy", "VJ Fredy", "VJ Geofry", "VJ Ghost King", "VJ Ham", "VJ Harderway", "VJ HD", "VJ Heavy Q", "VJ Henrico", "VJ Isma", "VJ Isma K", "VJ Ivo", "VJ Jimmy", "VJ Jingo", "VJ Jovan", "VJ Jumpers", "VJ Junior", "VJ Kam", "VJ Kamran", "VJ Kevo", "VJ Kevin", "VJ Khan Lee", "VJ Kimuli", "VJ Kin", "VJ Kriss", "VJ Kriss S", "VJ Kriss Sweet", "VJ KS", "VJ Lance", "VJ Lash", "VJ Light", "VJ Little T", "VJ Mark", "VJ Martin K", "VJ MK", "VJ Monks", "VJ Mosco", "VJ Mox", "VJ Muba", "VJ Mukibi", "VJ Mun", "VJ Musa", "VJ Neil", "VJ Nelly", "VJ Nelson", "VJ Omutaka Ice P", "VJ Pauleta", "VJ Pax Woo", "VJ Phoenix", "VJ Raji", "VJ Roddy", "VJ Ronage", "VJ Ronnie", "VJ Ryan", "VJ Sammy", "VJ Shao Khan", "VJ Sharz", "VJ Shield", "VJ Silver", "VJ SMK", "VJ Son", "VJ Soul", "VJ Tom", "VJ Tonny", "VJ Ulio", "VJ Uncle T", "VJ Waza", "VJ Yat", "VJ Zaidi")
 val categories = listOf("Action", "Sci-Fi", "Comedy", "Animation", "Romantic", "Horror", "Adventure")
 
-// 🔥 PATH 2: Changed vipExpiry to homelandVipExpiry and added isBanned
 data class AdminUser(
     val uid: String = "", 
     val email: String = "", 
@@ -100,7 +99,6 @@ fun AdminScreen(onBack: () -> Unit) {
     var existingTv by remember { mutableStateOf<List<TvChannel>>(emptyList()) }
 
     LaunchedEffect(selectedTab) {
-        // 🔥 Also load movies for the Push tab (tab 4)
         if (selectedTab == 0 || selectedTab == 4) {
             db.collection("homeland_movies").addSnapshotListener { snap, _ ->
                 if (snap != null) {
@@ -121,7 +119,6 @@ fun AdminScreen(onBack: () -> Unit) {
             db.collection("users").addSnapshotListener { snap, _ ->
                 if (snap != null) {
                     allUsers = snap.documents.map { doc ->
-                        // 🔥 PATH 2: Fetching homelandVipExpiry and isBanned
                         AdminUser(
                             uid = doc.id, 
                             email = doc.getString("email") ?: "Unknown", 
@@ -233,9 +230,16 @@ fun AdminScreen(onBack: () -> Unit) {
                                         }
                                     }) { Text("Add") }
                                 }
-                                LazyColumn(modifier = Modifier.heightIn(max = 150.dp)) {
+                                LazyColumn(modifier = Modifier.heightIn(max = 200.dp)) {
                                     items(episodesList) { ep ->
-                                        Text("${ep.season} ${ep.episode} - ${ep.url}", color = Color.Gray, fontSize = 10.sp)
+                                        Row(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                                            Text("${ep.season} | ${ep.episode}", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                                            Spacer(modifier = Modifier.weight(1f))
+                                            IconButton(onClick = { episodesList = episodesList - ep }) {
+                                                Icon(Icons.Default.Delete, "Delete", tint = Color.Red)
+                                            }
+                                        }
+                                        HorizontalDivider(color = Color.White.copy(alpha = 0.1f))
                                     }
                                 }
                             } else {
@@ -428,13 +432,11 @@ fun AdminScreen(onBack: () -> Unit) {
                     }
                 }
                 
-                // 🔥 UPDATED: Manage Users Card with Ban & Custom Days
                 item {
                     Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF15171E)), shape = RoundedCornerShape(16.dp)) {
                         Column(modifier = Modifier.padding(16.dp)) {
                             Text("Manage Users", color = Color.White, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 8.dp))
                             
-                            // Input for custom VIP days
                             OutlinedTextField(
                                 value = customVipDays, 
                                 onValueChange = { customVipDays = it }, 
@@ -466,7 +468,6 @@ fun AdminScreen(onBack: () -> Unit) {
                                             )
                                         }
                                         
-                                        // 🔥 BAN / UNBAN BUTTON
                                         IconButton(onClick = {
                                             db.collection("users").document(user.uid).update("isBanned", !user.isBanned)
                                                 .addOnSuccessListener { 
@@ -481,7 +482,6 @@ fun AdminScreen(onBack: () -> Unit) {
                                         }
                                     }
                                     
-                                    // Action Buttons Row
                                     Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth().padding(top = 4.dp)) {
                                         Button(onClick = {
                                             val base = if (isVip) user.homelandVipExpiry else System.currentTimeMillis()
@@ -490,7 +490,6 @@ fun AdminScreen(onBack: () -> Unit) {
                                             Text("+7d", fontSize = 10.sp) 
                                         }
                                         
-                                        // 🔥 CUSTOM DAYS BUTTON
                                         Button(onClick = {
                                             val daysToAdd = customVipDays.toIntOrNull() ?: 0
                                             if (daysToAdd > 0) {
@@ -545,7 +544,6 @@ fun AdminScreen(onBack: () -> Unit) {
                         }
                     }
                 }
-                // 🔥 NEW: ADMIN SECURITY (2FA) CARD
                 item {
                     Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF15171E)), shape = RoundedCornerShape(16.dp)) {
                         Column(modifier = Modifier.padding(16.dp)) {
@@ -584,7 +582,6 @@ fun AdminScreen(onBack: () -> Unit) {
                     }
                 }
             } else {
-                // 🔥 PUSH NOTIFICATION TAB
                 item {
                     Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF15171E)), shape = RoundedCornerShape(16.dp)) {
                         Column(modifier = Modifier.padding(16.dp)) {
@@ -596,7 +593,6 @@ fun AdminScreen(onBack: () -> Unit) {
                             
                             Spacer(modifier = Modifier.height(12.dp))
                             
-                            // Dropdown to select a movie
                             ExposedDropdownMenuBox(
                                 expanded = pushMovieExpanded,
                                 onExpandedChange = { pushMovieExpanded = !pushMovieExpanded }
@@ -628,7 +624,7 @@ fun AdminScreen(onBack: () -> Unit) {
                                             text = { Text(movie.title) },
                                             onClick = {
                                                 selectedPushMovieTitle = movie.title
-                                                pushDeepLink = "homeland://movie/${movie.id}" // Automatically generate the link
+                                                pushDeepLink = "homeland://movie/${movie.id}"
                                                 pushMovieExpanded = false
                                             }
                                         )
