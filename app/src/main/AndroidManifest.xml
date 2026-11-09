@@ -14,7 +14,7 @@
     <!-- Downloads -->
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
 
-    <!-- 🔥 Background Media Playback / PiP -->
+    <!-- Background Media Playback / PiP -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
 
@@ -28,6 +28,7 @@
         android:label="Homeland"
         android:supportsRtl="true"
         android:banner="@drawable/ic_launcher"
+        android:usesCleartextTraffic="true"  <!-- 🔥 THIS IS THE FIX -->
         android:theme="@android:style/Theme.Material.NoActionBar">
 
         <activity
@@ -47,21 +48,29 @@
                 <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
             </intent-filter>
 
-            <!-- 🔥 NEW: DEEP LINKING (Push Notifications & Shared Links) -->
+            <!-- DEEP LINKING (Push Notifications & Shared Links) -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
                 
-                <!-- Custom Scheme: homeland://movie/123 -->
                 <data android:scheme="homeland" />
                 
-                <!-- HTTPS Scheme: https://homeland.app/movie/123 -->
                 <data android:scheme="https" />
                 <data android:host="homeland.app" />
                 <data android:pathPrefix="/movie/" />
             </intent-filter>
         </activity>
+
+        <!-- 🔥 Background Audio Service (For the notification controls) -->
+        <service
+            android:name=".PlaybackService"
+            android:foregroundServiceType="mediaPlayback"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="androidx.media3.session.MediaSessionService"/>
+            </intent-filter>
+        </service>
 
         <service
             android:name=".MyFirebaseMessagingService"
