@@ -13,7 +13,20 @@
           "package_name": "com.homeland.app"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "26733775290-pjdvg0gflor86khpiebd02iv9mhku8eq.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.homeland.app",
+            "certificate_hash": "15b944d8c52add92115f93c72ccfd17bcbe5de4b"
+          }
+        },
+        {
+          "client_id": "26733775290-filospi99uuqn4kqn7r6sgfv83ljckln.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
       "api_key": [
         {
           "current_key": "AIzaSyApaLDqBJwwPMV3_mukZpPx7OiteQPsmXw"
@@ -21,7 +34,12 @@
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": []
+          "other_platform_oauth_client": [
+            {
+              "client_id": "26733775290-filospi99uuqn4kqn7r6sgfv83ljckln.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
         }
       }
     }
