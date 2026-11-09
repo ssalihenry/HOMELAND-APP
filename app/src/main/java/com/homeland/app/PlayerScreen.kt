@@ -56,12 +56,13 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
+import androidx.media3.common.MimeTypes // 🔥 NEW IMPORT
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
-import androidx.media3.exoplayer.DefaultLoadControl // 🔥 NEW IMPORT
+import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
@@ -170,7 +171,15 @@ fun PlayerScreen(
                     }
                     setMediaItems(mediaItems)
                 } else {
-                    setMediaItem(MediaItem.fromUri(videoUrl))
+                    // 🔥 THE FIX: Check if the link uses m3u8 and force the MIME type
+                    val isM3u8 = videoUrl.contains("m3u8", ignoreCase = true)
+                    val mediaItemBuilder = MediaItem.Builder().setUri(videoUrl)
+                    
+                    if (isM3u8) {
+                        mediaItemBuilder.setMimeType(MimeTypes.APPLICATION_M3U8)
+                    }
+
+                    setMediaItem(mediaItemBuilder.build())
                 }
                 
                 if (startPosition <= 5000L) {
@@ -237,7 +246,6 @@ fun PlayerScreen(
                     Player.STATE_ENDED -> {
                         isBuffering = false
                         // 🔥 THE FIX: Auto-reconnect for live streams
-                        // We check if it's a single video (not a series with multiple episodes)
                         if (episodes.isEmpty()) {
                             exoPlayer.seekTo(0)
                             exoPlayer.prepare()
