@@ -56,15 +56,14 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
-import androidx.media3.common.MimeTypes // 🔥 NEW IMPORT
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
-import androidx.media3.datasource.DefaultDataSource // 🔥 NEW IMPORT
+import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.exoplayer.source.ProgressiveMediaSource // 🔥 NEW IMPORT
-import androidx.media3.extractor.DefaultExtractorsFactory // 🔥 NEW IMPORT
-import androidx.media3.extractor.ts.TsExtractor // 🔥 NEW IMPORT
+import androidx.media3.exoplayer.source.ProgressiveMediaSource
+import androidx.media3.extractor.DefaultExtractorsFactory
+import androidx.media3.extractor.ts.DefaultTsPayloadReaderFactory // Correct class for flags
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
@@ -150,22 +149,19 @@ fun PlayerScreen(
                     }
                     setMediaItems(mediaItems)
                 } else {
-                    // 🔥 FIX FOR .TS STREAMS
+                    // 🔥 FIX FOR .TS STREAMS (Using correct DefaultTsPayloadReaderFactory flags)
                     val isTsStream = videoUrl.contains(".ts")
-                    val mimeType = if (isTsStream) MimeTypes.APPLICATION_MPEGTS else null
-
                     val extractorsFactory = DefaultExtractorsFactory().apply {
-                        setTsExtractorFlags(
-                            TsExtractor.FLAG_ALLOW_NON_IDR_KEYFRAMES or
-                            TsExtractor.FLAG_DETECT_ACCESS_UNITS
-                        )
+                        if (isTsStream) {
+                            setTsExtractorFlags(
+                                DefaultTsPayloadReaderFactory.FLAG_ALLOW_NON_IDR_KEYFRAMES or
+                                DefaultTsPayloadReaderFactory.FLAG_DETECT_ACCESS_UNITS
+                            )
+                        }
                     }
 
                     val mediaItem = MediaItem.Builder()
                         .setUri(videoUrl)
-                        .apply {
-                            if (mimeType != null) setMimeType(mimeType)
-                        }
                         .build()
 
                     setMediaSource(
@@ -186,6 +182,9 @@ fun PlayerScreen(
                 prepare()
             }
     }
+
+    // ... (The rest of your UI code remains exactly the same from your last paste)
+    // I will include it below for completeness, but you can just paste the whole file.
 
     DisposableEffect(tvSessionCode, exoPlayer) {
         if (tvSessionCode == null) {
