@@ -60,10 +60,9 @@ import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultDataSource
+import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.exoplayer.source.ProgressiveMediaSource
-import androidx.media3.extractor.DefaultExtractorsFactory
-import androidx.media3.extractor.ts.DefaultTsPayloadReaderFactory // Correct class for flags
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
@@ -130,8 +129,20 @@ fun PlayerScreen(
     var seekPreviewTime by remember { mutableLongStateOf(0L) }
 
     val exoPlayer = remember {
+        // 🔥 THE FIX: Use a custom HTTP Data Source to spoof a Browser User-Agent
+        // This prevents TV servers from blocking the app.
+        val httpDataSourceFactory = DefaultHttpDataSource.Factory()
+            .setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+            .setAllowCrossProtocolRedirects(true)
+            .setConnectTimeoutMs(15000)
+            .setReadTimeoutMs(15000)
+
+        val dataSourceFactory = DefaultDataSource.Factory(context, httpDataSourceFactory)
+
         ExoPlayer.Builder(context)
             .setTrackSelector(trackSelector)
+            // Let ExoPlayer automatically figure out if it's .m3u8, .ts, or .mp4
+            .setMediaSourceFactory(DefaultMediaSourceFactory(dataSourceFactory))
             .setAudioAttributes(
                 AudioAttributes.Builder()
                     .setUsage(C.USAGE_MEDIA)
@@ -149,27 +160,8 @@ fun PlayerScreen(
                     }
                     setMediaItems(mediaItems)
                 } else {
-                    // 🔥 FIX FOR .TS STREAMS (Using correct DefaultTsPayloadReaderFactory flags)
-                    val isTsStream = videoUrl.contains(".ts")
-                    val extractorsFactory = DefaultExtractorsFactory().apply {
-                        if (isTsStream) {
-                            setTsExtractorFlags(
-                                DefaultTsPayloadReaderFactory.FLAG_ALLOW_NON_IDR_KEYFRAMES or
-                                DefaultTsPayloadReaderFactory.FLAG_DETECT_ACCESS_UNITS
-                            )
-                        }
-                    }
-
-                    val mediaItem = MediaItem.Builder()
-                        .setUri(videoUrl)
-                        .build()
-
-                    setMediaSource(
-                        ProgressiveMediaSource.Factory(
-                            DefaultDataSource.Factory(context),
-                            extractorsFactory
-                        ).createMediaSource(mediaItem)
-                    )
+                    // Standard initialization (handles m3u8, ts, mp4 automatically)
+                    setMediaItem(MediaItem.fromUri(videoUrl))
                 }
                 
                 if (startPosition <= 5000L) {
@@ -182,9 +174,6 @@ fun PlayerScreen(
                 prepare()
             }
     }
-
-    // ... (The rest of your UI code remains exactly the same from your last paste)
-    // I will include it below for completeness, but you can just paste the whole file.
 
     DisposableEffect(tvSessionCode, exoPlayer) {
         if (tvSessionCode == null) {
@@ -204,31 +193,12 @@ fun PlayerScreen(
                     val type = cmdDoc.getString("type") ?: return@forEach
                     val value = cmdDoc.getString("value") ?: ""
                     when (type) {
-                        "play" -> {
-                            exoPlayer.play()
-                            showControls = true
-                        }
-                        "pause" -> {
-                            exoPlayer.pause()
-                            showControls = true
-                        }
-                        "toggle_play" -> {
-                            if (exoPlayer.isPlaying) exoPlayer.pause() else exoPlayer.play()
-                            showControls = true
-                        }
-                        "seek_forward" -> {
-                            exoPlayer.seekTo(exoPlayer.currentPosition + 10000)
-                            showControls = true
-                        }
-                        "seek_backward" -> {
-                            exoPlayer.seekTo((exoPlayer.currentPosition - 10000).coerceAtLeast(0))
-                            showControls = true
-                        }
-                        "seek_to" -> {
-                            val pos = value.toLongOrNull() ?: 0L
-                            exoPlayer.seekTo(pos)
-                            showControls = true
-                        }
+                        "play" -> { exoPlayer.play(); showControls = true }
+                        "pause" -> { exoPlayer.pause(); showControls = true }
+                        "toggle_play" -> { if (exoPlayer.isPlaying) exoPlayer.pause() else exoPlayer.play(); showControls = true }
+                        "seek_forward" -> { exoPlayer.seekTo(exoPlayer.currentPosition + 10000); showControls = true }
+                        "seek_backward" -> { exoPlayer.seekTo((exoPlayer.currentPosition - 10000).coerceAtLeast(0)); showControls = true }
+                        "seek_to" -> { val pos = value.toLongOrNull() ?: 0L; exoPlayer.seekTo(pos); showControls = true }
                     }
                 }
             }
@@ -238,11 +208,8 @@ fun PlayerScreen(
 
     LaunchedEffect(isAudioOnly) {
         val params = trackSelector.buildUponParameters()
-        if (isAudioOnly) {
-            params.setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, true)
-        } else {
-            params.setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, false)
-        }
+        if (isAudioOnly) params.setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, true)
+        else params.setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, false)
         trackSelector.parameters = params.build()
     }
 
@@ -256,8 +223,17 @@ fun PlayerScreen(
                     Player.STATE_READY -> {
                         isBuffering = false
                         hasStartedPlaying = true
+                        hasError = false 
                     }
-                    Player.STATE_ENDED -> isBuffering = false
+                    Player.STATE_ENDED -> {
+                        isBuffering = false
+                        // Auto-reconnect for live streams that drop
+                        if (videoUrl.contains(".ts") || videoUrl.contains(".m3u8")) {
+                            exoPlayer.seekTo(0)
+                            exoPlayer.prepare()
+                            exoPlayer.play()
+                        }
+                    }
                     Player.STATE_IDLE -> isBuffering = false
                 }
             }
@@ -306,9 +282,7 @@ fun PlayerScreen(
         if (sleepTimerMillis > 0) {
             delay(1000)
             sleepTimerMillis -= 1000
-            if (sleepTimerMillis <= 0) {
-                exoPlayer.pause()
-            }
+            if (sleepTimerMillis <= 0) exoPlayer.pause()
         }
     }
 
@@ -319,9 +293,7 @@ fun PlayerScreen(
         }
     }
 
-    LaunchedEffect(Unit) {
-        focusRequester.requestFocus()
-    }
+    LaunchedEffect(Unit) { focusRequester.requestFocus() }
 
     DisposableEffect(Unit) {
         onDispose { 
@@ -344,21 +316,9 @@ fun PlayerScreen(
                             showControls = true
                             true
                         }
-                        Key.MediaFastForward, Key.DirectionRight -> {
-                            exoPlayer.seekTo(exoPlayer.currentPosition + 10000)
-                            showControls = true
-                            true
-                        }
-                        Key.MediaRewind, Key.DirectionLeft -> {
-                            exoPlayer.seekTo((exoPlayer.currentPosition - 10000).coerceAtLeast(0))
-                            showControls = true
-                            true
-                        }
-                        Key.Back, Key.Escape -> {
-                            exoPlayer.pause()
-                            onClose()
-                            true
-                        }
+                        Key.MediaFastForward, Key.DirectionRight -> { exoPlayer.seekTo(exoPlayer.currentPosition + 10000); showControls = true; true }
+                        Key.MediaRewind, Key.DirectionLeft -> { exoPlayer.seekTo((exoPlayer.currentPosition - 10000).coerceAtLeast(0)); showControls = true; true }
+                        Key.Back, Key.Escape -> { exoPlayer.pause(); onClose(); true }
                         else -> false
                     }
                 } else false
@@ -381,7 +341,6 @@ fun PlayerScreen(
                 modifier = Modifier.fillMaxSize()
             )
         } else {
-            // 🔥 AUDIO ONLY SCREEN (Glass Style)
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -414,21 +373,15 @@ fun PlayerScreen(
                     detectDragGestures(
                         onDragStart = { offset ->
                             if (showControls || isAudioOnly || hasError || !hasStartedPlaying) return@detectDragGestures 
-                            
                             val isLeftSide = offset.x < configuration.screenWidthDp / 2
                             gestureType = if (isLeftSide) "brightness" else "volume"
                             showGestureOverlay = true
-                            
-                            if (gestureType == "brightness") {
-                                gestureValue = activity?.window?.attributes?.screenBrightness ?: 0.5f
-                            } else {
-                                gestureValue = currentVolume.toFloat() / maxVolume.toFloat()
-                            }
+                            if (gestureType == "brightness") gestureValue = activity?.window?.attributes?.screenBrightness ?: 0.5f
+                            else gestureValue = currentVolume.toFloat() / maxVolume.toFloat()
                             seekPreviewTime = exoPlayer.currentPosition
                         },
                         onDrag = { change, dragAmount ->
                             change.consume()
-                            
                             if (abs(dragAmount.x) > abs(dragAmount.y)) {
                                 gestureType = "seek"
                                 val seekSensitivity = 500f 
@@ -438,7 +391,6 @@ fun PlayerScreen(
                             } else {
                                 val delta = -dragAmount.y / 300f 
                                 gestureValue = (gestureValue + delta).coerceIn(0f, 1f)
-                                
                                 if (gestureType == "volume") {
                                     val newVol = (gestureValue * maxVolume).toInt()
                                     if (newVol != currentVolume) {
@@ -455,14 +407,10 @@ fun PlayerScreen(
                             }
                         },
                         onDragEnd = {
-                            if (gestureType == "seek") {
-                                exoPlayer.seekTo(seekPreviewTime)
-                            }
+                            if (gestureType == "seek") exoPlayer.seekTo(seekPreviewTime)
                             showGestureOverlay = false
                         },
-                        onDragCancel = {
-                            showGestureOverlay = false
-                        }
+                        onDragCancel = { showGestureOverlay = false }
                     )
                 }
         )
@@ -478,24 +426,14 @@ fun PlayerScreen(
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     when (gestureType) {
-                        "volume" -> {
-                            Icon(Icons.Default.VolumeUp, null, tint = Color.White, modifier = Modifier.size(40.dp))
-                            Text("${(gestureValue * 100).toInt()}%", color = Color.White, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp))
-                        }
-                        "brightness" -> {
-                            Icon(Icons.Default.BrightnessHigh, null, tint = Color.White, modifier = Modifier.size(40.dp))
-                            Text("${(gestureValue * 100).toInt()}%", color = Color.White, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp))
-                        }
-                        "seek" -> {
-                            Icon(Icons.Default.FastForward, null, tint = Color.White, modifier = Modifier.size(40.dp))
-                            Text(formatTime(seekPreviewTime), color = Color.White, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp))
-                        }
+                        "volume" -> { Icon(Icons.Default.VolumeUp, null, tint = Color.White, modifier = Modifier.size(40.dp)); Text("${(gestureValue * 100).toInt()}%", color = Color.White, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp)) }
+                        "brightness" -> { Icon(Icons.Default.BrightnessHigh, null, tint = Color.White, modifier = Modifier.size(40.dp)); Text("${(gestureValue * 100).toInt()}%", color = Color.White, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp)) }
+                        "seek" -> { Icon(Icons.Default.FastForward, null, tint = Color.White, modifier = Modifier.size(40.dp)); Text(formatTime(seekPreviewTime), color = Color.White, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp)) }
                     }
                 }
             }
         }
 
-        // 🔥 DATA METER (Glass Pill)
         Box(
             modifier = Modifier
                 .align(Alignment.TopStart)
@@ -505,15 +443,9 @@ fun PlayerScreen(
                 .border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(12.dp))
                 .padding(horizontal = 12.dp, vertical = 6.dp)
         ) {
-            Text(
-                text = String.format("%.2f MB", dataUsedMb),
-                color = Color(0xFF10B981),
-                fontSize = 11.sp,
-                fontWeight = FontWeight.Bold
-            )
+            Text(text = String.format("%.2f MB", dataUsedMb), color = Color(0xFF10B981), fontSize = 11.sp, fontWeight = FontWeight.Bold)
         }
 
-        // 🔥 WATERMARK (Glass Pill)
         Box(
             modifier = Modifier
                 .align(Alignment.TopEnd)
@@ -527,214 +459,59 @@ fun PlayerScreen(
         }
 
         if (!hasStartedPlaying && !hasError) {
-            Box(
-                modifier = Modifier.fillMaxSize().background(Color(0xFF0B0C10)),
-                contentAlignment = Alignment.Center
-            ) {
+            Box(modifier = Modifier.fillMaxSize().background(Color(0xFF0B0C10)), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     val infiniteTransition = rememberInfiniteTransition(label = "load")
-                    val scale by infiniteTransition.animateFloat(
-                        initialValue = 1f,
-                        targetValue = 1.12f,
-                        animationSpec = infiniteRepeatable(
-                            animation = tween(700, easing = FastOutSlowInEasing),
-                            repeatMode = RepeatMode.Reverse
-                        ),
-                        label = "pulse"
-                    )
-
-                    Box(
-                        modifier = Modifier
-                            .size(100.dp)
-                            .graphicsLayer { scaleX = scale; scaleY = scale }
-                            .clip(RoundedCornerShape(24.dp))
-                            .background(Color(0xFFE50914)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text("H", color = Color.White, fontSize = 56.sp, fontWeight = FontWeight.Black)
-                    }
-
+                    val scale by infiniteTransition.animateFloat(initialValue = 1f, targetValue = 1.12f, animationSpec = infiniteRepeatable(animation = tween(700, easing = FastOutSlowInEasing), repeatMode = RepeatMode.Reverse), label = "pulse")
+                    Box(modifier = Modifier.size(100.dp).graphicsLayer { scaleX = scale; scaleY = scale }.clip(RoundedCornerShape(24.dp)).background(Color(0xFFE50914)), contentAlignment = Alignment.Center) { Text("H", color = Color.White, fontSize = 56.sp, fontWeight = FontWeight.Black) }
                     Spacer(modifier = Modifier.height(32.dp))
-
-                    Text(
-                        title,
-                        color = Color.White,
-                        fontSize = 20.sp,
-                        fontWeight = FontWeight.Bold,
-                        textAlign = TextAlign.Center,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.padding(horizontal = 32.dp)
-                    )
-
+                    Text(title, color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(horizontal = 32.dp))
                     Spacer(modifier = Modifier.height(28.dp))
-
-                    CircularProgressIndicator(
-                        color = Color(0xFFE50914),
-                        strokeWidth = 3.dp,
-                        modifier = Modifier.size(44.dp)
-                    )
-
+                    CircularProgressIndicator(color = Color(0xFFE50914), strokeWidth = 3.dp, modifier = Modifier.size(44.dp))
                     Spacer(modifier = Modifier.height(14.dp))
-
-                    Text(
-                        "Preparing your stream...",
-                        color = Color.Gray,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Medium
-                    )
+                    Text("Preparing your stream...", color = Color.Gray, fontSize = 13.sp, fontWeight = FontWeight.Medium)
                 }
             }
         }
 
         if (hasStartedPlaying && isBuffering && !hasError) {
-            Box(
-                modifier = Modifier
-                    .align(Alignment.Center)
-                    .clip(RoundedCornerShape(20.dp))
-                    .background(Color.Black.copy(alpha = 0.6f))
-                    .border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(20.dp))
-                    .padding(horizontal = 32.dp, vertical = 24.dp)
-            ) {
+            Box(modifier = Modifier.align(Alignment.Center).clip(RoundedCornerShape(20.dp)).background(Color.Black.copy(alpha = 0.6f)).border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(20.dp)).padding(horizontal = 32.dp, vertical = 24.dp)) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    CircularProgressIndicator(
-                        color = Color(0xFFE50914),
-                        strokeWidth = 3.dp,
-                        modifier = Modifier.size(42.dp)
-                    )
+                    CircularProgressIndicator(color = Color(0xFFE50914), strokeWidth = 3.dp, modifier = Modifier.size(42.dp))
                     Spacer(modifier = Modifier.height(12.dp))
-                    Text(
-                        "Buffering...",
-                        color = Color.White,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Medium
-                    )
+                    Text("Buffering...", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Medium)
                 }
             }
         }
 
         AnimatedVisibility(visible = showControls && !hasError && hasStartedPlaying, enter = fadeIn(), exit = fadeOut(), modifier = Modifier.fillMaxSize()) {
             Box(modifier = Modifier.fillMaxSize().safeDrawingPadding()) {
-                
-                // 🔥 TOP GRADIENT BAR
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(120.dp)
-                        .background(Brush.verticalGradient(colors = listOf(Color.Black.copy(alpha = 0.8f), Color.Transparent)))
-                        .align(Alignment.TopCenter)
-                )
+                Box(modifier = Modifier.fillMaxWidth().height(120.dp).background(Brush.verticalGradient(colors = listOf(Color.Black.copy(alpha = 0.8f), Color.Transparent))).align(Alignment.TopCenter))
 
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp).align(Alignment.TopCenter),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(44.dp)
-                            .clip(CircleShape)
-                            .background(Color.White.copy(alpha = 0.1f))
-                            .border(1.dp, Color.White.copy(alpha = 0.15f), CircleShape)
-                            .clickable { exoPlayer.pause(); onClose() },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(Icons.Default.Close, "Close", tint = Color.White)
-                    }
-                    
+                Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp).align(Alignment.TopCenter), verticalAlignment = Alignment.CenterVertically) {
+                    Box(modifier = Modifier.size(44.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.1f)).border(1.dp, Color.White.copy(alpha = 0.15f), CircleShape).clickable { exoPlayer.pause(); onClose() }, contentAlignment = Alignment.Center) { Icon(Icons.Default.Close, "Close", tint = Color.White) }
                     Spacer(modifier = Modifier.width(16.dp))
-                    
                     Text(title, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
 
-                // 🔥 CENTER PLAY BUTTON (Glass)
-                Box(
-                    modifier = Modifier
-                        .size(80.dp)
-                        .align(Alignment.Center)
-                        .clip(CircleShape)
-                        .background(Color.White.copy(alpha = 0.1f))
-                        .border(1.dp, Color.White.copy(alpha = 0.2f), CircleShape)
-                        .clickable { if (isPlaying) exoPlayer.pause() else exoPlayer.play() },
-                    contentAlignment = Alignment.Center
-                ) { 
-                    Icon(if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow, "Play/Pause", tint = Color.White, modifier = Modifier.size(48.dp)) 
-                }
+                Box(modifier = Modifier.size(80.dp).align(Alignment.Center).clip(CircleShape).background(Color.White.copy(alpha = 0.1f)).border(1.dp, Color.White.copy(alpha = 0.2f), CircleShape).clickable { if (isPlaying) exoPlayer.pause() else exoPlayer.play() }, contentAlignment = Alignment.Center) { Icon(if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow, "Play/Pause", tint = Color.White, modifier = Modifier.size(48.dp)) }
 
-                // 🔥 BOTTOM GRADIENT BAR
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(200.dp)
-                        .background(Brush.verticalGradient(colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.9f), Color.Black)))
-                        .align(Alignment.BottomCenter)
-                )
+                Box(modifier = Modifier.fillMaxWidth().height(200.dp).background(Brush.verticalGradient(colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.9f), Color.Black))).align(Alignment.BottomCenter))
 
                 Column(modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(horizontal = 16.dp, vertical = 24.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(formatTime(currentPosition), color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Medium)
-                        Slider(
-                            value = currentPosition.toFloat(), 
-                            onValueChange = { exoPlayer.seekTo(it.toLong()) }, 
-                            valueRange = 0f..duration.toFloat().coerceAtLeast(1f), 
-                            colors = SliderDefaults.colors(
-                                thumbColor = Color(0xFFE50914), 
-                                activeTrackColor = Color(0xFFE50914), 
-                                inactiveTrackColor = Color.White.copy(alpha = 0.2f)
-                            ), 
-                            modifier = Modifier.weight(1f).padding(horizontal = 12.dp)
-                        )
+                        Slider(value = currentPosition.toFloat(), onValueChange = { exoPlayer.seekTo(it.toLong()) }, valueRange = 0f..duration.toFloat().coerceAtLeast(1f), colors = SliderDefaults.colors(thumbColor = Color(0xFFE50914), activeTrackColor = Color(0xFFE50914), inactiveTrackColor = Color.White.copy(alpha = 0.2f)), modifier = Modifier.weight(1f).padding(horizontal = 12.dp))
                         Text(formatTime(duration), color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Medium)
                     }
-                    
                     Spacer(modifier = Modifier.height(16.dp))
-                    
-                    Row(
-                        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), 
-                        horizontalArrangement = Arrangement.spacedBy(16.dp), 
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        
-                        // Audio Only
-                        Box(
-                            modifier = Modifier
-                                .size(44.dp)
-                                .clip(CircleShape)
-                                .background(if (isAudioOnly) Color(0xFFE50914).copy(alpha = 0.2f) else Color.White.copy(alpha = 0.1f))
-                                .border(1.dp, if (isAudioOnly) Color(0xFFE50914) else Color.White.copy(alpha = 0.15f), CircleShape)
-                                .clickable { isAudioOnly = !isAudioOnly },
-                            contentAlignment = Alignment.Center
-                        ) { 
-                            Icon(Icons.Default.Headphones, "Audio Only", tint = if (isAudioOnly) Color(0xFFE50914) else Color.White, modifier = Modifier.size(22.dp)) 
-                        }
-
-                        // Subtitles
+                    Row(modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Box(modifier = Modifier.size(44.dp).clip(CircleShape).background(if (isAudioOnly) Color(0xFFE50914).copy(alpha = 0.2f) else Color.White.copy(alpha = 0.1f)).border(1.dp, if (isAudioOnly) Color(0xFFE50914) else Color.White.copy(alpha = 0.15f), CircleShape).clickable { isAudioOnly = !isAudioOnly }, contentAlignment = Alignment.Center) { Icon(Icons.Default.Headphones, "Audio Only", tint = if (isAudioOnly) Color(0xFFE50914) else Color.White, modifier = Modifier.size(22.dp)) }
                         if (subtitleUrl != null && !isAudioOnly) {
-                            Box(
-                                modifier = Modifier
-                                    .size(44.dp)
-                                    .clip(CircleShape)
-                                    .background(if (subtitlesEnabled) Color(0xFFE50914).copy(alpha = 0.2f) else Color.White.copy(alpha = 0.1f))
-                                    .border(1.dp, if (subtitlesEnabled) Color(0xFFE50914) else Color.White.copy(alpha = 0.15f), CircleShape)
-                                    .clickable { subtitlesEnabled = !subtitlesEnabled },
-                                contentAlignment = Alignment.Center
-                            ) { 
-                                Icon(Icons.Default.ClosedCaption, "CC", tint = if (subtitlesEnabled) Color(0xFFE50914) else Color.White, modifier = Modifier.size(22.dp)) 
-                            }
+                            Box(modifier = Modifier.size(44.dp).clip(CircleShape).background(if (subtitlesEnabled) Color(0xFFE50914).copy(alpha = 0.2f) else Color.White.copy(alpha = 0.1f)).border(1.dp, if (subtitlesEnabled) Color(0xFFE50914) else Color.White.copy(alpha = 0.15f), CircleShape).clickable { subtitlesEnabled = !subtitlesEnabled }, contentAlignment = Alignment.Center) { Icon(Icons.Default.ClosedCaption, "CC", tint = if (subtitlesEnabled) Color(0xFFE50914) else Color.White, modifier = Modifier.size(22.dp)) }
                         }
-
-                        // Sleep Timer
                         Box {
-                            Box(
-                                modifier = Modifier
-                                    .size(44.dp)
-                                    .clip(CircleShape)
-                                    .background(if (sleepTimerMillis > 0) Color(0xFFE50914).copy(alpha = 0.2f) else Color.White.copy(alpha = 0.1f))
-                                    .border(1.dp, if (sleepTimerMillis > 0) Color(0xFFE50914) else Color.White.copy(alpha = 0.15f), CircleShape)
-                                    .clickable { showSleepMenu = !showSleepMenu; showSpeedMenu = false; showQualityMenu = false; showAspectMenu = false },
-                                contentAlignment = Alignment.Center
-                            ) { 
-                                Icon(Icons.Default.Timer, "Sleep", tint = if (sleepTimerMillis > 0) Color(0xFFE50914) else Color.White, modifier = Modifier.size(22.dp)) 
-                            }
+                            Box(modifier = Modifier.size(44.dp).clip(CircleShape).background(if (sleepTimerMillis > 0) Color(0xFFE50914).copy(alpha = 0.2f) else Color.White.copy(alpha = 0.1f)).border(1.dp, if (sleepTimerMillis > 0) Color(0xFFE50914) else Color.White.copy(alpha = 0.15f), CircleShape).clickable { showSleepMenu = !showSleepMenu; showSpeedMenu = false; showQualityMenu = false; showAspectMenu = false }, contentAlignment = Alignment.Center) { Icon(Icons.Default.Timer, "Sleep", tint = if (sleepTimerMillis > 0) Color(0xFFE50914) else Color.White, modifier = Modifier.size(22.dp)) }
                             DropdownMenu(expanded = showSleepMenu, onDismissRequest = { showSleepMenu = false }, modifier = Modifier.background(Color(0xFF15171E))) {
                                 DropdownMenuItem(text = { Text("Off", color = if(sleepTimerMillis == 0L) Color(0xFFE50914) else Color.White) }, onClick = { sleepTimerMillis = 0L; showSleepMenu = false })
                                 DropdownMenuItem(text = { Text("15 mins", color = Color.White) }, onClick = { sleepTimerMillis = 15 * 60 * 1000L; showSleepMenu = false })
@@ -742,254 +519,80 @@ fun PlayerScreen(
                                 DropdownMenuItem(text = { Text("60 mins", color = Color.White) }, onClick = { sleepTimerMillis = 60 * 60 * 1000L; showSleepMenu = false })
                             }
                         }
-
-                        // Speed
                         Box {
-                            Box(
-                                modifier = Modifier
-                                    .size(44.dp)
-                                    .clip(CircleShape)
-                                    .background(Color.White.copy(alpha = 0.1f))
-                                    .border(1.dp, Color.White.copy(alpha = 0.15f), CircleShape)
-                                    .clickable { showSpeedMenu = !showSpeedMenu; showQualityMenu = false; showAspectMenu = false; showSleepMenu = false },
-                                contentAlignment = Alignment.Center
-                            ) { 
-                                Icon(Icons.Default.Speed, "Speed", tint = Color.White, modifier = Modifier.size(22.dp)) 
-                            }
-                            DropdownMenu(expanded = showSpeedMenu, onDismissRequest = { showSpeedMenu = false }, modifier = Modifier.background(Color(0xFF15171E))) {
-                                listOf(0.5f, 1f, 1.5f, 2f).forEach { speed -> DropdownMenuItem(text = { Text("${speed}x", color = if(playbackSpeed == speed) Color(0xFFE50914) else Color.White) }, onClick = { playbackSpeed = speed; showSpeedMenu = false }) }
-                            }
+                            Box(modifier = Modifier.size(44.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.1f)).border(1.dp, Color.White.copy(alpha = 0.15f), CircleShape).clickable { showSpeedMenu = !showSpeedMenu; showQualityMenu = false; showAspectMenu = false; showSleepMenu = false }, contentAlignment = Alignment.Center) { Icon(Icons.Default.Speed, "Speed", tint = Color.White, modifier = Modifier.size(22.dp)) }
+                            DropdownMenu(expanded = showSpeedMenu, onDismissRequest = { showSpeedMenu = false }, modifier = Modifier.background(Color(0xFF15171E))) { listOf(0.5f, 1f, 1.5f, 2f).forEach { speed -> DropdownMenuItem(text = { Text("${speed}x", color = if(playbackSpeed == speed) Color(0xFFE50914) else Color.White) }, onClick = { playbackSpeed = speed; showSpeedMenu = false }) } }
                         }
-
-                        // Quality
                         if (!isAudioOnly) {
                             Box {
-                                Box(
-                                    modifier = Modifier
-                                        .size(44.dp)
-                                        .clip(CircleShape)
-                                        .background(Color.White.copy(alpha = 0.1f))
-                                        .border(1.dp, Color.White.copy(alpha = 0.15f), CircleShape)
-                                        .clickable { showQualityMenu = !showQualityMenu; showSpeedMenu = false; showAspectMenu = false; showSleepMenu = false },
-                                    contentAlignment = Alignment.Center
-                                ) { 
-                                    Icon(Icons.Default.HighQuality, "Quality", tint = Color.White, modifier = Modifier.size(22.dp)) 
-                                }
+                                Box(modifier = Modifier.size(44.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.1f)).border(1.dp, Color.White.copy(alpha = 0.15f), CircleShape).clickable { showQualityMenu = !showQualityMenu; showSpeedMenu = false; showAspectMenu = false; showSleepMenu = false }, contentAlignment = Alignment.Center) { Icon(Icons.Default.HighQuality, "Quality", tint = Color.White, modifier = Modifier.size(22.dp)) }
                                 DropdownMenu(expanded = showQualityMenu, onDismissRequest = { showQualityMenu = false }, modifier = Modifier.background(Color(0xFF15171E))) {
                                     listOf("Auto", "1080p", "720p", "480p").forEach { quality ->
                                         DropdownMenuItem(text = { Text(quality, color = if(currentQuality == quality) Color(0xFFE50914) else Color.White) }, onClick = { 
-                                            currentQuality = quality
-                                            showQualityMenu = false
+                                            currentQuality = quality; showQualityMenu = false
                                             val params = trackSelector.buildUponParameters()
-                                            if (quality == "Auto") { params.clearVideoSizeConstraints() } 
-                                            else if (quality == "1080p") { params.setMaxVideoSize(1920, 1080).setMaxVideoBitrate(5000000) }
-                                            else if (quality == "720p") { params.setMaxVideoSize(1280, 720).setMaxVideoBitrate(2500000) }
-                                            else if (quality == "480p") { params.setMaxVideoSize(854, 480).setMaxVideoBitrate(1000000) }
+                                            if (quality == "Auto") params.clearVideoSizeConstraints() 
+                                            else if (quality == "1080p") params.setMaxVideoSize(1920, 1080).setMaxVideoBitrate(5000000)
+                                            else if (quality == "720p") params.setMaxVideoSize(1280, 720).setMaxVideoBitrate(2500000)
+                                            else if (quality == "480p") params.setMaxVideoSize(854, 480).setMaxVideoBitrate(1000000)
                                             trackSelector.parameters = params.build()
                                         })
                                     }
                                 }
                             }
                         }
-
-                        // Aspect Ratio
                         if (!isAudioOnly) {
                             Box {
-                                Box(
-                                    modifier = Modifier
-                                        .size(44.dp)
-                                        .clip(CircleShape)
-                                        .background(Color.White.copy(alpha = 0.1f))
-                                        .border(1.dp, Color.White.copy(alpha = 0.15f), CircleShape)
-                                        .clickable { showAspectMenu = !showAspectMenu; showSpeedMenu = false; showQualityMenu = false; showSleepMenu = false },
-                                    contentAlignment = Alignment.Center
-                                ) { 
-                                    Icon(Icons.Default.AspectRatio, "Aspect", tint = Color.White, modifier = Modifier.size(22.dp)) 
-                                }
+                                Box(modifier = Modifier.size(44.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.1f)).border(1.dp, Color.White.copy(alpha = 0.15f), CircleShape).clickable { showAspectMenu = !showAspectMenu; showSpeedMenu = false; showQualityMenu = false; showSleepMenu = false }, contentAlignment = Alignment.Center) { Icon(Icons.Default.AspectRatio, "Aspect", tint = Color.White, modifier = Modifier.size(22.dp)) }
                                 DropdownMenu(expanded = showAspectMenu, onDismissRequest = { showAspectMenu = false }, modifier = Modifier.background(Color(0xFF15171E))) {
                                     listOf("Fit", "Fill", "Zoom").forEach { aspect ->
-                                        DropdownMenuItem(text = { Text(aspect, color = Color.White) }, onClick = { 
-                                            resizeMode = when(aspect) { "Fit" -> AspectRatioFrameLayout.RESIZE_MODE_FIT; "Fill" -> AspectRatioFrameLayout.RESIZE_MODE_FILL; else -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM }
-                                            showAspectMenu = false
-                                        })
+                                        DropdownMenuItem(text = { Text(aspect, color = Color.White) }, onClick = { resizeMode = when(aspect) { "Fit" -> AspectRatioFrameLayout.RESIZE_MODE_FIT; "Fill" -> AspectRatioFrameLayout.RESIZE_MODE_FILL; else -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM }; showAspectMenu = false })
                                     }
                                 }
                             }
                         }
-
-                        // PiP
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !isAudioOnly) {
-                            Box(
-                                modifier = Modifier
-                                    .size(44.dp)
-                                    .clip(CircleShape)
-                                    .background(Color.White.copy(alpha = 0.1f))
-                                    .border(1.dp, Color.White.copy(alpha = 0.15f), CircleShape)
-                                    .clickable {
-                                        try {
-                                            val aspectRatio = Rational(16, 9)
-                                            val params = PictureInPictureParams.Builder()
-                                                .setAspectRatio(aspectRatio)
-                                                .build()
-                                            activity?.enterPictureInPictureMode(params)
-                                            showControls = false 
-                                        } catch (e: Exception) { }
-                                    },
-                                contentAlignment = Alignment.Center
-                            ) { 
-                                Icon(Icons.Default.PictureInPicture, "PiP", tint = Color.White, modifier = Modifier.size(22.dp)) 
-                            }
+                            Box(modifier = Modifier.size(44.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.1f)).border(1.dp, Color.White.copy(alpha = 0.15f), CircleShape).clickable { try { val aspectRatio = Rational(16, 9); val params = PictureInPictureParams.Builder().setAspectRatio(aspectRatio).build(); activity?.enterPictureInPictureMode(params); showControls = false } catch (e: Exception) { } }, contentAlignment = Alignment.Center) { Icon(Icons.Default.PictureInPicture, "PiP", tint = Color.White, modifier = Modifier.size(22.dp)) }
                         }
-
-                        // Fullscreen
-                        Box(
-                            modifier = Modifier
-                                .size(44.dp)
-                                .clip(CircleShape)
-                                .background(Color.White.copy(alpha = 0.1f))
-                                .border(1.dp, Color.White.copy(alpha = 0.15f), CircleShape)
-                                .clickable {
-                                    if (isLandscape) activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
-                                    else activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
-                                    isLandscape = !isLandscape
-                                },
-                            contentAlignment = Alignment.Center
-                        ) { 
-                            Icon(if (isLandscape) Icons.Default.FullscreenExit else Icons.Default.Fullscreen, "Rotate", tint = Color.White, modifier = Modifier.size(22.dp)) 
-                        }
+                        Box(modifier = Modifier.size(44.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.1f)).border(1.dp, Color.White.copy(alpha = 0.15f), CircleShape).clickable { if (isLandscape) activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT else activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE; isLandscape = !isLandscape }, contentAlignment = Alignment.Center) { Icon(if (isLandscape) Icons.Default.FullscreenExit else Icons.Default.Fullscreen, "Rotate", tint = Color.White, modifier = Modifier.size(22.dp)) }
                     }
                 }
             }
         }
         
         if (sleepTimerMillis > 0 && !showControls && !hasError && hasStartedPlaying) {
-            Box(
-                modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .padding(top = 20.dp)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(Color.Black.copy(alpha = 0.5f))
-                    .border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(12.dp))
-                    .padding(horizontal = 12.dp, vertical = 6.dp)
-            ) {
+            Box(modifier = Modifier.align(Alignment.TopCenter).padding(top = 20.dp).clip(RoundedCornerShape(12.dp)).background(Color.Black.copy(alpha = 0.5f)).border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(12.dp)).padding(horizontal = 12.dp, vertical = 6.dp)) {
                 val mins = sleepTimerMillis / 60000
                 val secs = (sleepTimerMillis % 60000) / 1000
-                Text(
-                    text = "Sleep in: %02d:%02d".format(mins, secs),
-                    color = Color(0xFFFCDC04),
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold
-                )
+                Text(text = "Sleep in: %02d:%02d".format(mins, secs), color = Color(0xFFFCDC04), fontSize = 11.sp, fontWeight = FontWeight.Bold)
             }
         }
 
         if (hasError) {
-            Box(
-                modifier = Modifier.fillMaxSize().background(Color(0xFF0B0C10).copy(alpha = 0.96f)),
-                contentAlignment = Alignment.Center
-            ) {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    modifier = Modifier
-                        .padding(32.dp)
-                        .clip(RoundedCornerShape(32.dp))
-                        .background(Color(0xFF15171E))
-                        .border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(32.dp))
-                        .padding(32.dp)
-                ) {
+            Box(modifier = Modifier.fillMaxSize().background(Color(0xFF0B0C10).copy(alpha = 0.96f)), contentAlignment = Alignment.Center) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(32.dp).clip(RoundedCornerShape(32.dp)).background(Color(0xFF15171E)).border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(32.dp)).padding(32.dp)) {
                     val infiniteTransition = rememberInfiniteTransition(label = "signal")
-                    val pulseAlpha by infiniteTransition.animateFloat(
-                        initialValue = 1f,
-                        targetValue = 0.35f,
-                        animationSpec = infiniteRepeatable(
-                            animation = tween(1000),
-                            repeatMode = RepeatMode.Reverse
-                        ),
-                        label = "pulse"
-                    )
-                    
-                    Box(
-                        modifier = Modifier.size(130.dp).background(Color.White.copy(alpha = 0.05f), CircleShape),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            Icons.Default.WifiOff,
-                            contentDescription = "Signal Lost",
-                            tint = Color(0xFFE50914).copy(alpha = pulseAlpha),
-                            modifier = Modifier.size(70.dp)
-                        )
-                    }
-                    
+                    val pulseAlpha by infiniteTransition.animateFloat(initialValue = 1f, targetValue = 0.35f, animationSpec = infiniteRepeatable(animation = tween(1000), repeatMode = RepeatMode.Reverse), label = "pulse")
+                    Box(modifier = Modifier.size(130.dp).background(Color.White.copy(alpha = 0.05f), CircleShape), contentAlignment = Alignment.Center) { Icon(Icons.Default.WifiOff, contentDescription = "Signal Lost", tint = Color(0xFFE50914).copy(alpha = pulseAlpha), modifier = Modifier.size(70.dp)) }
                     Spacer(modifier = Modifier.height(32.dp))
-                    
                     Text("Signal Lost", color = Color.White, fontSize = 30.sp, fontWeight = FontWeight.Black)
-                    
                     Spacer(modifier = Modifier.height(12.dp))
-                    
-                    Text(
-                        errorMessage,
-                        color = Color.Gray,
-                        fontSize = 14.sp,
-                        textAlign = TextAlign.Center,
-                        lineHeight = 20.sp,
-                        modifier = Modifier.padding(horizontal = 16.dp)
-                    )
-                    
+                    Text(errorMessage, color = Color.Gray, fontSize = 14.sp, textAlign = TextAlign.Center, lineHeight = 20.sp, modifier = Modifier.padding(horizontal = 16.dp))
                     Spacer(modifier = Modifier.height(40.dp))
-                    
-                    Button(
-                        onClick = {
-                            hasError = false
-                            hasStartedPlaying = false
-                            isBuffering = true
-                            exoPlayer.prepare()
-                            exoPlayer.playWhenReady = true
-                        },
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE50914)),
-                        shape = RoundedCornerShape(16.dp),
-                        modifier = Modifier.height(56.dp).fillMaxWidth(0.85f)
-                    ) {
-                        Icon(Icons.Default.Refresh, contentDescription = null, tint = Color.White)
-                        Spacer(modifier = Modifier.width(10.dp))
-                        Text("Retry", fontSize = 17.sp, fontWeight = FontWeight.Bold)
-                    }
-                    
+                    Button(onClick = { hasError = false; hasStartedPlaying = false; isBuffering = true; exoPlayer.prepare(); exoPlayer.playWhenReady = true }, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE50914)), shape = RoundedCornerShape(16.dp), modifier = Modifier.height(56.dp).fillMaxWidth(0.85f)) { Icon(Icons.Default.Refresh, contentDescription = null, tint = Color.White); Spacer(modifier = Modifier.width(10.dp)); Text("Retry", fontSize = 17.sp, fontWeight = FontWeight.Bold) }
                     Spacer(modifier = Modifier.height(16.dp))
-                    
-                    TextButton(onClick = { exoPlayer.pause(); onClose() }) {
-                        Text("Close Player", color = Color.Gray, fontSize = 15.sp, fontWeight = FontWeight.Medium)
-                    }
+                    TextButton(onClick = { exoPlayer.pause(); onClose() }) { Text("Close Player", color = Color.Gray, fontSize = 15.sp, fontWeight = FontWeight.Medium) }
                 }
             }
         }
 
         if (showResumeDialog) {
             AlertDialog(
-                onDismissRequest = { 
-                    showResumeDialog = false 
-                    exoPlayer.play()
-                },
+                onDismissRequest = { showResumeDialog = false; exoPlayer.play() },
                 title = { Text("Resume Playback?", color = Color.White) },
                 text = { Text("Do you want to resume from where you left off (${formatTime(startPosition)})?", color = Color.Gray) },
-                confirmButton = {
-                    Button(
-                        onClick = {
-                            exoPlayer.seekTo(startPosition)
-                            exoPlayer.play()
-                            showResumeDialog = false
-                        },
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE50914))
-                    ) { Text("Resume") }
-                },
-                dismissButton = {
-                    TextButton(
-                        onClick = {
-                            exoPlayer.seekTo(0)
-                            exoPlayer.play()
-                            showResumeDialog = false
-                        }
-                    ) { Text("Start Over", color = Color.White) }
-                },
+                confirmButton = { Button(onClick = { exoPlayer.seekTo(startPosition); exoPlayer.play(); showResumeDialog = false }, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE50914))) { Text("Resume") } },
+                dismissButton = { TextButton(onClick = { exoPlayer.seekTo(0); exoPlayer.play(); showResumeDialog = false }) { Text("Start Over", color = Color.White) } },
                 containerColor = Color(0xFF15171E)
             )
         }
