@@ -19,11 +19,15 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -36,6 +40,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.key.*
@@ -71,7 +76,7 @@ fun PlayerScreen(
     episodes: List<Episode> = emptyList(),
     startPosition: Long = 0L,
     subtitleUrl: String? = null,
-    tvSessionCode: String? = null,  // 🔥 NEW: TV remote session code
+    tvSessionCode: String? = null,
     onClose: () -> Unit
 ) {
     val context = LocalContext.current
@@ -154,7 +159,6 @@ fun PlayerScreen(
             }
     }
 
-    // 🔥 NEW: Listen for TV remote player commands
     DisposableEffect(tvSessionCode, exoPlayer) {
         if (tvSessionCode == null) {
             return@DisposableEffect onDispose { }
@@ -349,16 +353,23 @@ fun PlayerScreen(
                 modifier = Modifier.fillMaxSize()
             )
         } else {
+            // 🔥 AUDIO ONLY SCREEN (Glass Style)
             Box(
-                modifier = Modifier.fillMaxSize().background(Color(0xFF0B0C10)),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Brush.radialGradient(colors = listOf(Color(0xFF1A0002), Color(0xFF0B0C10)), radius = 1200f)),
                 contentAlignment = Alignment.Center
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Box(
-                        modifier = Modifier.size(120.dp).background(Color(0xFF15171E), CircleShape),
+                        modifier = Modifier
+                            .size(130.dp)
+                            .clip(CircleShape)
+                            .background(Color.White.copy(alpha = 0.05f))
+                            .border(1.dp, Color.White.copy(alpha = 0.1f), CircleShape),
                         contentAlignment = Alignment.Center
                     ) {
-                        Icon(Icons.Default.Headphones, contentDescription = "Audio", tint = Color(0xFFE50914), modifier = Modifier.size(60.dp))
+                        Icon(Icons.Default.Headphones, contentDescription = "Audio", tint = Color(0xFFE50914), modifier = Modifier.size(70.dp))
                     }
                     Spacer(modifier = Modifier.height(24.dp))
                     Text(title, color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center, modifier = Modifier.padding(horizontal = 32.dp))
@@ -432,8 +443,10 @@ fun PlayerScreen(
             Box(
                 modifier = Modifier
                     .align(Alignment.Center)
-                    .background(Color.Black.copy(alpha = 0.7f), RoundedCornerShape(16.dp))
-                    .padding(24.dp)
+                    .clip(RoundedCornerShape(24.dp))
+                    .background(Color.Black.copy(alpha = 0.6f))
+                    .border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(24.dp))
+                    .padding(horizontal = 32.dp, vertical = 24.dp)
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     when (gestureType) {
@@ -454,12 +467,15 @@ fun PlayerScreen(
             }
         }
 
+        // 🔥 DATA METER (Glass Pill)
         Box(
             modifier = Modifier
                 .align(Alignment.TopStart)
                 .padding(top = 20.dp, start = 20.dp)
-                .background(Color.Black.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
-                .padding(horizontal = 10.dp, vertical = 6.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .background(Color.Black.copy(alpha = 0.4f))
+                .border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(12.dp))
+                .padding(horizontal = 12.dp, vertical = 6.dp)
         ) {
             Text(
                 text = String.format("%.2f MB", dataUsedMb),
@@ -469,12 +485,15 @@ fun PlayerScreen(
             )
         }
 
+        // 🔥 WATERMARK (Glass Pill)
         Box(
             modifier = Modifier
                 .align(Alignment.TopEnd)
                 .padding(top = 20.dp, end = 20.dp)
-                .background(Color.Black.copy(alpha = 0.4f), RoundedCornerShape(6.dp))
-                .padding(horizontal = 8.dp, vertical = 4.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(Color.Black.copy(alpha = 0.4f))
+                .border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(8.dp))
+                .padding(horizontal = 10.dp, vertical = 5.dp)
         ) {
             Text("HOMELAND APP", color = Color.White.copy(alpha = 0.7f), fontSize = 10.sp, fontWeight = FontWeight.Bold)
         }
@@ -500,7 +519,7 @@ fun PlayerScreen(
                         modifier = Modifier
                             .size(100.dp)
                             .graphicsLayer { scaleX = scale; scaleY = scale }
-                            .clip(RoundedCornerShape(20.dp))
+                            .clip(RoundedCornerShape(24.dp))
                             .background(Color(0xFFE50914)),
                         contentAlignment = Alignment.Center
                     ) {
@@ -544,8 +563,10 @@ fun PlayerScreen(
             Box(
                 modifier = Modifier
                     .align(Alignment.Center)
-                    .background(Color.Black.copy(alpha = 0.75f), RoundedCornerShape(16.dp))
-                    .padding(horizontal = 28.dp, vertical = 22.dp)
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(Color.Black.copy(alpha = 0.6f))
+                    .border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(20.dp))
+                    .padding(horizontal = 32.dp, vertical = 24.dp)
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     CircularProgressIndicator(
@@ -567,48 +588,124 @@ fun PlayerScreen(
         AnimatedVisibility(visible = showControls && !hasError && hasStartedPlaying, enter = fadeIn(), exit = fadeOut(), modifier = Modifier.fillMaxSize()) {
             Box(modifier = Modifier.fillMaxSize().safeDrawingPadding()) {
                 
+                // 🔥 TOP GRADIENT BAR
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(120.dp)
+                        .background(Brush.verticalGradient(colors = listOf(Color.Black.copy(alpha = 0.8f), Color.Transparent)))
+                        .align(Alignment.TopCenter)
+                )
+
                 Row(
-                    modifier = Modifier.fillMaxWidth().background(Color.Black.copy(alpha = 0.6f), RoundedCornerShape(bottomStart = 16.dp, bottomEnd = 16.dp)).padding(horizontal = 16.dp, vertical = 12.dp).align(Alignment.TopCenter),
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp).align(Alignment.TopCenter),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    IconButton(onClick = { exoPlayer.pause(); onClose() }) { Icon(Icons.Default.Close, "Close", tint = Color.White) }
-                    Text(title, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f), maxLines = 1)
-                    Spacer(modifier = Modifier.width(80.dp))
+                    Box(
+                        modifier = Modifier
+                            .size(44.dp)
+                            .clip(CircleShape)
+                            .background(Color.White.copy(alpha = 0.1f))
+                            .border(1.dp, Color.White.copy(alpha = 0.15f), CircleShape)
+                            .clickable { exoPlayer.pause(); onClose() },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(Icons.Default.Close, "Close", tint = Color.White)
+                    }
+                    
+                    Spacer(modifier = Modifier.width(16.dp))
+                    
+                    Text(title, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
 
-                IconButton(
-                    onClick = { if (isPlaying) exoPlayer.pause() else exoPlayer.play() },
-                    modifier = Modifier.size(80.dp).align(Alignment.Center).background(Color.Black.copy(alpha = 0.5f), shape = CircleShape)
-                ) { Icon(if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow, "Play/Pause", tint = Color.White, modifier = Modifier.size(48.dp)) }
+                // 🔥 CENTER PLAY BUTTON (Glass)
+                Box(
+                    modifier = Modifier
+                        .size(80.dp)
+                        .align(Alignment.Center)
+                        .clip(CircleShape)
+                        .background(Color.White.copy(alpha = 0.1f))
+                        .border(1.dp, Color.White.copy(alpha = 0.2f), CircleShape)
+                        .clickable { if (isPlaying) exoPlayer.pause() else exoPlayer.play() },
+                    contentAlignment = Alignment.Center
+                ) { 
+                    Icon(if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow, "Play/Pause", tint = Color.White, modifier = Modifier.size(48.dp)) 
+                }
 
-                Column(modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth().background(Color.Black.copy(alpha = 0.8f), RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp)).padding(16.dp)) {
+                // 🔥 BOTTOM GRADIENT BAR
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(200.dp)
+                        .background(Brush.verticalGradient(colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.9f), Color.Black)))
+                        .align(Alignment.BottomCenter)
+                )
+
+                Column(modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(horizontal = 16.dp, vertical = 24.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(formatTime(currentPosition), color = Color.White, fontSize = 12.sp)
-                        Slider(value = currentPosition.toFloat(), onValueChange = { exoPlayer.seekTo(it.toLong()) }, valueRange = 0f..duration.toFloat().coerceAtLeast(1f), colors = SliderDefaults.colors(thumbColor = Color(0xFFE50914), activeTrackColor = Color(0xFFE50914), inactiveTrackColor = Color.DarkGray), modifier = Modifier.weight(1f).padding(horizontal = 8.dp))
-                        Text(formatTime(duration), color = Color.White, fontSize = 12.sp)
+                        Text(formatTime(currentPosition), color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                        Slider(
+                            value = currentPosition.toFloat(), 
+                            onValueChange = { exoPlayer.seekTo(it.toLong()) }, 
+                            valueRange = 0f..duration.toFloat().coerceAtLeast(1f), 
+                            colors = SliderDefaults.colors(
+                                thumbColor = Color(0xFFE50914), 
+                                activeTrackColor = Color(0xFFE50914), 
+                                inactiveTrackColor = Color.White.copy(alpha = 0.2f)
+                            ), 
+                            modifier = Modifier.weight(1f).padding(horizontal = 12.dp)
+                        )
+                        Text(formatTime(duration), color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Medium)
                     }
                     
                     Spacer(modifier = Modifier.height(16.dp))
                     
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), 
+                        horizontalArrangement = Arrangement.spacedBy(16.dp), 
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
                         
-                        IconButton(onClick = { isAudioOnly = !isAudioOnly }) { 
-                            Icon(
-                                imageVector = Icons.Default.Headphones, 
-                                contentDescription = "Audio Only", 
-                                tint = if (isAudioOnly) Color(0xFFE50914) else Color.White
-                            ) 
+                        // Audio Only
+                        Box(
+                            modifier = Modifier
+                                .size(44.dp)
+                                .clip(CircleShape)
+                                .background(if (isAudioOnly) Color(0xFFE50914).copy(alpha = 0.2f) else Color.White.copy(alpha = 0.1f))
+                                .border(1.dp, if (isAudioOnly) Color(0xFFE50914) else Color.White.copy(alpha = 0.15f), CircleShape)
+                                .clickable { isAudioOnly = !isAudioOnly },
+                            contentAlignment = Alignment.Center
+                        ) { 
+                            Icon(Icons.Default.Headphones, "Audio Only", tint = if (isAudioOnly) Color(0xFFE50914) else Color.White, modifier = Modifier.size(22.dp)) 
                         }
 
+                        // Subtitles
                         if (subtitleUrl != null && !isAudioOnly) {
-                            IconButton(onClick = { subtitlesEnabled = !subtitlesEnabled }) { 
-                                Icon(Icons.Default.ClosedCaption, "CC", tint = if (subtitlesEnabled) Color(0xFFE50914) else Color.White) 
+                            Box(
+                                modifier = Modifier
+                                    .size(44.dp)
+                                    .clip(CircleShape)
+                                    .background(if (subtitlesEnabled) Color(0xFFE50914).copy(alpha = 0.2f) else Color.White.copy(alpha = 0.1f))
+                                    .border(1.dp, if (subtitlesEnabled) Color(0xFFE50914) else Color.White.copy(alpha = 0.15f), CircleShape)
+                                    .clickable { subtitlesEnabled = !subtitlesEnabled },
+                                contentAlignment = Alignment.Center
+                            ) { 
+                                Icon(Icons.Default.ClosedCaption, "CC", tint = if (subtitlesEnabled) Color(0xFFE50914) else Color.White, modifier = Modifier.size(22.dp)) 
                             }
                         }
 
+                        // Sleep Timer
                         Box {
-                            IconButton(onClick = { showSleepMenu = !showSleepMenu; showSpeedMenu = false; showQualityMenu = false; showAspectMenu = false }) { 
-                                Icon(Icons.Default.Timer, "Sleep", tint = if (sleepTimerMillis > 0) Color(0xFFE50914) else Color.White) 
+                            Box(
+                                modifier = Modifier
+                                    .size(44.dp)
+                                    .clip(CircleShape)
+                                    .background(if (sleepTimerMillis > 0) Color(0xFFE50914).copy(alpha = 0.2f) else Color.White.copy(alpha = 0.1f))
+                                    .border(1.dp, if (sleepTimerMillis > 0) Color(0xFFE50914) else Color.White.copy(alpha = 0.15f), CircleShape)
+                                    .clickable { showSleepMenu = !showSleepMenu; showSpeedMenu = false; showQualityMenu = false; showAspectMenu = false },
+                                contentAlignment = Alignment.Center
+                            ) { 
+                                Icon(Icons.Default.Timer, "Sleep", tint = if (sleepTimerMillis > 0) Color(0xFFE50914) else Color.White, modifier = Modifier.size(22.dp)) 
                             }
                             DropdownMenu(expanded = showSleepMenu, onDismissRequest = { showSleepMenu = false }, modifier = Modifier.background(Color(0xFF15171E))) {
                                 DropdownMenuItem(text = { Text("Off", color = if(sleepTimerMillis == 0L) Color(0xFFE50914) else Color.White) }, onClick = { sleepTimerMillis = 0L; showSleepMenu = false })
@@ -618,16 +715,38 @@ fun PlayerScreen(
                             }
                         }
 
+                        // Speed
                         Box {
-                            IconButton(onClick = { showSpeedMenu = !showSpeedMenu; showQualityMenu = false; showAspectMenu = false; showSleepMenu = false }) { Icon(Icons.Default.Speed, "Speed", tint = Color.White) }
+                            Box(
+                                modifier = Modifier
+                                    .size(44.dp)
+                                    .clip(CircleShape)
+                                    .background(Color.White.copy(alpha = 0.1f))
+                                    .border(1.dp, Color.White.copy(alpha = 0.15f), CircleShape)
+                                    .clickable { showSpeedMenu = !showSpeedMenu; showQualityMenu = false; showAspectMenu = false; showSleepMenu = false },
+                                contentAlignment = Alignment.Center
+                            ) { 
+                                Icon(Icons.Default.Speed, "Speed", tint = Color.White, modifier = Modifier.size(22.dp)) 
+                            }
                             DropdownMenu(expanded = showSpeedMenu, onDismissRequest = { showSpeedMenu = false }, modifier = Modifier.background(Color(0xFF15171E))) {
                                 listOf(0.5f, 1f, 1.5f, 2f).forEach { speed -> DropdownMenuItem(text = { Text("${speed}x", color = if(playbackSpeed == speed) Color(0xFFE50914) else Color.White) }, onClick = { playbackSpeed = speed; showSpeedMenu = false }) }
                             }
                         }
 
+                        // Quality
                         if (!isAudioOnly) {
                             Box {
-                                IconButton(onClick = { showQualityMenu = !showQualityMenu; showSpeedMenu = false; showAspectMenu = false; showSleepMenu = false }) { Icon(Icons.Default.HighQuality, "Quality", tint = Color.White) }
+                                Box(
+                                    modifier = Modifier
+                                        .size(44.dp)
+                                        .clip(CircleShape)
+                                        .background(Color.White.copy(alpha = 0.1f))
+                                        .border(1.dp, Color.White.copy(alpha = 0.15f), CircleShape)
+                                        .clickable { showQualityMenu = !showQualityMenu; showSpeedMenu = false; showAspectMenu = false; showSleepMenu = false },
+                                    contentAlignment = Alignment.Center
+                                ) { 
+                                    Icon(Icons.Default.HighQuality, "Quality", tint = Color.White, modifier = Modifier.size(22.dp)) 
+                                }
                                 DropdownMenu(expanded = showQualityMenu, onDismissRequest = { showQualityMenu = false }, modifier = Modifier.background(Color(0xFF15171E))) {
                                     listOf("Auto", "1080p", "720p", "480p").forEach { quality ->
                                         DropdownMenuItem(text = { Text(quality, color = if(currentQuality == quality) Color(0xFFE50914) else Color.White) }, onClick = { 
@@ -645,9 +764,20 @@ fun PlayerScreen(
                             }
                         }
 
+                        // Aspect Ratio
                         if (!isAudioOnly) {
                             Box {
-                                IconButton(onClick = { showAspectMenu = !showAspectMenu; showSpeedMenu = false; showQualityMenu = false; showSleepMenu = false }) { Icon(Icons.Default.AspectRatio, "Aspect", tint = Color.White) }
+                                Box(
+                                    modifier = Modifier
+                                        .size(44.dp)
+                                        .clip(CircleShape)
+                                        .background(Color.White.copy(alpha = 0.1f))
+                                        .border(1.dp, Color.White.copy(alpha = 0.15f), CircleShape)
+                                        .clickable { showAspectMenu = !showAspectMenu; showSpeedMenu = false; showQualityMenu = false; showSleepMenu = false },
+                                    contentAlignment = Alignment.Center
+                                ) { 
+                                    Icon(Icons.Default.AspectRatio, "Aspect", tint = Color.White, modifier = Modifier.size(22.dp)) 
+                                }
                                 DropdownMenu(expanded = showAspectMenu, onDismissRequest = { showAspectMenu = false }, modifier = Modifier.background(Color(0xFF15171E))) {
                                     listOf("Fit", "Fill", "Zoom").forEach { aspect ->
                                         DropdownMenuItem(text = { Text(aspect, color = Color.White) }, onClick = { 
@@ -659,26 +789,46 @@ fun PlayerScreen(
                             }
                         }
 
+                        // PiP
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !isAudioOnly) {
-                            IconButton(onClick = {
-                                try {
-                                    val aspectRatio = Rational(16, 9)
-                                    val params = PictureInPictureParams.Builder()
-                                        .setAspectRatio(aspectRatio)
-                                        .build()
-                                    activity?.enterPictureInPictureMode(params)
-                                    showControls = false 
-                                } catch (e: Exception) { }
-                            }) { 
-                                Icon(Icons.Default.PictureInPicture, "PiP", tint = Color.White) 
+                            Box(
+                                modifier = Modifier
+                                    .size(44.dp)
+                                    .clip(CircleShape)
+                                    .background(Color.White.copy(alpha = 0.1f))
+                                    .border(1.dp, Color.White.copy(alpha = 0.15f), CircleShape)
+                                    .clickable {
+                                        try {
+                                            val aspectRatio = Rational(16, 9)
+                                            val params = PictureInPictureParams.Builder()
+                                                .setAspectRatio(aspectRatio)
+                                                .build()
+                                            activity?.enterPictureInPictureMode(params)
+                                            showControls = false 
+                                        } catch (e: Exception) { }
+                                    },
+                                contentAlignment = Alignment.Center
+                            ) { 
+                                Icon(Icons.Default.PictureInPicture, "PiP", tint = Color.White, modifier = Modifier.size(22.dp)) 
                             }
                         }
 
-                        IconButton(onClick = {
-                            if (isLandscape) activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
-                            else activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
-                            isLandscape = !isLandscape
-                        }) { Icon(if (isLandscape) Icons.Default.FullscreenExit else Icons.Default.Fullscreen, "Rotate", tint = Color.White) }
+                        // Fullscreen
+                        Box(
+                            modifier = Modifier
+                                .size(44.dp)
+                                .clip(CircleShape)
+                                .background(Color.White.copy(alpha = 0.1f))
+                                .border(1.dp, Color.White.copy(alpha = 0.15f), CircleShape)
+                                .clickable {
+                                    if (isLandscape) activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                                    else activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+                                    isLandscape = !isLandscape
+                                },
+                            contentAlignment = Alignment.Center
+                        ) { 
+                            Icon(if (isLandscape) Icons.Default.FullscreenExit else Icons.Default.Fullscreen, "Rotate", tint = Color.White, modifier = Modifier.size(22.dp)) 
+                        }
                     }
                 }
             }
@@ -689,8 +839,10 @@ fun PlayerScreen(
                 modifier = Modifier
                     .align(Alignment.TopCenter)
                     .padding(top = 20.dp)
-                    .background(Color.Black.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
-                    .padding(horizontal = 10.dp, vertical = 6.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(Color.Black.copy(alpha = 0.5f))
+                    .border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(12.dp))
+                    .padding(horizontal = 12.dp, vertical = 6.dp)
             ) {
                 val mins = sleepTimerMillis / 60000
                 val secs = (sleepTimerMillis % 60000) / 1000
@@ -710,7 +862,12 @@ fun PlayerScreen(
             ) {
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
-                    modifier = Modifier.padding(32.dp)
+                    modifier = Modifier
+                        .padding(32.dp)
+                        .clip(RoundedCornerShape(32.dp))
+                        .background(Color(0xFF15171E))
+                        .border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(32.dp))
+                        .padding(32.dp)
                 ) {
                     val infiniteTransition = rememberInfiniteTransition(label = "signal")
                     val pulseAlpha by infiniteTransition.animateFloat(
@@ -724,7 +881,7 @@ fun PlayerScreen(
                     )
                     
                     Box(
-                        modifier = Modifier.size(130.dp).background(Color(0xFF15171E), CircleShape),
+                        modifier = Modifier.size(130.dp).background(Color.White.copy(alpha = 0.05f), CircleShape),
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
@@ -761,8 +918,8 @@ fun PlayerScreen(
                             exoPlayer.playWhenReady = true
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE50914)),
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier.height(56.dp).fillMaxWidth(0.75f)
+                        shape = RoundedCornerShape(16.dp),
+                        modifier = Modifier.height(56.dp).fillMaxWidth(0.85f)
                     ) {
                         Icon(Icons.Default.Refresh, contentDescription = null, tint = Color.White)
                         Spacer(modifier = Modifier.width(10.dp))
