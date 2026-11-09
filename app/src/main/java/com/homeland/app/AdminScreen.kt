@@ -95,6 +95,13 @@ fun AdminScreen(onBack: () -> Unit) {
     var isMaintenanceActive by remember { mutableStateOf(false) }
     var maintenanceMsg by remember { mutableStateOf("") }
 
+    // 🔥 NEW: Social Media Links State
+    var whatsappLink by remember { mutableStateOf("") }
+    var telegramLink by remember { mutableStateOf("") }
+    var tiktokLink by remember { mutableStateOf("") }
+    var twitterLink by remember { mutableStateOf("") }
+    var instagramLink by remember { mutableStateOf("") }
+
     var existingMovies by remember { mutableStateOf<List<Movie>>(emptyList()) }
     var existingTv by remember { mutableStateOf<List<TvChannel>>(emptyList()) }
 
@@ -135,6 +142,17 @@ fun AdminScreen(onBack: () -> Unit) {
                     maintenanceMsg = doc.getString("message") ?: ""
                 }
             }
+        } else if (selectedTab == 5) {
+            // 🔥 NEW: Fetch Social Links
+            db.collection("config").document("social_links").addSnapshotListener { doc, _ ->
+                if (doc != null && doc.exists()) {
+                    whatsappLink = doc.getString("whatsapp") ?: ""
+                    telegramLink = doc.getString("telegram") ?: ""
+                    tiktokLink = doc.getString("tiktok") ?: ""
+                    twitterLink = doc.getString("twitter") ?: ""
+                    instagramLink = doc.getString("instagram") ?: ""
+                }
+            }
         }
     }
 
@@ -161,6 +179,7 @@ fun AdminScreen(onBack: () -> Unit) {
                     Tab(selected = selectedTab == 2, onClick = { selectedTab = 2 }, text = { Text("VIP") })
                     Tab(selected = selectedTab == 3, onClick = { selectedTab = 3 }, text = { Text("Theme") })
                     Tab(selected = selectedTab == 4, onClick = { selectedTab = 4 }, text = { Text("Push") })
+                    Tab(selected = selectedTab == 5, onClick = { selectedTab = 5 }, text = { Text("Socials") }) // 🔥 NEW TAB
                 }
             }
         }
@@ -581,7 +600,7 @@ fun AdminScreen(onBack: () -> Unit) {
                         }
                     }
                 }
-            } else {
+            } else if (selectedTab == 4) {
                 item {
                     Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF15171E)), shape = RoundedCornerShape(16.dp)) {
                         Column(modifier = Modifier.padding(16.dp)) {
@@ -657,6 +676,40 @@ fun AdminScreen(onBack: () -> Unit) {
                                 }
                             }, modifier = Modifier.fillMaxWidth().height(50.dp), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE50914))) {
                                 if (isLoading) CircularProgressIndicator(color = Color.White, modifier = Modifier.size(24.dp)) else Text("Send to All Users")
+                            }
+                        }
+                    }
+                }
+            } else if (selectedTab == 5) {
+                // 🔥 NEW: Social Media Tab Content
+                item {
+                    Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF15171E)), shape = RoundedCornerShape(16.dp)) {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Text("Social Media Links", color = Color.White, fontWeight = FontWeight.Bold)
+                            Text("These links appear on Login & Profile screens.", color = Color.Gray, fontSize = 12.sp)
+                            Spacer(modifier = Modifier.height(12.dp))
+                            
+                            OutlinedTextField(value = whatsappLink, onValueChange = { whatsappLink = it }, label = { Text("WhatsApp Link") }, modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White))
+                            OutlinedTextField(value = telegramLink, onValueChange = { telegramLink = it }, label = { Text("Telegram Link") }, modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White))
+                            OutlinedTextField(value = tiktokLink, onValueChange = { tiktokLink = it }, label = { Text("TikTok Link") }, modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White))
+                            OutlinedTextField(value = twitterLink, onValueChange = { twitterLink = it }, label = { Text("Twitter (X) Link") }, modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White))
+                            OutlinedTextField(value = instagramLink, onValueChange = { instagramLink = it }, label = { Text("Instagram Link") }, modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White))
+                            
+                            Spacer(modifier = Modifier.height(16.dp))
+                            
+                            Button(onClick = {
+                                val linksMap = hashMapOf(
+                                    "whatsapp" to whatsappLink,
+                                    "telegram" to telegramLink,
+                                    "tiktok" to tiktokLink,
+                                    "twitter" to twitterLink,
+                                    "instagram" to instagramLink
+                                )
+                                db.collection("config").document("social_links").set(linksMap)
+                                    .addOnSuccessListener { statusMessage = "Success! Social links updated." }
+                                    .addOnFailureListener { statusMessage = "Error: ${it.message}" }
+                            }, modifier = Modifier.fillMaxWidth().height(50.dp), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE50914))) { 
+                                Text("Save Social Links") 
                             }
                         }
                     }
