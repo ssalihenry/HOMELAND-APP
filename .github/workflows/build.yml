@@ -22,6 +22,11 @@ jobs:
     - name: Decode Keystore
       run: echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > ${{ github.workspace }}/release.keystore
 
+    # 🔥 NEW: PRINT THE SHA-1 FINGERPRINT
+    - name: Get SHA-1 Fingerprint
+      run: |
+        keytool -list -v -keystore ${{ github.workspace }}/release.keystore -alias ${{ secrets.KEY_ALIAS }} -storepass ${{ secrets.KEYSTORE_PASSWORD }} | grep SHA1
+
     # 🔥 DOWNLOAD GRADLE 8.4 FROM 4 DIFFERENT MIRRORS WITH RETRIES
     - name: Install Gradle 8.4 (multi-mirror, multi-retry)
       run: |
