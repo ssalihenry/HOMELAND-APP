@@ -71,6 +71,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -1138,6 +1139,23 @@ fun ProfileScreen(
     var couponCode by remember { mutableStateOf("") }
     val isVip = userVipExpiry > System.currentTimeMillis()
 
+    // 🔥 NEW: Social Links State & Fetch
+    var socialLinks by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
+    LaunchedEffect(Unit) {
+        FirebaseFirestore.getInstance().collection("config").document("social_links")
+            .addSnapshotListener { snapshot, _ ->
+                if (snapshot != null && snapshot.exists()) {
+                    socialLinks = mapOf(
+                        "whatsapp" to (snapshot.getString("whatsapp") ?: ""),
+                        "telegram" to (snapshot.getString("telegram") ?: ""),
+                        "tiktok" to (snapshot.getString("tiktok") ?: ""),
+                        "twitter" to (snapshot.getString("twitter") ?: ""),
+                        "instagram" to (snapshot.getString("instagram") ?: "")
+                    )
+                }
+            }
+    }
+
     var showTvDialog by remember { mutableStateOf(false) }
     var tvCodeInput by remember { mutableStateOf("") }
     var showPinDialog by remember { mutableStateOf(false) }
@@ -1292,6 +1310,49 @@ fun ProfileScreen(
                         items(profileHistory) { pair -> NetflixHistoryCard(movie = pair.first, progressPercent = pair.second, onClick = { onPlay(pair.first) }) }
                     }
                 }
+
+                // 🔥 NEW: SOCIAL MEDIA LINKS
+                if (socialLinks.values.any { it.isNotBlank() }) {
+                    Spacer(modifier = Modifier.height(24.dp))
+                    HorizontalDivider(modifier = Modifier.fillMaxWidth(), color = Color.DarkGray.copy(alpha = 0.5f))
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text("Follow Us", color = Color.Gray, fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 12.dp))
+                    
+                    val uriHandler = LocalUriHandler.current
+                    
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        if (!socialLinks["whatsapp"].isNullOrBlank()) {
+                            IconButton(onClick = { uriHandler.openUri(socialLinks["whatsapp"]!!) }) {
+                                Icon(Icons.Default.Chat, contentDescription = "WhatsApp", tint = Color(0xFF25D366))
+                            }
+                        }
+                        if (!socialLinks["telegram"].isNullOrBlank()) {
+                            IconButton(onClick = { uriHandler.openUri(socialLinks["telegram"]!!) }) {
+                                Icon(Icons.Default.Send, contentDescription = "Telegram", tint = Color(0xFF0088cc))
+                            }
+                        }
+                        if (!socialLinks["tiktok"].isNullOrBlank()) {
+                            IconButton(onClick = { uriHandler.openUri(socialLinks["tiktok"]!!) }) {
+                                Icon(Icons.Default.PlayArrow, contentDescription = "TikTok", tint = Color.White)
+                            }
+                        }
+                        if (!socialLinks["twitter"].isNullOrBlank()) {
+                            IconButton(onClick = { uriHandler.openUri(socialLinks["twitter"]!!) }) {
+                                Icon(Icons.Default.Share, contentDescription = "Twitter", tint = Color(0xFF1DA1F2))
+                            }
+                        }
+                        if (!socialLinks["instagram"].isNullOrBlank()) {
+                            IconButton(onClick = { uriHandler.openUri(socialLinks["instagram"]!!) }) {
+                                Icon(Icons.Default.CameraAlt, contentDescription = "Instagram", tint = Color(0xFFE1306C))
+                            }
+                        }
+                    }
+                }
+
                 Spacer(modifier = Modifier.height(100.dp))
             }
         }
