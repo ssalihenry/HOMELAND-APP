@@ -7,8 +7,16 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CameraAlt
+import androidx.compose.material.icons.filled.Chat
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Send
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -16,6 +24,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -46,6 +55,25 @@ fun AuthScreen(
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var showForgotPassword by remember { mutableStateOf(false) }
 
+    // 🔥 NEW: Social Links State
+    var socialLinks by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
+
+    // Fetch Social Links from Firestore
+    LaunchedEffect(Unit) {
+        FirebaseFirestore.getInstance().collection("config").document("social_links")
+            .addSnapshotListener { snapshot, _ ->
+                if (snapshot != null && snapshot.exists()) {
+                    socialLinks = mapOf(
+                        "whatsapp" to (snapshot.getString("whatsapp") ?: ""),
+                        "telegram" to (snapshot.getString("telegram") ?: ""),
+                        "tiktok" to (snapshot.getString("tiktok") ?: ""),
+                        "twitter" to (snapshot.getString("twitter") ?: ""),
+                        "instagram" to (snapshot.getString("instagram") ?: "")
+                    )
+                }
+            }
+    }
+
     // 🔥 NEW: GOOGLE SIGN-IN SETUP
     val webClientId = "26733775290-filospi99uuqn4kqn7r6sgfv83ljckln.apps.googleusercontent.com"
     
@@ -73,7 +101,6 @@ fun AuthScreen(
                     if (authTask.isSuccessful) {
                         val user = authTask.result?.user
                         if (user != null) {
-                            // 🔥 Check if user exists in Firestore, if not create profile
                             val db = FirebaseFirestore.getInstance()
                             db.collection("users").document(user.uid).get().addOnSuccessListener { doc ->
                                 if (!doc.exists()) {
@@ -95,7 +122,7 @@ fun AuthScreen(
                                 }
                             }.addOnFailureListener {
                                 isLoading = false
-                                onLoginSuccess() // Let them in even if firestore fails
+                                onLoginSuccess() 
                             }
                         } else {
                             isLoading = false
@@ -113,7 +140,6 @@ fun AuthScreen(
                 Log.e("GoogleAuth", "ApiException code: ${e.statusCode}", e)
             }
         } else {
-            // User cancelled the Google popup
             isLoading = false
         }
     }
@@ -131,7 +157,9 @@ fun AuthScreen(
             colors = CardDefaults.cardColors(containerColor = Color(0xFF15171E))
         ) {
             Column(
-                modifier = Modifier.padding(24.dp),
+                modifier = Modifier
+                    .padding(24.dp)
+                    .verticalScroll(rememberScrollState()), // 🔥 Added scroll for smaller screens
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Text(
@@ -230,7 +258,6 @@ fun AuthScreen(
                     if (isLoading) CircularProgressIndicator(color = Color.White, modifier = Modifier.size(24.dp)) else Text(if (isLoginMode) "Log In" else "Register", fontWeight = FontWeight.Bold)
                 }
 
-                // 🔥 NEW: OR DIVIDER
                 Row(
                     modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp),
                     verticalAlignment = Alignment.CenterVertically
@@ -240,7 +267,6 @@ fun AuthScreen(
                     HorizontalDivider(modifier = Modifier.weight(1f), color = Color.DarkGray)
                 }
 
-                // 🔥 NEW: GOOGLE SIGN-IN BUTTON
                 Button(
                     onClick = {
                         if (activity != null) {
@@ -261,6 +287,48 @@ fun AuthScreen(
                 Spacer(modifier = Modifier.height(16.dp))
                 TextButton(onClick = { isLoginMode = !isLoginMode; errorMessage = null }) {
                     Text(if (isLoginMode) "Don't have an account? Register" else "Already have an account? Log In", color = Color.Gray, fontSize = 14.sp)
+                }
+
+                // 🔥 NEW: SOCIAL MEDIA LINKS
+                if (socialLinks.values.any { it.isNotBlank() }) {
+                    Spacer(modifier = Modifier.height(24.dp))
+                    HorizontalDivider(modifier = Modifier.fillMaxWidth(), color = Color.DarkGray.copy(alpha = 0.5f))
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text("Follow Us", color = Color.Gray, fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 12.dp))
+                    
+                    val uriHandler = LocalUriHandler.current
+                    
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        if (socialLinks["whatsapp"].isNullOrBlank().not()) {
+                            IconButton(onClick = { uriHandler.openUri(socialLinks["whatsapp"]!!) }) {
+                                Icon(Icons.Default.Chat, contentDescription = "WhatsApp", tint = Color(0xFF25D366))
+                            }
+                        }
+                        if (socialLinks["telegram"].isNullOrBlank().not()) {
+                            IconButton(onClick = { uriHandler.openUri(socialLinks["telegram"]!!) }) {
+                                Icon(Icons.Default.Send, contentDescription = "Telegram", tint = Color(0xFF0088cc))
+                            }
+                        }
+                        if (socialLinks["tiktok"].isNullOrBlank().not()) {
+                            IconButton(onClick = { uriHandler.openUri(socialLinks["tiktok"]!!) }) {
+                                Icon(Icons.Default.PlayArrow, contentDescription = "TikTok", tint = Color.White)
+                            }
+                        }
+                        if (socialLinks["twitter"].isNullOrBlank().not()) {
+                            IconButton(onClick = { uriHandler.openUri(socialLinks["twitter"]!!) }) {
+                                Icon(Icons.Default.Share, contentDescription = "Twitter", tint = Color(0xFF1DA1F2))
+                            }
+                        }
+                        if (socialLinks["instagram"].isNullOrBlank().not()) {
+                            IconButton(onClick = { uriHandler.openUri(socialLinks["instagram"]!!) }) {
+                                Icon(Icons.Default.CameraAlt, contentDescription = "Instagram", tint = Color(0xFFE1306C))
+                            }
+                        }
+                    }
                 }
             }
         }
