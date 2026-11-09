@@ -114,7 +114,6 @@ data class ThemeConfig(
     val bgImageUrl: String = ""
 )
 
-// 🔥 NEW: Local VIP Plan for the dialog
 data class ClientVipPlan(
     val id: String = "",
     val name: String = "",
@@ -198,7 +197,6 @@ fun downloadFile(context: Context, url: String, fileName: String, saveToPublic: 
     }
 }
 
-// 🔥 NEW: PREMIUM PAYMENT DIALOG WITH PLANS
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PaymentDialog(
@@ -209,11 +207,9 @@ fun PaymentDialog(
     var isLoading by remember { mutableStateOf(false) }
     var isSuccess by remember { mutableStateOf(false) }
     
-    // Plans State
     var plans by remember { mutableStateOf<List<ClientVipPlan>>(emptyList()) }
     var selectedPlan by remember { mutableStateOf<ClientVipPlan?>(null) }
 
-    // Fetch Plans from Firestore
     LaunchedEffect(Unit) {
         FirebaseFirestore.getInstance().collection("homeland_vip_plans").get().addOnSuccessListener { snap ->
             if (snap != null) {
@@ -227,7 +223,7 @@ fun PaymentDialog(
                 }
                 plans = fetchedPlans
                 if (fetchedPlans.isNotEmpty()) {
-                    selectedPlan = fetchedPlans[0] // Select first by default
+                    selectedPlan = fetchedPlans[0]
                 }
             }
         }
@@ -241,7 +237,7 @@ fun PaymentDialog(
             border = BorderStroke(1.dp, Color.White.copy(alpha = 0.1f))
         ) {
             Column(
-                modifier = Modifier.padding(24.dp),
+                modifier = Modifier.padding(24.dp).verticalScroll(rememberScrollState()),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 if (isSuccess) {
@@ -260,7 +256,6 @@ fun PaymentDialog(
                     Text("Select a plan to unlock all premium content.", color = Color.Gray, fontSize = 13.sp, textAlign = TextAlign.Center)
                     Spacer(modifier = Modifier.height(16.dp))
 
-                    // PLANS LIST
                     if (plans.isEmpty()) {
                         Text("No plans available at the moment.", color = Color.Red, fontSize = 14.sp)
                     } else {
@@ -341,7 +336,6 @@ fun PaymentDialog(
                                     }
                                     .addOnFailureListener {
                                         isLoading = false
-                                        // Handle error silently or show toast
                                     }
                             }
                         },
@@ -686,9 +680,9 @@ fun OnboardingScreen(theme: ThemeConfig, onComplete: () -> Unit) {
             Spacer(modifier = Modifier.height(32.dp))
             Button(
                 onClick = { if (pagerState.currentPage < 2) coroutineScope.launch { pagerState.animateScrollToPage(pagerState.currentPage + 1) } else onComplete() },
-                modifier = Modifier.fillMaxWidth().height(56.dp),
+                modifier = Modifier.fillMaxWidth().height(56.dp).shadow(8.dp, RoundedCornerShape(50), spotColor = theme.primary, ambientColor = theme.primary),
                 colors = ButtonDefaults.buttonColors(containerColor = theme.primary),
-                shape = RoundedCornerShape(12.dp)
+                shape = RoundedCornerShape(50)
             ) { Text(if (pagerState.currentPage < 2) "Next" else "Get Started", fontSize = 16.sp, fontWeight = FontWeight.Bold) }
         }
     }
@@ -696,31 +690,56 @@ fun OnboardingScreen(theme: ThemeConfig, onComplete: () -> Unit) {
 
 @Composable
 fun MaintenanceScreen(theme: ThemeConfig, message: String) {
-    Box(modifier = Modifier.fillMaxSize().background(Color(0xFF0B0C10)), contentAlignment = Alignment.Center) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(32.dp)) {
-            Icon(Icons.Default.Build, contentDescription = "Maintenance", tint = theme.primary, modifier = Modifier.size(80.dp))
-            Spacer(modifier = Modifier.height(24.dp))
-            Text("Under Maintenance", color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.Black, textAlign = TextAlign.Center)
-            Spacer(modifier = Modifier.height(16.dp))
-            Text(message, color = Color.Gray, fontSize = 16.sp, textAlign = TextAlign.Center)
-            Spacer(modifier = Modifier.height(32.dp))
-            CircularProgressIndicator(color = theme.primary)
+    Box(
+        modifier = Modifier.fillMaxSize().background(Brush.radialGradient(colors = listOf(Color(0xFF3A0004), Color(0xFF0B0C10), Color(0xFF0B0C10)), radius = 1200f)), 
+        contentAlignment = Alignment.Center
+    ) {
+        Card(
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF15171E).copy(alpha = 0.7f)),
+            shape = RoundedCornerShape(32.dp),
+            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.1f)),
+            modifier = Modifier.padding(32.dp)
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(32.dp)) {
+                Icon(Icons.Default.Build, contentDescription = "Maintenance", tint = theme.primary, modifier = Modifier.size(80.dp))
+                Spacer(modifier = Modifier.height(24.dp))
+                Text("Under Maintenance", color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.Black, textAlign = TextAlign.Center)
+                Spacer(modifier = Modifier.height(16.dp))
+                Text(message, color = Color.Gray, fontSize = 16.sp, textAlign = TextAlign.Center)
+                Spacer(modifier = Modifier.height(32.dp))
+                CircularProgressIndicator(color = theme.primary)
+            }
         }
     }
 }
 
 @Composable
 fun DeviceLimitScreen(theme: ThemeConfig, message: String, onLogout: () -> Unit) {
-    Box(modifier = Modifier.fillMaxSize().background(Color(0xFF0B0C10)), contentAlignment = Alignment.Center) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(32.dp)) {
-            Icon(Icons.Default.Devices, contentDescription = "Devices", tint = theme.primary, modifier = Modifier.size(80.dp))
-            Spacer(modifier = Modifier.height(24.dp))
-            Text("Device Limit Reached", color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.Black, textAlign = TextAlign.Center)
-            Spacer(modifier = Modifier.height(16.dp))
-            Text(message, color = Color.Gray, fontSize = 16.sp, textAlign = TextAlign.Center)
-            Spacer(modifier = Modifier.height(32.dp))
-            Button(onClick = onLogout, colors = ButtonDefaults.buttonColors(containerColor = theme.primary), shape = RoundedCornerShape(12.dp), modifier = Modifier.height(50.dp).fillMaxWidth(0.6f)) {
-                Text("Log Out", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+    Box(
+        modifier = Modifier.fillMaxSize().background(Brush.radialGradient(colors = listOf(Color(0xFF1A0002), Color(0xFF0B0C10)), radius = 1200f)), 
+        contentAlignment = Alignment.Center
+    ) {
+        Card(
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF15171E).copy(alpha = 0.7f)),
+            shape = RoundedCornerShape(32.dp),
+            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.1f)),
+            modifier = Modifier.padding(32.dp)
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(32.dp)) {
+                Icon(Icons.Default.Devices, contentDescription = "Devices", tint = theme.primary, modifier = Modifier.size(80.dp))
+                Spacer(modifier = Modifier.height(24.dp))
+                Text("Device Limit Reached", color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.Black, textAlign = TextAlign.Center)
+                Spacer(modifier = Modifier.height(16.dp))
+                Text(message, color = Color.Gray, fontSize = 16.sp, textAlign = TextAlign.Center)
+                Spacer(modifier = Modifier.height(32.dp))
+                Button(
+                    onClick = onLogout, 
+                    colors = ButtonDefaults.buttonColors(containerColor = theme.primary), 
+                    shape = RoundedCornerShape(50), 
+                    modifier = Modifier.height(56.dp).fillMaxWidth().shadow(12.dp, RoundedCornerShape(50), spotColor = theme.primary, ambientColor = theme.primary)
+                ) {
+                    Text("Log Out", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                }
             }
         }
     }
@@ -728,16 +747,31 @@ fun DeviceLimitScreen(theme: ThemeConfig, message: String, onLogout: () -> Unit)
 
 @Composable
 fun BannedScreen(theme: ThemeConfig, onLogout: () -> Unit) {
-    Box(modifier = Modifier.fillMaxSize().background(Color(0xFF0B0C10)), contentAlignment = Alignment.Center) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(32.dp)) {
-            Icon(Icons.Default.Block, contentDescription = "Banned", tint = Color.Red, modifier = Modifier.size(80.dp))
-            Spacer(modifier = Modifier.height(24.dp))
-            Text("Account Suspended", color = Color.Red, fontSize = 28.sp, fontWeight = FontWeight.Black, textAlign = TextAlign.Center)
-            Spacer(modifier = Modifier.height(16.dp))
-            Text("Your account has been banned by the administrator. If you believe this is a mistake, please contact support.", color = Color.Gray, fontSize = 16.sp, textAlign = TextAlign.Center)
-            Spacer(modifier = Modifier.height(32.dp))
-            Button(onClick = onLogout, colors = ButtonDefaults.buttonColors(containerColor = Color.Red), shape = RoundedCornerShape(12.dp), modifier = Modifier.height(50.dp).fillMaxWidth(0.6f)) {
-                Text("Log Out", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+    Box(
+        modifier = Modifier.fillMaxSize().background(Brush.radialGradient(colors = listOf(Color(0xFF2D0000), Color(0xFF0B0C10)), radius = 1200f)), 
+        contentAlignment = Alignment.Center
+    ) {
+        Card(
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF15171E).copy(alpha = 0.7f)),
+            shape = RoundedCornerShape(32.dp),
+            border = BorderStroke(1.dp, Color.Red.copy(alpha = 0.3f)),
+            modifier = Modifier.padding(32.dp)
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(32.dp)) {
+                Icon(Icons.Default.Block, contentDescription = "Banned", tint = Color.Red, modifier = Modifier.size(80.dp))
+                Spacer(modifier = Modifier.height(24.dp))
+                Text("Account Suspended", color = Color.Red, fontSize = 28.sp, fontWeight = FontWeight.Black, textAlign = TextAlign.Center)
+                Spacer(modifier = Modifier.height(16.dp))
+                Text("Your account has been banned by the administrator. If you believe this is a mistake, please contact support.", color = Color.Gray, fontSize = 16.sp, textAlign = TextAlign.Center)
+                Spacer(modifier = Modifier.height(32.dp))
+                Button(
+                    onClick = onLogout, 
+                    colors = ButtonDefaults.buttonColors(containerColor = Color.Red), 
+                    shape = RoundedCornerShape(50), 
+                    modifier = Modifier.height(56.dp).fillMaxWidth().shadow(12.dp, RoundedCornerShape(50), spotColor = Color.Red, ambientColor = Color.Red)
+                ) {
+                    Text("Log Out", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                }
             }
         }
     }
@@ -748,51 +782,64 @@ fun AppLockScreen(theme: ThemeConfig, savedPin: String, onUnlock: () -> Unit, on
     var inputPin by remember { mutableStateOf("") }
     var errorMsg by remember { mutableStateOf<String?>(null) }
 
-    Box(modifier = Modifier.fillMaxSize().background(Color(0xFF0B0C10)), contentAlignment = Alignment.Center) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Icon(Icons.Default.Lock, contentDescription = "Locked", tint = theme.primary, modifier = Modifier.size(64.dp))
-            Spacer(modifier = Modifier.height(16.dp))
-            Text("App Locked", color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Bold)
-            Text("Enter your 4-digit PIN", color = Color.Gray, fontSize = 14.sp)
-            Spacer(modifier = Modifier.height(24.dp))
+    Box(
+        modifier = Modifier.fillMaxSize().background(Brush.radialGradient(colors = listOf(Color(0xFF1A0002), Color(0xFF0B0C10)), radius = 1200f)), 
+        contentAlignment = Alignment.Center
+    ) {
+        Card(
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF15171E).copy(alpha = 0.7f)),
+            shape = RoundedCornerShape(32.dp),
+            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.1f)),
+            modifier = Modifier.padding(24.dp)
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(24.dp)) {
+                Icon(Icons.Default.Lock, contentDescription = "Locked", tint = theme.primary, modifier = Modifier.size(64.dp))
+                Spacer(modifier = Modifier.height(16.dp))
+                Text("App Locked", color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Bold)
+                Text("Enter your 4-digit PIN", color = Color.Gray, fontSize = 14.sp)
+                Spacer(modifier = Modifier.height(24.dp))
 
-            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                for (i in 0 until 4) {
-                    Box(modifier = Modifier.size(20.dp).clip(CircleShape).background(if (i < inputPin.length) theme.primary else Color.DarkGray))
-                }
-            }
-            Spacer(modifier = Modifier.height(8.dp))
-            if (errorMsg != null) { Text(errorMsg!!, color = Color.Red, fontSize = 12.sp) }
-            Spacer(modifier = Modifier.height(24.dp))
-
-            val keys = listOf(listOf("1", "2", "3"), listOf("4", "5", "6"), listOf("7", "8", "9"), listOf("", "0", "DEL"))
-            keys.forEach { row ->
-                Row(horizontalArrangement = Arrangement.spacedBy(16.dp), modifier = Modifier.padding(vertical = 8.dp)) {
-                    row.forEach { key ->
-                        if (key.isNotEmpty()) {
-                            Box(
-                                modifier = Modifier.size(70.dp).clip(CircleShape)
-                                    .background(if (key == "DEL") Color.DarkGray else Color(0xFF15171E))
-                                    .clickable {
-                                        if (key == "DEL") { if (inputPin.isNotEmpty()) inputPin = inputPin.dropLast(1) } 
-                                        else { if (inputPin.length < 4) inputPin += key }
-                                        errorMsg = null
-                                        if (inputPin.length == 4) {
-                                            if (inputPin == savedPin) onUnlock() 
-                                            else { errorMsg = "Incorrect PIN"; inputPin = "" }
-                                        }
-                                    },
-                                contentAlignment = Alignment.Center
-                            ) {
-                                if (key == "DEL") Icon(Icons.Default.Backspace, contentDescription = "Delete", tint = Color.White)
-                                else Text(key, color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Bold)
-                            }
-                        } else { Spacer(modifier = Modifier.size(70.dp)) }
+                Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                    for (i in 0 until 4) {
+                        Box(modifier = Modifier.size(20.dp).clip(CircleShape).background(if (i < inputPin.length) theme.primary else Color.DarkGray))
                     }
                 }
+                Spacer(modifier = Modifier.height(8.dp))
+                if (errorMsg != null) { Text(errorMsg!!, color = Color.Red, fontSize = 12.sp) }
+                Spacer(modifier = Modifier.height(24.dp))
+
+                val keys = listOf(listOf("1", "2", "3"), listOf("4", "5", "6"), listOf("7", "8", "9"), listOf("", "0", "DEL"))
+                keys.forEach { row ->
+                    Row(horizontalArrangement = Arrangement.spacedBy(16.dp), modifier = Modifier.padding(vertical = 8.dp)) {
+                        row.forEach { key ->
+                            if (key.isNotEmpty()) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(70.dp)
+                                        .clip(CircleShape)
+                                        .background(Color.White.copy(alpha = 0.05f))
+                                        .border(1.dp, Color.White.copy(alpha = 0.1f), CircleShape)
+                                        .clickable {
+                                            if (key == "DEL") { if (inputPin.isNotEmpty()) inputPin = inputPin.dropLast(1) } 
+                                            else { if (inputPin.length < 4) inputPin += key }
+                                            errorMsg = null
+                                            if (inputPin.length == 4) {
+                                                if (inputPin == savedPin) onUnlock() 
+                                                else { errorMsg = "Incorrect PIN"; inputPin = "" }
+                                            }
+                                        },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    if (key == "DEL") Icon(Icons.Default.Backspace, contentDescription = "Delete", tint = Color.White)
+                                    else Text(key, color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Bold)
+                                }
+                            } else { Spacer(modifier = Modifier.size(70.dp)) }
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.height(24.dp))
+                TextButton(onClick = onForgotPin) { Text("Forgot PIN? (Logs you out)", color = Color.Gray, fontSize = 12.sp) }
             }
-            Spacer(modifier = Modifier.height(24.dp))
-            TextButton(onClick = onForgotPin) { Text("Forgot PIN? (Logs you out)", color = Color.Gray, fontSize = 12.sp) }
         }
     }
 }
@@ -1019,7 +1066,7 @@ fun HomelandApp(
                         showAdultPinPrompt = false; pendingAdultMovie = null; adultPinInput = ""
                         if (movieToPlay != null) tryPlay(movieToPlay)
                     } else { Toast.makeText(context, "Incorrect PIN", Toast.LENGTH_SHORT).show(); adultPinInput = "" }
-                }, colors = ButtonDefaults.buttonColors(containerColor = Color.Red)) { Text("Unlock") }
+                }, colors = ButtonDefaults.buttonColors(containerColor = Color.Red), shape = RoundedCornerShape(50)) { Text("Unlock") }
             },
             dismissButton = { TextButton(onClick = { showAdultPinPrompt = false; pendingAdultMovie = null; adultPinInput = "" }) { Text("Cancel", color = Color.Gray) } },
             containerColor = Color(0xFF15171E)
@@ -1055,7 +1102,7 @@ fun HomelandApp(
                 Button(onClick = { 
                     showVipModal = false
                     showPaymentDialog = true 
-                }, colors = ButtonDefaults.buttonColors(containerColor = theme.primary)) { Text("Subscribe Now") }
+                }, colors = ButtonDefaults.buttonColors(containerColor = theme.primary), shape = RoundedCornerShape(50)) { Text("Subscribe Now") }
             },
             dismissButton = { TextButton(onClick = { showVipModal = false }) { Text("Cancel", color = Color.Gray) } },
             containerColor = Color(0xFF15171E)
@@ -1072,7 +1119,7 @@ fun HomelandApp(
                     val movie = pendingPlayMovie
                     showWifiWarning = false; pendingPlayMovie = null
                     if (movie != null) currentlyPlaying = movie
-                }, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE50914))) { Text("Continue Anyway") }
+                }, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE50914)), shape = RoundedCornerShape(50)) { Text("Continue Anyway") }
             },
             dismissButton = { TextButton(onClick = { showWifiWarning = false; pendingPlayMovie = null }) { Text("Cancel", color = Color.Gray) } },
             containerColor = Color(0xFF15171E)
@@ -1166,7 +1213,12 @@ fun ProfileSelectorScreen(theme: ThemeConfig, onProfileSelected: (String) -> Uni
                         modifier = Modifier.clickable { vibrate(context); onProfileSelected(profile) }
                     ) {
                         Box(
-                            modifier = Modifier.size(100.dp).clip(RoundedCornerShape(20.dp)).background(avatarColors[index % avatarColors.size].copy(alpha = 0.2f)).border(2.dp, avatarColors[index % avatarColors.size], RoundedCornerShape(20.dp)),
+                            modifier = Modifier
+                                .size(100.dp)
+                                .clip(RoundedCornerShape(24.dp))
+                                .background(avatarColors[index % avatarColors.size].copy(alpha = 0.1f))
+                                .border(2.dp, avatarColors[index % avatarColors.size], RoundedCornerShape(24.dp))
+                                .shadow(8.dp, RoundedCornerShape(24.dp), spotColor = avatarColors[index % avatarColors.size]),
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(avatarIcons[index % avatarIcons.size], contentDescription = profile, tint = avatarColors[index % avatarColors.size], modifier = Modifier.size(50.dp))
@@ -1181,8 +1233,8 @@ fun ProfileSelectorScreen(theme: ThemeConfig, onProfileSelected: (String) -> Uni
             Button(
                 onClick = { vibrate(context); onProfileSelected("New Profile") }, 
                 colors = ButtonDefaults.buttonColors(containerColor = theme.primary),
-                shape = RoundedCornerShape(12.dp),
-                modifier = Modifier.height(50.dp)
+                shape = RoundedCornerShape(50),
+                modifier = Modifier.height(50.dp).shadow(8.dp, RoundedCornerShape(50), spotColor = theme.primary, ambientColor = theme.primary)
             ) { Text("Add Profile", fontWeight = FontWeight.Bold) }
         }
     }
@@ -1198,33 +1250,50 @@ fun DownloadsScreen(theme: ThemeConfig, onBack: () -> Unit, onPlay: (Movie) -> U
         downloadedFiles = dir?.listFiles()?.filter { it.extension == "mp4" } ?: emptyList()
     }
 
-    Column(modifier = Modifier.fillMaxSize().padding(16.dp).systemBarsPadding()) {
-        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 16.dp)) {
-            IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, "Back", tint = Color.White) }
-            Text("My Downloads", color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Bold)
-        }
-        
-        if (downloadedFiles.isEmpty()) {
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(Icons.Default.Download, contentDescription = "Empty", tint = Color.DarkGray, modifier = Modifier.size(64.dp))
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Text("No in-app downloads found.", color = Color.Gray, fontSize = 16.sp)
-                }
+    Box(
+        modifier = Modifier.fillMaxSize().background(Brush.radialGradient(colors = listOf(Color(0xFF1A0002), Color(0xFF0B0C10)), radius = 1200f))
+    ) {
+        Column(modifier = Modifier.fillMaxSize().padding(16.dp).systemBarsPadding()) {
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 16.dp)) {
+                IconButton(onClick = onBack, modifier = Modifier.background(Color.White.copy(alpha = 0.1f), CircleShape)) { Icon(Icons.Default.ArrowBack, "Back", tint = Color.White) }
+                Spacer(modifier = Modifier.width(12.dp))
+                Text("My Downloads", color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Bold)
             }
-        } else {
-            LazyColumn(modifier = Modifier.fillMaxSize()) {
-                items(downloadedFiles) { file ->
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp).background(Color(0xFF15171E), RoundedCornerShape(12.dp)).clickable { vibrate(context); onPlay(Movie(title = file.nameWithoutExtension, videoUrl = file.absolutePath)) }.padding(16.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(Icons.Default.Movie, contentDescription = "Movie", tint = theme.primary, modifier = Modifier.size(32.dp))
-                        Spacer(modifier = Modifier.width(16.dp))
-                        Column {
-                            Text(file.name, color = Color.White, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            val sizeInMb = file.length() / (1024 * 1024)
-                            Text("$sizeInMb MB", color = Color.Gray, fontSize = 12.sp)
+            
+            if (downloadedFiles.isEmpty()) {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Icon(Icons.Default.Download, contentDescription = "Empty", tint = Color.DarkGray, modifier = Modifier.size(64.dp))
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text("No in-app downloads found.", color = Color.Gray, fontSize = 16.sp)
+                    }
+                }
+            } else {
+                LazyColumn(modifier = Modifier.fillMaxSize()) {
+                    items(downloadedFiles) { file ->
+                        Card(
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp).clickable { vibrate(context); onPlay(Movie(title = file.nameWithoutExtension, videoUrl = file.absolutePath)) },
+                            colors = CardDefaults.cardColors(containerColor = Color(0xFF15171E).copy(alpha = 0.7f)),
+                            shape = RoundedCornerShape(16.dp),
+                            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.1f))
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(16.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Box(
+                                    modifier = Modifier.size(40.dp).clip(CircleShape).background(theme.primary.copy(alpha = 0.2f)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(Icons.Default.Movie, contentDescription = "Movie", tint = theme.primary, modifier = Modifier.size(24.dp))
+                                }
+                                Spacer(modifier = Modifier.width(16.dp))
+                                Column {
+                                    Text(file.name, color = Color.White, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    val sizeInMb = file.length() / (1024 * 1024)
+                                    Text("$sizeInMb MB", color = Color.Gray, fontSize = 12.sp)
+                                }
+                            }
                         }
                     }
                 }
@@ -1626,7 +1695,7 @@ fun ProfileScreen(
                 Button(onClick = {
                     if (admin2faInput == dbAdminPin) { showAdminPanel = true; showAdmin2faDialog = false; admin2faInput = ""; admin2faError = null } 
                     else { admin2faError = "Incorrect Admin PIN"; admin2faInput = "" }
-                }, colors = ButtonDefaults.buttonColors(containerColor = theme.primary)) { Text("Unlock") }
+                }, colors = ButtonDefaults.buttonColors(containerColor = theme.primary), shape = RoundedCornerShape(50)) { Text("Unlock") }
             },
             dismissButton = { TextButton(onClick = { showAdmin2faDialog = false; admin2faInput = ""; admin2faError = null }) { Text("Cancel", color = Color.Gray) } },
             containerColor = Color(0xFF15171E)
@@ -1651,7 +1720,7 @@ fun ProfileScreen(
                             couponCode = ""; showCouponDialog = false; onSwitchProfile() 
                         } else { Toast.makeText(context, "Invalid or used code.", Toast.LENGTH_SHORT).show() }
                     }
-                }, colors = ButtonDefaults.buttonColors(containerColor = theme.primary)) { Text("Redeem") }
+                }, colors = ButtonDefaults.buttonColors(containerColor = theme.primary), shape = RoundedCornerShape(50)) { Text("Redeem") }
             },
             dismissButton = { TextButton(onClick = { showCouponDialog = false }) { Text("Cancel", color = Color.Gray) } },
             containerColor = Color(0xFF15171E)
@@ -1679,7 +1748,7 @@ fun ProfileScreen(
                         if (newPinInput.length == 4) { prefs.edit().putString("app_pin", newPinInput).apply(); Toast.makeText(context, "App Lock Enabled!", Toast.LENGTH_SHORT).show(); showPinDialog = false; newPinInput = ""; onSwitchProfile() } 
                         else { Toast.makeText(context, "PIN must be 4 digits", Toast.LENGTH_SHORT).show() }
                     }
-                }, colors = ButtonDefaults.buttonColors(containerColor = if (savedPin != null) Color.Red else Color(0xFF25D366))) { Text(if (savedPin != null) "Remove" else "Save PIN") }
+                }, colors = ButtonDefaults.buttonColors(containerColor = if (savedPin != null) Color.Red else Color(0xFF25D366)), shape = RoundedCornerShape(50)) { Text(if (savedPin != null) "Remove" else "Save PIN") }
             },
             dismissButton = { TextButton(onClick = { showPinDialog = false; newPinInput = "" }) { Text("Cancel", color = Color.Gray) } },
             containerColor = Color(0xFF15171E)
@@ -1716,7 +1785,7 @@ fun ProfileScreen(
                             }
                         }
                     } else { Toast.makeText(context, "Please enter 6 digits and your password", Toast.LENGTH_SHORT).show() }
-                }, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE50914))) { Text("Authorize") }
+                }, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE50914)), shape = RoundedCornerShape(50)) { Text("Authorize") }
             },
             dismissButton = { TextButton(onClick = { showTvDialog = false }) { Text("Cancel", color = Color.Gray) } },
             containerColor = Color(0xFF15171E)
@@ -1768,7 +1837,7 @@ fun TVRemoteConnectDialog(theme: ThemeConfig, onDismiss: () -> Unit) {
 
     Dialog(onDismissRequest = onDismiss) {
         Surface(
-            shape = RoundedCornerShape(24.dp),
+            shape = RoundedCornerShape(32.dp),
             color = Color(0xFF0B0C10),
             modifier = Modifier.fillMaxWidth().fillMaxHeight(0.92f)
         ) {
@@ -1795,6 +1864,7 @@ fun TVRemoteConnectDialog(theme: ThemeConfig, onDismiss: () -> Unit) {
                         placeholder = { Text("Enter 6-digit code", color = Color.Gray) },
                         modifier = Modifier.fillMaxWidth(),
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        shape = RoundedCornerShape(50),
                         colors = OutlinedTextFieldDefaults.colors(
                             focusedTextColor = Color.White,
                             unfocusedTextColor = Color.White,
@@ -1834,9 +1904,9 @@ fun TVRemoteConnectDialog(theme: ThemeConfig, onDismiss: () -> Unit) {
                             }
                         },
                         enabled = !isConnecting,
-                        modifier = Modifier.fillMaxWidth().height(52.dp),
+                        modifier = Modifier.fillMaxWidth().height(56.dp).shadow(12.dp, RoundedCornerShape(50), spotColor = theme.primary, ambientColor = theme.primary),
                         colors = ButtonDefaults.buttonColors(containerColor = theme.primary),
-                        shape = RoundedCornerShape(12.dp)
+                        shape = RoundedCornerShape(50)
                     ) {
                         if (isConnecting) CircularProgressIndicator(color = Color.White, modifier = Modifier.size(22.dp))
                         else Text("Connect", fontSize = 16.sp, fontWeight = FontWeight.Bold)
@@ -1887,7 +1957,7 @@ fun TVRemoteConnectDialog(theme: ThemeConfig, onDismiss: () -> Unit) {
                     
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Box(
-                            modifier = Modifier.size(60.dp).clip(CircleShape).background(Color(0xFF15171E)).clickable { sendCommand("dpad_up") },
+                            modifier = Modifier.size(60.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.1f)).clickable { sendCommand("dpad_up") },
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(Icons.Default.KeyboardArrowUp, "Up", tint = Color.White, modifier = Modifier.size(36.dp))
@@ -1895,7 +1965,7 @@ fun TVRemoteConnectDialog(theme: ThemeConfig, onDismiss: () -> Unit) {
                         Spacer(modifier = Modifier.height(4.dp))
                         Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
                             Box(
-                                modifier = Modifier.size(60.dp).clip(CircleShape).background(Color(0xFF15171E)).clickable { sendCommand("dpad_left") },
+                                modifier = Modifier.size(60.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.1f)).clickable { sendCommand("dpad_left") },
                                 contentAlignment = Alignment.Center
                             ) {
                                 Icon(Icons.Default.KeyboardArrowLeft, "Left", tint = Color.White, modifier = Modifier.size(36.dp))
@@ -1907,7 +1977,7 @@ fun TVRemoteConnectDialog(theme: ThemeConfig, onDismiss: () -> Unit) {
                                 Text("OK", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Black)
                             }
                             Box(
-                                modifier = Modifier.size(60.dp).clip(CircleShape).background(Color(0xFF15171E)).clickable { sendCommand("dpad_right") },
+                                modifier = Modifier.size(60.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.1f)).clickable { sendCommand("dpad_right") },
                                 contentAlignment = Alignment.Center
                             ) {
                                 Icon(Icons.Default.KeyboardArrowRight, "Right", tint = Color.White, modifier = Modifier.size(36.dp))
@@ -1915,7 +1985,7 @@ fun TVRemoteConnectDialog(theme: ThemeConfig, onDismiss: () -> Unit) {
                         }
                         Spacer(modifier = Modifier.height(4.dp))
                         Box(
-                            modifier = Modifier.size(60.dp).clip(CircleShape).background(Color(0xFF15171E)).clickable { sendCommand("dpad_down") },
+                            modifier = Modifier.size(60.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.1f)).clickable { sendCommand("dpad_down") },
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(Icons.Default.KeyboardArrowDown, "Down", tint = Color.White, modifier = Modifier.size(36.dp))
@@ -1929,28 +1999,28 @@ fun TVRemoteConnectDialog(theme: ThemeConfig, onDismiss: () -> Unit) {
                     
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
                         Box(
-                            modifier = Modifier.size(60.dp).clip(CircleShape).background(Color(0xFF15171E)).clickable { sendCommand("back") },
+                            modifier = Modifier.size(60.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.1f)).clickable { sendCommand("back") },
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(Icons.Default.ArrowBack, "Back", tint = Color.White, modifier = Modifier.size(28.dp))
                         }
                         
                         Box(
-                            modifier = Modifier.size(72.dp).clip(CircleShape).background(Color(0xFF15171E)).clickable { sendCommand("toggle_play") },
+                            modifier = Modifier.size(72.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.1f)).clickable { sendCommand("toggle_play") },
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(Icons.Default.PlayArrow, "Play/Pause", tint = Color.White, modifier = Modifier.size(36.dp))
                         }
                         
                         Box(
-                            modifier = Modifier.size(60.dp).clip(CircleShape).background(Color(0xFF15171E)).clickable { sendCommand("volume_up") },
+                            modifier = Modifier.size(60.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.1f)).clickable { sendCommand("volume_up") },
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(Icons.Default.VolumeUp, "Volume Up", tint = Color.White, modifier = Modifier.size(28.dp))
                         }
                         
                         Box(
-                            modifier = Modifier.size(60.dp).clip(CircleShape).background(Color(0xFF15171E)).clickable { sendCommand("volume_down") },
+                            modifier = Modifier.size(60.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.1f)).clickable { sendCommand("volume_down") },
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(Icons.Default.VolumeDown, "Volume Down", tint = Color.White, modifier = Modifier.size(28.dp))
@@ -1967,6 +2037,7 @@ fun TVRemoteConnectDialog(theme: ThemeConfig, onDismiss: () -> Unit) {
                             onValueChange = { searchInput = it },
                             placeholder = { Text("Type movie name...", color = Color.Gray, fontSize = 13.sp) },
                             modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(50),
                             colors = OutlinedTextFieldDefaults.colors(
                                 focusedTextColor = Color.White,
                                 unfocusedTextColor = Color.White,
@@ -1978,8 +2049,8 @@ fun TVRemoteConnectDialog(theme: ThemeConfig, onDismiss: () -> Unit) {
                         Button(
                             onClick = { sendCommand("search", searchInput); searchInput = "" },
                             colors = ButtonDefaults.buttonColors(containerColor = theme.primary),
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier.height(56.dp)
+                            shape = RoundedCornerShape(50),
+                            modifier = Modifier.height(56.dp).shadow(8.dp, RoundedCornerShape(50), spotColor = theme.primary)
                         ) {
                             Icon(Icons.Default.Search, "Search", tint = Color.White)
                         }
@@ -1995,7 +2066,12 @@ fun TVRemoteConnectDialog(theme: ThemeConfig, onDismiss: () -> Unit) {
 @Composable
 fun RemoteTabButton(icon: ImageVector, label: String, onClick: () -> Unit, theme: ThemeConfig, modifier: Modifier = Modifier) {
     Column(
-        modifier = modifier.clip(RoundedCornerShape(12.dp)).background(Color(0xFF15171E)).clickable { onClick() }.padding(vertical = 12.dp),
+        modifier = modifier
+            .clip(RoundedCornerShape(16.dp))
+            .background(Color.White.copy(alpha = 0.05f))
+            .border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(16.dp))
+            .clickable { onClick() }
+            .padding(vertical = 12.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Icon(icon, contentDescription = label, tint = theme.primary, modifier = Modifier.size(22.dp))
@@ -2004,6 +2080,7 @@ fun RemoteTabButton(icon: ImageVector, label: String, onClick: () -> Unit, theme
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MovieDetailsScreen(movie: Movie, userVipExpiry: Long, onShowVipModal: () -> Unit, onPlay: (Movie) -> Unit, onBack: () -> Unit) {
     val isLocked = movie.isVip && userVipExpiry < System.currentTimeMillis()
@@ -2022,10 +2099,10 @@ fun MovieDetailsScreen(movie: Movie, userVipExpiry: Long, onShowVipModal: () -> 
             title = { Text("Download Options", color = Color.White) },
             text = { Text("Where would you like to save this video?", color = Color.Gray) },
             confirmButton = {
-                Button(onClick = { downloadFile(context, downloadUrlToUse, "$downloadTitleToUse.mp4", saveToPublic = true); showDownloadDialog = false }, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE50914))) { Text("Direct to Phone") }
+                Button(onClick = { downloadFile(context, downloadUrlToUse, "$downloadTitleToUse.mp4", saveToPublic = true); showDownloadDialog = false }, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE50914)), shape = RoundedCornerShape(50)) { Text("Direct to Phone") }
             },
             dismissButton = {
-                Button(onClick = { downloadFile(context, downloadUrlToUse, "$downloadTitleToUse.mp4", saveToPublic = false); showDownloadDialog = false }, colors = ButtonDefaults.buttonColors(containerColor = Color.DarkGray)) { Text("In-App Download") }
+                Button(onClick = { downloadFile(context, downloadUrlToUse, "$downloadTitleToUse.mp4", saveToPublic = false); showDownloadDialog = false }, colors = ButtonDefaults.buttonColors(containerColor = Color.DarkGray), shape = RoundedCornerShape(50)) { Text("In-App Download") }
             },
             containerColor = Color(0xFF15171E)
         )
@@ -2035,29 +2112,60 @@ fun MovieDetailsScreen(movie: Movie, userVipExpiry: Long, onShowVipModal: () -> 
         SubcomposeAsyncImage(model = ImageRequest.Builder(LocalContext.current).data(movie.poster).crossfade(true).build(), contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize().blur(40.dp), loading = { Box(modifier = Modifier.fillMaxSize().background(Color.Black)) }, error = { Box(modifier = Modifier.fillMaxSize().background(Color.Black)) })
         Box(modifier = Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.6f), Color.Black.copy(alpha = 0.95f)))))
 
-        Column(modifier = Modifier.fillMaxSize().systemBarsPadding()) {
-            Row(modifier = Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = onBack, modifier = Modifier.background(Color.White.copy(alpha = 0.1f), CircleShape)) { Icon(Icons.Default.ArrowBack, "Back", tint = Color.White) }
-                Spacer(modifier = Modifier.width(12.dp))
-                Text("Details", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+        LazyColumn(
+            modifier = Modifier.fillMaxSize().systemBarsPadding(),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            item {
+                Row(modifier = Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(onClick = onBack, modifier = Modifier.background(Color.White.copy(alpha = 0.1f), CircleShape).border(1.dp, Color.White.copy(alpha = 0.1f), CircleShape)) { Icon(Icons.Default.ArrowBack, "Back", tint = Color.White) }
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Text("Details", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                }
             }
 
-            Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            item {
                 Spacer(modifier = Modifier.height(16.dp))
-                SubcomposeAsyncImage(model = ImageRequest.Builder(LocalContext.current).data(movie.poster).crossfade(true).build(), contentDescription = movie.title, contentScale = ContentScale.Crop, modifier = Modifier.width(200.dp).aspectRatio(2f / 3f).clip(RoundedCornerShape(16.dp)).border(1.dp, Color.White.copy(alpha = 0.2f), RoundedCornerShape(16.dp)), loading = { ShimmerBox(modifier = Modifier.fillMaxSize()) }, error = { Box(modifier = Modifier.fillMaxSize().background(Color(0xFF15171E)), contentAlignment = Alignment.Center) { Icon(Icons.Default.Movie, null, tint = Color.Gray) } })
+                SubcomposeAsyncImage(
+                    model = ImageRequest.Builder(LocalContext.current).data(movie.poster).crossfade(true).build(), 
+                    contentDescription = movie.title, 
+                    contentScale = ContentScale.Crop, 
+                    modifier = Modifier
+                        .width(220.dp)
+                        .aspectRatio(2f / 3f)
+                        .clip(RoundedCornerShape(24.dp))
+                        .border(1.dp, Color.White.copy(alpha = 0.2f), RoundedCornerShape(24.dp))
+                        .shadow(16.dp, RoundedCornerShape(24.dp), spotColor = Color.Black), 
+                    loading = { ShimmerBox(modifier = Modifier.fillMaxSize()) }, 
+                    error = { Box(modifier = Modifier.fillMaxSize().background(Color(0xFF15171E)), contentAlignment = Alignment.Center) { Icon(Icons.Default.Movie, null, tint = Color.Gray) } }
+                )
                 Spacer(modifier = Modifier.height(24.dp))
-                
-                Text(movie.title, color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.Black, textAlign = TextAlign.Center)
-                Spacer(modifier = Modifier.height(8.dp))
-                Text("${movie.videoTag} • ${movie.year} • ${movie.category}", color = Color.LightGray, fontSize = 14.sp, textAlign = TextAlign.Center)
-                
-                if (movie.isAdult) { Spacer(modifier = Modifier.height(8.dp)); Text("🔞 18+ Restricted", color = Color.Red, fontSize = 14.sp, fontWeight = FontWeight.Bold) }
+            }
 
-                Spacer(modifier = Modifier.height(24.dp))
+            item {
+                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(horizontal = 24.dp)) {
+                    Text(movie.title, color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.Black, textAlign = TextAlign.Center)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text("${movie.videoTag} • ${movie.year} • ${movie.category}", color = Color.LightGray, fontSize = 14.sp, textAlign = TextAlign.Center)
+                    if (movie.isAdult) { 
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Box(modifier = Modifier.background(Color.Red.copy(alpha = 0.2f), RoundedCornerShape(8.dp)).border(1.dp, Color.Red, RoundedCornerShape(8.dp)).padding(horizontal = 12.dp, vertical = 4.dp)) {
+                            Text("🔞 18+ Restricted", color = Color.Red, fontSize = 14.sp, fontWeight = FontWeight.Bold) 
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(24.dp))
+                }
+            }
 
+            item {
                 if (!isSeries) {
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Button(onClick = { vibrate(context, true); onPlay(movie) }, modifier = Modifier.weight(1f).height(56.dp), colors = ButtonDefaults.buttonColors(containerColor = Color.White), shape = RoundedCornerShape(12.dp)) {
+                    Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Button(
+                            onClick = { vibrate(context, true); onPlay(movie) }, 
+                            modifier = Modifier.weight(1f).height(56.dp).shadow(12.dp, RoundedCornerShape(50), spotColor = Color.White, ambientColor = Color.White), 
+                            colors = ButtonDefaults.buttonColors(containerColor = Color.White), 
+                            shape = RoundedCornerShape(50)
+                        ) {
                             Icon(Icons.Default.PlayArrow, null, tint = Color.Black, modifier = Modifier.size(28.dp)); Spacer(modifier = Modifier.width(8.dp)); Text(if (isLocked) "Unlock VIP" else "Play Now", color = Color.Black, fontSize = 16.sp, fontWeight = FontWeight.Bold)
                         }
                         
@@ -2071,9 +2179,9 @@ fun MovieDetailsScreen(movie: Movie, userVipExpiry: Long, onShowVipModal: () -> 
                                     onShowVipModal()
                                 }
                             }, 
-                            modifier = Modifier.height(56.dp).width(60.dp), 
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF15171E)), 
-                            shape = RoundedCornerShape(12.dp), 
+                            modifier = Modifier.height(56.dp).width(64.dp).border(1.dp, Color.White.copy(alpha = 0.2f), RoundedCornerShape(50)), 
+                            colors = ButtonDefaults.buttonColors(containerColor = Color.White.copy(alpha = 0.1f)), 
+                            shape = RoundedCornerShape(50), 
                             contentPadding = PaddingValues(0.dp)
                         ) {
                             Box(contentAlignment = Alignment.TopEnd) {
@@ -2085,15 +2193,36 @@ fun MovieDetailsScreen(movie: Movie, userVipExpiry: Long, onShowVipModal: () -> 
                         }
                     }
                 }
-                Spacer(modifier = Modifier.height(24.dp))
+                Spacer(modifier = Modifier.height(32.dp))
             }
 
             if (isSeries) {
-                Text("Episodes", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp))
-                LazyColumn(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
-                    items(movie.episodes) { ep ->
-                        val epLabel = "${ep.season} • ${ep.episode}"
-                        Row(modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp).background(if (selectedEpisode == ep) Color.White else Color(0xFF15171E), RoundedCornerShape(12.dp)).clickable { vibrate(context); if (isLocked) onPlay(movie) else { selectedEpisode = ep; onPlay(Movie(title = "$epLabel - ${movie.title}", videoUrl = ep.url, subtitleUrl = ep.subtitleUrl, isAdult = movie.isAdult)) } }.padding(horizontal = 16.dp, vertical = 12.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                item {
+                    Text("Episodes", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold, modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 8.dp))
+                }
+                items(movie.episodes) { ep ->
+                    val epLabel = "${ep.season} • ${ep.episode}"
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 24.dp, vertical = 6.dp)
+                            .clickable { 
+                                vibrate(context)
+                                if (isLocked) onPlay(movie) 
+                                else { 
+                                    selectedEpisode = ep
+                                    onPlay(Movie(title = "$epLabel - ${movie.title}", videoUrl = ep.url, subtitleUrl = ep.subtitleUrl, isAdult = movie.isAdult)) 
+                                } 
+                            },
+                        colors = CardDefaults.cardColors(containerColor = if (selectedEpisode == ep) Color.White else Color(0xFF15171E).copy(alpha = 0.7f)),
+                        border = BorderStroke(1.dp, if (selectedEpisode == ep) Color.White else Color.White.copy(alpha = 0.1f)),
+                        shape = RoundedCornerShape(16.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 16.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
                             Text(epLabel, color = if (selectedEpisode == ep) Color.Black else Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Icon(Icons.Default.PlayArrow, "Play", tint = if (selectedEpisode == ep) Color.Black else Color.White)
@@ -2284,8 +2413,8 @@ fun HomeScreen(
                                 Row(verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Default.Star, null, tint = Color(0xFFFCDC04), modifier = Modifier.size(14.dp)); Text(" 4.0  •  ${movie.year}  •  ${movie.videoTag}", color = Color.LightGray, fontSize = 12.sp) }
                                 Spacer(modifier = Modifier.height(12.dp))
                                 Row {
-                                    Button(onClick = { vibrate(context, true); onDetails(movie) }, colors = ButtonDefaults.buttonColors(containerColor = Color.White), shape = RoundedCornerShape(8.dp), modifier = Modifier.padding(end = 8.dp)) { Icon(Icons.Default.PlayArrow, null, tint = Color.Black); Text("Play Now", color = Color.Black, fontWeight = FontWeight.Bold) }
-                                    OutlinedButton(onClick = { onDetails(movie) }, shape = RoundedCornerShape(8.dp), colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)) { Icon(Icons.Default.Info, null); Text("Details") }
+                                    Button(onClick = { vibrate(context, true); onDetails(movie) }, colors = ButtonDefaults.buttonColors(containerColor = Color.White), shape = RoundedCornerShape(50), modifier = Modifier.padding(end = 8.dp)) { Icon(Icons.Default.PlayArrow, null, tint = Color.Black); Text("Play Now", color = Color.Black, fontWeight = FontWeight.Bold) }
+                                    OutlinedButton(onClick = { onDetails(movie) }, shape = RoundedCornerShape(50), colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White), border = BorderStroke(1.dp, Color.White.copy(alpha = 0.5f))) { Icon(Icons.Default.Info, null); Text("Details") }
                                 }
                             }
                         }
@@ -2413,10 +2542,24 @@ fun MyListScreen(theme: ThemeConfig, profileName: String, userVipExpiry: Long, k
     }
 
     Column(modifier = Modifier.fillMaxSize().padding(16.dp).systemBarsPadding()) {
-        Text("My List ($profileName)", color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 16.dp))
-        if (favMovies.isEmpty()) Text("Your list is empty. Add favorites from Home.", color = Color.Gray)
-        else LazyVerticalGrid(columns = GridCells.Adaptive(110.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            items(favMovies) { movie -> MovieCard(movie, theme, profileName, userVipExpiry, onDetails) }
+        Row(modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(modifier = Modifier.size(32.dp).background(theme.primary, RoundedCornerShape(8.dp)), contentAlignment = Alignment.Center) { Icon(Icons.Default.Favorite, null, tint = Color.White, modifier = Modifier.size(20.dp)) }
+            Spacer(modifier = Modifier.width(12.dp))
+            Text("My List ($profileName)", color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Bold)
+        }
+        
+        if (favMovies.isEmpty()) {
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(Icons.Default.FavoriteBorder, null, tint = Color.DarkGray, modifier = Modifier.size(64.dp))
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text("Your list is empty. Add favorites from Home.", color = Color.Gray)
+                }
+            }
+        } else {
+            LazyVerticalGrid(columns = GridCells.Adaptive(110.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                items(favMovies) { movie -> MovieCard(movie, theme, profileName, userVipExpiry, onDetails) }
+            }
         }
     }
 }
