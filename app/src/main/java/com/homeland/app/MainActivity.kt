@@ -777,7 +777,29 @@ fun HomelandApp(
         if (deepLinkMovieId != null) {
             db.collection("homeland_movies").document(deepLinkMovieId).get().addOnSuccessListener { doc ->
                 if (doc.exists()) {
-                    val movie = Movie(id = doc.id, title = doc.getString("title") ?: "", poster = doc.getString("poster") ?: "", videoUrl = doc.getString("videoUrl") ?: "", category = doc.getString("category") ?: "", videoTag = doc.getString("videoTag") ?: "", year = doc.getString("year") ?: "", isVip = doc.getBoolean("isVip") ?: false, isFeatured = doc.getBoolean("isFeatured") ?: false, isAdult = doc.getBoolean("isAdult") ?: false, subtitleUrl = doc.getString("subtitleUrl") ?: "")
+                    val episodes = (doc.get("episodes") as? List<Map<String, Any>>)?.map {
+                        Episode(
+                            season = it["season"] as? String ?: "",
+                            episode = it["episode"] as? String ?: "",
+                            url = it["url"] as? String ?: "",
+                            subtitleUrl = it["subtitleUrl"] as? String ?: ""
+                        )
+                    } ?: emptyList()
+                    
+                    val movie = Movie(
+                        id = doc.id, 
+                        title = doc.getString("title") ?: "", 
+                        poster = doc.getString("poster") ?: "", 
+                        videoUrl = doc.getString("videoUrl") ?: "", 
+                        category = doc.getString("category") ?: "", 
+                        videoTag = doc.getString("videoTag") ?: "", 
+                        year = doc.getString("year") ?: "", 
+                        isVip = doc.getBoolean("isVip") ?: false, 
+                        isFeatured = doc.getBoolean("isFeatured") ?: false, 
+                        isAdult = doc.getBoolean("isAdult") ?: false, 
+                        subtitleUrl = doc.getString("subtitleUrl") ?: "",
+                        episodes = episodes
+                    )
                     viewingDetails = movie 
                 }
                 onDeepLinkHandled() 
@@ -828,6 +850,7 @@ fun HomelandApp(
     if (viewingDetails != null) {
         MovieDetailsScreen(
             movie = viewingDetails!!, userVipExpiry = userVipExpiry,
+            onShowVipModal = { showVipModal = true },
             onPlay = { movieToPlay -> 
                 if (movieToPlay.isVip && userVipExpiry < System.currentTimeMillis()) showVipModal = true
                 else if (movieToPlay.isAdult && savedPin != null) { pendingAdultMovie = movieToPlay; showAdultPinPrompt = true } 
@@ -1145,7 +1168,23 @@ fun ProfileScreen(
             }
             db.collection("homeland_movies").limit(20).get().addOnSuccessListener { moviesSnap ->
                 profileHistory = moviesSnap.documents.mapNotNull {
-                    val m = Movie(id = it.id, title = it.getString("title") ?: "", poster = it.getString("poster") ?: "", videoUrl = it.getString("videoUrl") ?: "", isVip = it.getBoolean("isVip") ?: false)
+                    val episodes = (it.get("episodes") as? List<Map<String, Any>>)?.map { ep ->
+                        Episode(
+                            season = ep["season"] as? String ?: "",
+                            episode = ep["episode"] as? String ?: "",
+                            url = ep["url"] as? String ?: "",
+                            subtitleUrl = ep["subtitleUrl"] as? String ?: ""
+                        )
+                    } ?: emptyList()
+
+                    val m = Movie(
+                        id = it.id, 
+                        title = it.getString("title") ?: "", 
+                        poster = it.getString("poster") ?: "", 
+                        videoUrl = it.getString("videoUrl") ?: "", 
+                        isVip = it.getBoolean("isVip") ?: false,
+                        episodes = episodes
+                    )
                     val progress = historyMap[m.id]
                     if (progress != null) Pair(m, progress) else null
                 }
@@ -1694,8 +1733,9 @@ fun RemoteTabButton(icon: ImageVector, label: String, onClick: () -> Unit, theme
 }
 
 @Composable
-fun MovieDetailsScreen(movie: Movie, userVipExpiry: Long, onPlay: (Movie) -> Unit, onBack: () -> Unit) {
+fun MovieDetailsScreen(movie: Movie, userVipExpiry: Long, onShowVipModal: () -> Unit, onPlay: (Movie) -> Unit, onBack: () -> Unit) {
     val isLocked = movie.isVip && userVipExpiry < System.currentTimeMillis()
+    val isVipUser = userVipExpiry > System.currentTimeMillis()
     val isSeries = movie.episodes.isNotEmpty()
     var selectedEpisode by remember { mutableStateOf<Episode?>(null) }
     val context = LocalContext.current
@@ -1748,8 +1788,28 @@ fun MovieDetailsScreen(movie: Movie, userVipExpiry: Long, onPlay: (Movie) -> Uni
                         Button(onClick = { vibrate(context, true); onPlay(movie) }, modifier = Modifier.weight(1f).height(56.dp), colors = ButtonDefaults.buttonColors(containerColor = Color.White), shape = RoundedCornerShape(12.dp)) {
                             Icon(Icons.Default.PlayArrow, null, tint = Color.Black, modifier = Modifier.size(28.dp)); Spacer(modifier = Modifier.width(8.dp)); Text(if (isLocked) "Unlock VIP" else "Play Now", color = Color.Black, fontSize = 16.sp, fontWeight = FontWeight.Bold)
                         }
-                        Button(onClick = { downloadUrlToUse = movie.videoUrl; downloadTitleToUse = movie.title; showDownloadDialog = true }, modifier = Modifier.height(56.dp).width(60.dp), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF15171E)), shape = RoundedCornerShape(12.dp), contentPadding = PaddingValues(0.dp)) {
-                            Icon(Icons.Default.Download, null, tint = Color.White)
+                        
+                        Button(
+                            onClick = { 
+                                if (isVipUser) {
+                                    downloadUrlToUse = movie.videoUrl
+                                    downloadTitleToUse = movie.title
+                                    showDownloadDialog = true 
+                                } else {
+                                    onShowVipModal()
+                                }
+                            }, 
+                            modifier = Modifier.height(56.dp).width(60.dp), 
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF15171E)), 
+                            shape = RoundedCornerShape(12.dp), 
+                            contentPadding = PaddingValues(0.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.TopEnd) {
+                                Icon(Icons.Default.Download, null, tint = Color.White, modifier = Modifier.padding(top = 8.dp))
+                                Box(modifier = Modifier.padding(4.dp).background(Color(0xFFE50914), RoundedCornerShape(4.dp)).padding(horizontal = 3.dp, vertical = 1.dp)) {
+                                    Text("PRO", color = Color.White, fontSize = 7.sp, fontWeight = FontWeight.Black)
+                                }
+                            }
                         }
                     }
                 }
@@ -1766,7 +1826,15 @@ fun MovieDetailsScreen(movie: Movie, userVipExpiry: Long, onPlay: (Movie) -> Uni
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Icon(Icons.Default.PlayArrow, "Play", tint = if (selectedEpisode == ep) Color.Black else Color.White)
                                 Spacer(modifier = Modifier.width(16.dp))
-                                IconButton(onClick = { downloadUrlToUse = ep.url; downloadTitleToUse = "${movie.title} $epLabel"; showDownloadDialog = true }) {
+                                IconButton(onClick = { 
+                                    if (isVipUser) {
+                                        downloadUrlToUse = ep.url
+                                        downloadTitleToUse = "${movie.title} $epLabel"
+                                        showDownloadDialog = true
+                                    } else {
+                                        onShowVipModal()
+                                    }
+                                }) {
                                     Icon(Icons.Default.Download, "Download", tint = if (selectedEpisode == ep) Color.Black else Color.White)
                                 }
                             }
@@ -1808,7 +1876,28 @@ fun HomeScreen(
         query.get().addOnSuccessListener { snap ->
             if (snap != null && !snap.isEmpty) {
                 val newMovies = snap.documents.map { doc -> 
-                    Movie(id = doc.id, title = doc.getString("title") ?: "", poster = doc.getString("poster") ?: "", videoUrl = doc.getString("videoUrl") ?: "", category = doc.getString("category") ?: "", videoTag = doc.getString("videoTag") ?: "", year = doc.getString("year") ?: "", isVip = doc.getBoolean("isVip") ?: false, isFeatured = doc.getBoolean("isFeatured") ?: false, isAdult = doc.getBoolean("isAdult") ?: false) 
+                    val episodes = (doc.get("episodes") as? List<Map<String, Any>>)?.map { ep ->
+                        Episode(
+                            season = ep["season"] as? String ?: "",
+                            episode = ep["episode"] as? String ?: "",
+                            url = ep["url"] as? String ?: "",
+                            subtitleUrl = ep["subtitleUrl"] as? String ?: ""
+                        )
+                    } ?: emptyList()
+
+                    Movie(
+                        id = doc.id, 
+                        title = doc.getString("title") ?: "", 
+                        poster = doc.getString("poster") ?: "", 
+                        videoUrl = doc.getString("videoUrl") ?: "", 
+                        category = doc.getString("category") ?: "", 
+                        videoTag = doc.getString("videoTag") ?: "", 
+                        year = doc.getString("year") ?: "", 
+                        isVip = doc.getBoolean("isVip") ?: false, 
+                        isFeatured = doc.getBoolean("isFeatured") ?: false, 
+                        isAdult = doc.getBoolean("isAdult") ?: false,
+                        episodes = episodes
+                    ) 
                 }
                 movies = (movies + newMovies).distinctBy { it.id }
                 lastVisibleMovie = snap.documents.lastOrNull()
@@ -1825,7 +1914,28 @@ fun HomeScreen(
         db.collection("homeland_movies").orderBy("timestamp", Query.Direction.DESCENDING).limit(20).get().addOnSuccessListener { snap ->
             if (snap != null) {
                 movies = snap.documents.map { doc -> 
-                    Movie(id = doc.id, title = doc.getString("title") ?: "", poster = doc.getString("poster") ?: "", videoUrl = doc.getString("videoUrl") ?: "", category = doc.getString("category") ?: "", videoTag = doc.getString("videoTag") ?: "", year = doc.getString("year") ?: "", isVip = doc.getBoolean("isVip") ?: false, isFeatured = doc.getBoolean("isFeatured") ?: false, isAdult = doc.getBoolean("isAdult") ?: false) 
+                    val episodes = (doc.get("episodes") as? List<Map<String, Any>>)?.map { ep ->
+                        Episode(
+                            season = ep["season"] as? String ?: "",
+                            episode = ep["episode"] as? String ?: "",
+                            url = ep["url"] as? String ?: "",
+                            subtitleUrl = ep["subtitleUrl"] as? String ?: ""
+                        )
+                    } ?: emptyList()
+
+                    Movie(
+                        id = doc.id, 
+                        title = doc.getString("title") ?: "", 
+                        poster = doc.getString("poster") ?: "", 
+                        videoUrl = doc.getString("videoUrl") ?: "", 
+                        category = doc.getString("category") ?: "", 
+                        videoTag = doc.getString("videoTag") ?: "", 
+                        year = doc.getString("year") ?: "", 
+                        isVip = doc.getBoolean("isVip") ?: false, 
+                        isFeatured = doc.getBoolean("isFeatured") ?: false, 
+                        isAdult = doc.getBoolean("isAdult") ?: false,
+                        episodes = episodes
+                    ) 
                 }
                 lastVisibleMovie = snap.documents.lastOrNull()
                 featuredMovies = movies.filter { !kidsMode || !it.isAdult }.filter { it.isFeatured }.take(5)
@@ -1958,7 +2068,26 @@ fun MyListScreen(theme: ThemeConfig, profileName: String, userVipExpiry: Long, k
                 val profileFavs = (favMap?.get(profileName) as? List<*>)?.map { it.toString() } ?: emptyList()
                 db.collection("homeland_movies").get().addOnSuccessListener { snap ->
                     favMovies = snap.documents.mapNotNull { 
-                        Movie(id = it.id, title = it.getString("title") ?: "", poster = it.getString("poster") ?: "", videoUrl = it.getString("videoUrl") ?: "", videoTag = it.getString("videoTag") ?: "", year = it.getString("year") ?: "", isVip = it.getBoolean("isVip") ?: false, isAdult = it.getBoolean("isAdult") ?: false) 
+                        val episodes = (it.get("episodes") as? List<Map<String, Any>>)?.map { ep ->
+                            Episode(
+                                season = ep["season"] as? String ?: "",
+                                episode = ep["episode"] as? String ?: "",
+                                url = ep["url"] as? String ?: "",
+                                subtitleUrl = ep["subtitleUrl"] as? String ?: ""
+                            )
+                        } ?: emptyList()
+
+                        Movie(
+                            id = it.id, 
+                            title = it.getString("title") ?: "", 
+                            poster = it.getString("poster") ?: "", 
+                            videoUrl = it.getString("videoUrl") ?: "", 
+                            videoTag = it.getString("videoTag") ?: "", 
+                            year = it.getString("year") ?: "", 
+                            isVip = it.getBoolean("isVip") ?: false, 
+                            isAdult = it.getBoolean("isAdult") ?: false,
+                            episodes = episodes
+                        ) 
                     }.filter { it.id in profileFavs && (!kidsMode || !it.isAdult) }
                 }
             }
