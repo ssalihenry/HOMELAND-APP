@@ -1,5 +1,6 @@
 package com.homeland.app
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -18,6 +19,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -78,13 +80,13 @@ fun AdminScreen(onBack: () -> Unit) {
     var themeFontUrl by remember { mutableStateOf("") }
     var themeBgImageUrl by remember { mutableStateOf("") }
     
-    // 🔥 NEW: Custom VIP Days State
+    // Custom VIP Days State
     var customVipDays by remember { mutableStateOf("30") }
 
-    // 🔥 NEW: Admin 2FA PIN State
+    // Admin 2FA PIN State
     var newAdminPin by remember { mutableStateOf("") }
 
-    // 🔥 NEW: Push Notification State
+    // Push Notification State
     var pushTitle by remember { mutableStateOf("") }
     var pushMessage by remember { mutableStateOf("") }
     var pushDeepLink by remember { mutableStateOf("") }
@@ -95,7 +97,7 @@ fun AdminScreen(onBack: () -> Unit) {
     var isMaintenanceActive by remember { mutableStateOf(false) }
     var maintenanceMsg by remember { mutableStateOf("") }
 
-    // 🔥 NEW: Social Media Links State
+    // Social Media Links State
     var whatsappLink by remember { mutableStateOf("") }
     var telegramLink by remember { mutableStateOf("") }
     var tiktokLink by remember { mutableStateOf("") }
@@ -143,7 +145,6 @@ fun AdminScreen(onBack: () -> Unit) {
                 }
             }
         } else if (selectedTab == 5) {
-            // 🔥 NEW: Fetch Social Links
             db.collection("config").document("social_links").addSnapshotListener { doc, _ ->
                 if (doc != null && doc.exists()) {
                     whatsappLink = doc.getString("whatsapp") ?: ""
@@ -179,7 +180,7 @@ fun AdminScreen(onBack: () -> Unit) {
                     Tab(selected = selectedTab == 2, onClick = { selectedTab = 2 }, text = { Text("VIP") })
                     Tab(selected = selectedTab == 3, onClick = { selectedTab = 3 }, text = { Text("Theme") })
                     Tab(selected = selectedTab == 4, onClick = { selectedTab = 4 }, text = { Text("Push") })
-                    Tab(selected = selectedTab == 5, onClick = { selectedTab = 5 }, text = { Text("Socials") }) // 🔥 NEW TAB
+                    Tab(selected = selectedTab == 5, onClick = { selectedTab = 5 }, text = { Text("Socials") }) 
                 }
             }
         }
@@ -196,39 +197,55 @@ fun AdminScreen(onBack: () -> Unit) {
 
             if (selectedTab == 0) {
                 item {
-                    Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF15171E)), shape = RoundedCornerShape(16.dp)) {
-                        Column(modifier = Modifier.padding(16.dp)) {
-                            Text(if (editingMovieId != null) "EDITING MOVIE" else "ADD NEW MOVIE", color = Color.White, fontWeight = FontWeight.Bold)
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Button(onClick = { selectedType = "Movie" }, modifier = Modifier.weight(1f), colors = ButtonDefaults.buttonColors(containerColor = if(selectedType == "Movie") Color(0xFFE50914) else Color.DarkGray)) { Text("Movie") }
-                                Button(onClick = { selectedType = "TV Show" }, modifier = Modifier.weight(1f), colors = ButtonDefaults.buttonColors(containerColor = if(selectedType == "TV Show") Color(0xFFE50914) else Color.DarkGray)) { Text("TV Show") }
-                            }
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFF15171E).copy(alpha = 0.7f)), 
+                        shape = RoundedCornerShape(24.dp),
+                        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.1f))
+                    ) {
+                        Column(modifier = Modifier.padding(20.dp)) {
+                            Text(if (editingMovieId != null) "EDITING MOVIE" else "ADD NEW MOVIE", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
                             Spacer(modifier = Modifier.height(12.dp))
-                            OutlinedTextField(value = title, onValueChange = { title = it }, label = { Text("Title") }, modifier = Modifier.fillMaxWidth(), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White))
-                            Spacer(modifier = Modifier.height(8.dp))
-                            OutlinedTextField(value = posterUrl, onValueChange = { posterUrl = it }, label = { Text("Poster URL") }, modifier = Modifier.fillMaxWidth(), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White))
-                            Spacer(modifier = Modifier.height(8.dp))
-                            OutlinedTextField(value = year, onValueChange = { year = it }, label = { Text("Year") }, modifier = Modifier.fillMaxWidth(), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White))
-                            Spacer(modifier = Modifier.height(8.dp))
-                            OutlinedTextField(value = subtitleUrl, onValueChange = { subtitleUrl = it }, label = { Text("Subtitle URL (.vtt) - Optional") }, modifier = Modifier.fillMaxWidth(), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White))
-                            Spacer(modifier = Modifier.height(8.dp))
+                            
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Button(
+                                    onClick = { selectedType = "Movie" }, 
+                                    modifier = Modifier.weight(1f), 
+                                    colors = ButtonDefaults.buttonColors(containerColor = if(selectedType == "Movie") Color(0xFFE50914) else Color.White.copy(alpha = 0.1f)),
+                                    shape = RoundedCornerShape(12.dp)
+                                ) { Text("Movie") }
+                                Button(
+                                    onClick = { selectedType = "TV Show" }, 
+                                    modifier = Modifier.weight(1f), 
+                                    colors = ButtonDefaults.buttonColors(containerColor = if(selectedType == "TV Show") Color(0xFFE50914) else Color.White.copy(alpha = 0.1f)),
+                                    shape = RoundedCornerShape(12.dp)
+                                ) { Text("TV Show") }
+                            }
+                            Spacer(modifier = Modifier.height(16.dp))
+                            
+                            OutlinedTextField(value = title, onValueChange = { title = it }, label = { Text("Title") }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White, focusedBorderColor = Color(0xFFE50914), unfocusedBorderColor = Color.DarkGray, focusedContainerColor = Color.Black.copy(alpha = 0.2f), unfocusedContainerColor = Color.Black.copy(alpha = 0.2f)))
+                            Spacer(modifier = Modifier.height(12.dp))
+                            OutlinedTextField(value = posterUrl, onValueChange = { posterUrl = it }, label = { Text("Poster URL") }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White, focusedBorderColor = Color(0xFFE50914), unfocusedBorderColor = Color.DarkGray, focusedContainerColor = Color.Black.copy(alpha = 0.2f), unfocusedContainerColor = Color.Black.copy(alpha = 0.2f)))
+                            Spacer(modifier = Modifier.height(12.dp))
+                            OutlinedTextField(value = year, onValueChange = { year = it }, label = { Text("Year") }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White, focusedBorderColor = Color(0xFFE50914), unfocusedBorderColor = Color.DarkGray, focusedContainerColor = Color.Black.copy(alpha = 0.2f), unfocusedContainerColor = Color.Black.copy(alpha = 0.2f)))
+                            Spacer(modifier = Modifier.height(12.dp))
+                            OutlinedTextField(value = subtitleUrl, onValueChange = { subtitleUrl = it }, label = { Text("Subtitle URL (.vtt) - Optional") }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White, focusedBorderColor = Color(0xFFE50914), unfocusedBorderColor = Color.DarkGray, focusedContainerColor = Color.Black.copy(alpha = 0.2f), unfocusedContainerColor = Color.Black.copy(alpha = 0.2f)))
+                            Spacer(modifier = Modifier.height(12.dp))
                             
                             ExposedDropdownMenuBox(expanded = catExpanded, onExpandedChange = { catExpanded = !catExpanded }) {
-                                OutlinedTextField(value = selectedCategory, onValueChange = {}, readOnly = true, label = { Text("Category") }, trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = catExpanded) }, modifier = Modifier.fillMaxWidth().menuAnchor(), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White))
-                                ExposedDropdownMenu(expanded = catExpanded, onDismissRequest = { catExpanded = false }) {
-                                    categories.forEach { cat -> DropdownMenuItem(text = { Text(cat) }, onClick = { selectedCategory = cat; catExpanded = false }) }
-                                }
-                            }
-                            Spacer(modifier = Modifier.height(8.dp))
-                            
-                            ExposedDropdownMenuBox(expanded = vjExpanded, onExpandedChange = { vjExpanded = !vjExpanded }) {
-                                OutlinedTextField(value = selectedVj, onValueChange = {}, readOnly = true, label = { Text("VJ Tag") }, trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = vjExpanded) }, modifier = Modifier.fillMaxWidth().menuAnchor(), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White))
-                                ExposedDropdownMenu(expanded = vjExpanded, onDismissRequest = { vjExpanded = false }, modifier = Modifier.heightIn(max = 200.dp)) {
-                                    vjList.forEach { vj -> DropdownMenuItem(text = { Text(vj) }, onClick = { selectedVj = vj; vjExpanded = false }) }
+                                OutlinedTextField(value = selectedCategory, onValueChange = {}, readOnly = true, label = { Text("Category") }, trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = catExpanded) }, modifier = Modifier.fillMaxWidth().menuAnchor(), shape = RoundedCornerShape(12.dp), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White, focusedBorderColor = Color(0xFFE50914), unfocusedBorderColor = Color.DarkGray, focusedContainerColor = Color.Black.copy(alpha = 0.2f), unfocusedContainerColor = Color.Black.copy(alpha = 0.2f)))
+                                ExposedDropdownMenu(expanded = catExpanded, onDismissRequest = { catExpanded = false }, modifier = Modifier.background(Color(0xFF15171E))) {
+                                    categories.forEach { cat -> DropdownMenuItem(text = { Text(cat, color = Color.White) }, onClick = { selectedCategory = cat; catExpanded = false }) }
                                 }
                             }
                             Spacer(modifier = Modifier.height(12.dp))
+                            
+                            ExposedDropdownMenuBox(expanded = vjExpanded, onExpandedChange = { vjExpanded = !vjExpanded }) {
+                                OutlinedTextField(value = selectedVj, onValueChange = {}, readOnly = true, label = { Text("VJ Tag") }, trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = vjExpanded) }, modifier = Modifier.fillMaxWidth().menuAnchor(), shape = RoundedCornerShape(12.dp), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White, focusedBorderColor = Color(0xFFE50914), unfocusedBorderColor = Color.DarkGray, focusedContainerColor = Color.Black.copy(alpha = 0.2f), unfocusedContainerColor = Color.Black.copy(alpha = 0.2f)))
+                                ExposedDropdownMenu(expanded = vjExpanded, onDismissRequest = { vjExpanded = false }, modifier = Modifier.heightIn(max = 200.dp).background(Color(0xFF15171E))) {
+                                    vjList.forEach { vj -> DropdownMenuItem(text = { Text(vj, color = Color.White) }, onClick = { selectedVj = vj; vjExpanded = false }) }
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(16.dp))
 
                             if (selectedType == "TV Show") {
                                 Text("Add Episodes", color = Color.White, fontWeight = FontWeight.Bold)
@@ -236,18 +253,18 @@ fun AdminScreen(onBack: () -> Unit) {
                                 var epNumber by remember { mutableStateOf("1") }
                                 var epUrl by remember { mutableStateOf("") }
                                 Row(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                                    OutlinedTextField(value = epSeason, onValueChange = { epSeason = it }, label = { Text("S") }, modifier = Modifier.width(60.dp), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White))
+                                    OutlinedTextField(value = epSeason, onValueChange = { epSeason = it }, label = { Text("S") }, modifier = Modifier.width(60.dp), shape = RoundedCornerShape(12.dp), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White, focusedBorderColor = Color(0xFFE50914), unfocusedBorderColor = Color.DarkGray, focusedContainerColor = Color.Black.copy(alpha = 0.2f), unfocusedContainerColor = Color.Black.copy(alpha = 0.2f)))
                                     Spacer(modifier = Modifier.width(4.dp))
-                                    OutlinedTextField(value = epNumber, onValueChange = { epNumber = it }, label = { Text("Ep") }, modifier = Modifier.width(60.dp), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White))
+                                    OutlinedTextField(value = epNumber, onValueChange = { epNumber = it }, label = { Text("Ep") }, modifier = Modifier.width(60.dp), shape = RoundedCornerShape(12.dp), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White, focusedBorderColor = Color(0xFFE50914), unfocusedBorderColor = Color.DarkGray, focusedContainerColor = Color.Black.copy(alpha = 0.2f), unfocusedContainerColor = Color.Black.copy(alpha = 0.2f)))
                                     Spacer(modifier = Modifier.width(4.dp))
-                                    OutlinedTextField(value = epUrl, onValueChange = { epUrl = it }, label = { Text("Video URL") }, modifier = Modifier.weight(1f), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White))
-                                    Spacer(modifier = Modifier.width(4.dp))
+                                    OutlinedTextField(value = epUrl, onValueChange = { epUrl = it }, label = { Text("Video URL") }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(12.dp), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White, focusedBorderColor = Color(0xFFE50914), unfocusedBorderColor = Color.DarkGray, focusedContainerColor = Color.Black.copy(alpha = 0.2f), unfocusedContainerColor = Color.Black.copy(alpha = 0.2f)))
+                                    Spacer(modifier = Modifier.width(8.dp))
                                     Button(onClick = { 
                                         if (epUrl.isNotBlank()) {
                                             episodesList = episodesList + Episode("S$epSeason", "Ep $epNumber", epUrl)
                                             epUrl = ""
                                         }
-                                    }) { Text("Add") }
+                                    }, shape = RoundedCornerShape(12.dp)) { Text("Add") }
                                 }
                                 LazyColumn(modifier = Modifier.heightIn(max = 200.dp)) {
                                     items(episodesList) { ep ->
@@ -262,10 +279,10 @@ fun AdminScreen(onBack: () -> Unit) {
                                     }
                                 }
                             } else {
-                                OutlinedTextField(value = videoUrl, onValueChange = { videoUrl = it }, label = { Text("Movie Stream URL (.mp4/.m3u8)") }, modifier = Modifier.fillMaxWidth(), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White))
+                                OutlinedTextField(value = videoUrl, onValueChange = { videoUrl = it }, label = { Text("Movie Stream URL (.mp4/.m3u8)") }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White, focusedBorderColor = Color(0xFFE50914), unfocusedBorderColor = Color.DarkGray, focusedContainerColor = Color.Black.copy(alpha = 0.2f), unfocusedContainerColor = Color.Black.copy(alpha = 0.2f)))
                             }
 
-                            Spacer(modifier = Modifier.height(16.dp))
+                            Spacer(modifier = Modifier.height(20.dp))
                             
                             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
                                 Text("VIP Only", color = Color.White, modifier = Modifier.weight(1f))
@@ -280,7 +297,7 @@ fun AdminScreen(onBack: () -> Unit) {
                                 Switch(checked = isAdultMovie, onCheckedChange = { isAdultMovie = it }, colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = Color.Red))
                             }
 
-                            Spacer(modifier = Modifier.height(16.dp))
+                            Spacer(modifier = Modifier.height(20.dp))
                             
                             Button(
                                 onClick = {
@@ -303,10 +320,10 @@ fun AdminScreen(onBack: () -> Unit) {
                                         }.addOnFailureListener { isLoading = false; statusMessage = "Error: ${it.message}" }
                                     }
                                 },
-                                modifier = Modifier.fillMaxWidth().height(50.dp),
+                                modifier = Modifier.fillMaxWidth().height(52.dp).shadow(12.dp, RoundedCornerShape(12.dp), spotColor = Color(0xFFE50914), ambientColor = Color(0xFFE50914)),
                                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE50914)),
                                 shape = RoundedCornerShape(12.dp)
-                            ) { Text(if (editingMovieId != null) "Update Content" else "Publish Content") }
+                            ) { Text(if (editingMovieId != null) "Update Content" else "Publish Content", fontSize = 16.sp, fontWeight = FontWeight.Bold) }
 
                             if (editingMovieId != null) {
                                 TextButton(onClick = { editingMovieId = null; title = ""; posterUrl = ""; videoUrl = ""; episodesList = emptyList(); isAdultMovie = false }) { Text("Cancel Edit", color = Color.Gray) }
@@ -315,36 +332,45 @@ fun AdminScreen(onBack: () -> Unit) {
                     }
                 }
                 item {
-                    Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF15171E)), shape = RoundedCornerShape(16.dp)) {
-                        Column(modifier = Modifier.padding(16.dp)) {
-                            Text("Manage Content", color = Color.White, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 8.dp))
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFF15171E).copy(alpha = 0.7f)), 
+                        shape = RoundedCornerShape(24.dp),
+                        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.1f))
+                    ) {
+                        Column(modifier = Modifier.padding(20.dp)) {
+                            Text("Manage Content", color = Color.White, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 12.dp))
                             existingMovies.forEach { movie ->
-                                Row(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Row(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                                     Text(movie.title, color = Color.White, modifier = Modifier.weight(1f))
                                     IconButton(onClick = {
                                         editingMovieId = movie.id; title = movie.title; posterUrl = movie.poster; videoUrl = movie.videoUrl; selectedCategory = movie.category; selectedVj = movie.videoTag; year = movie.year; isVipMovie = movie.isVip; episodesList = movie.episodes; isAdultMovie = movie.isAdult
                                     }) { Icon(Icons.Default.Edit, "Edit", tint = Color.Yellow) }
                                     IconButton(onClick = { db.collection("homeland_movies").document(movie.id).delete() }) { Icon(Icons.Default.Delete, "Delete", tint = Color.Red) }
                                 }
+                                HorizontalDivider(color = Color.White.copy(alpha = 0.05f))
                             }
                         }
                     }
                 }
             } else if (selectedTab == 1) {
                 item {
-                    Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF15171E)), shape = RoundedCornerShape(16.dp)) {
-                        Column(modifier = Modifier.padding(16.dp)) {
-                            Text(if (editingTvId != null) "EDITING TV" else "ADD TV LIVE", color = Color.White, fontWeight = FontWeight.Bold)
-                            Spacer(modifier = Modifier.height(8.dp))
-                            OutlinedTextField(value = tvName, onValueChange = { tvName = it }, label = { Text("Channel Name") }, modifier = Modifier.fillMaxWidth(), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White))
-                            Spacer(modifier = Modifier.height(8.dp))
-                            OutlinedTextField(value = tvLogo, onValueChange = { tvLogo = it }, label = { Text("Logo URL") }, modifier = Modifier.fillMaxWidth(), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White))
-                            Spacer(modifier = Modifier.height(8.dp))
-                            OutlinedTextField(value = tvUrl, onValueChange = { tvUrl = it }, label = { Text("Stream URL") }, modifier = Modifier.fillMaxWidth(), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White))
-                            Spacer(modifier = Modifier.height(8.dp))
-                            OutlinedTextField(value = tvCategory, onValueChange = { tvCategory = it }, label = { Text("Category") }, modifier = Modifier.fillMaxWidth(), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White))
-                            
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFF15171E).copy(alpha = 0.7f)), 
+                        shape = RoundedCornerShape(24.dp),
+                        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.1f))
+                    ) {
+                        Column(modifier = Modifier.padding(20.dp)) {
+                            Text(if (editingTvId != null) "EDITING TV" else "ADD TV LIVE", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
                             Spacer(modifier = Modifier.height(16.dp))
+                            OutlinedTextField(value = tvName, onValueChange = { tvName = it }, label = { Text("Channel Name") }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White, focusedBorderColor = Color(0xFFE50914), unfocusedBorderColor = Color.DarkGray, focusedContainerColor = Color.Black.copy(alpha = 0.2f), unfocusedContainerColor = Color.Black.copy(alpha = 0.2f)))
+                            Spacer(modifier = Modifier.height(12.dp))
+                            OutlinedTextField(value = tvLogo, onValueChange = { tvLogo = it }, label = { Text("Logo URL") }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White, focusedBorderColor = Color(0xFFE50914), unfocusedBorderColor = Color.DarkGray, focusedContainerColor = Color.Black.copy(alpha = 0.2f), unfocusedContainerColor = Color.Black.copy(alpha = 0.2f)))
+                            Spacer(modifier = Modifier.height(12.dp))
+                            OutlinedTextField(value = tvUrl, onValueChange = { tvUrl = it }, label = { Text("Stream URL") }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White, focusedBorderColor = Color(0xFFE50914), unfocusedBorderColor = Color.DarkGray, focusedContainerColor = Color.Black.copy(alpha = 0.2f), unfocusedContainerColor = Color.Black.copy(alpha = 0.2f)))
+                            Spacer(modifier = Modifier.height(12.dp))
+                            OutlinedTextField(value = tvCategory, onValueChange = { tvCategory = it }, label = { Text("Category") }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White, focusedBorderColor = Color(0xFFE50914), unfocusedBorderColor = Color.DarkGray, focusedContainerColor = Color.Black.copy(alpha = 0.2f), unfocusedContainerColor = Color.Black.copy(alpha = 0.2f)))
+                            
+                            Spacer(modifier = Modifier.height(20.dp))
                             
                             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
                                 Text("Require VIP", color = Color.White, modifier = Modifier.weight(1f))
@@ -355,7 +381,7 @@ fun AdminScreen(onBack: () -> Unit) {
                                 Switch(checked = isFeaturedTv, onCheckedChange = { isFeaturedTv = it }, colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = Color(0xFFE50914)))
                             }
 
-                            Spacer(modifier = Modifier.height(16.dp))
+                            Spacer(modifier = Modifier.height(20.dp))
                             
                             Button(
                                 onClick = {
@@ -373,10 +399,10 @@ fun AdminScreen(onBack: () -> Unit) {
                                         }.addOnFailureListener { isLoading = false; statusMessage = "Error: ${it.message}" }
                                     }
                                 },
-                                modifier = Modifier.fillMaxWidth().height(50.dp),
+                                modifier = Modifier.fillMaxWidth().height(52.dp).shadow(12.dp, RoundedCornerShape(12.dp), spotColor = Color(0xFFE50914), ambientColor = Color(0xFFE50914)),
                                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE50914)),
                                 shape = RoundedCornerShape(12.dp)
-                            ) { Text(if (editingTvId != null) "Update TV Channel" else "Publish TV Channel") }
+                            ) { Text(if (editingTvId != null) "Update TV Channel" else "Publish TV Channel", fontSize = 16.sp, fontWeight = FontWeight.Bold) }
 
                             if (editingTvId != null) {
                                 TextButton(onClick = { editingTvId = null; tvName = ""; tvLogo = ""; tvUrl = ""; isFeaturedTv = false }) { Text("Cancel Edit", color = Color.Gray) }
@@ -385,17 +411,22 @@ fun AdminScreen(onBack: () -> Unit) {
                     }
                 }
                 item {
-                    Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF15171E)), shape = RoundedCornerShape(16.dp)) {
-                        Column(modifier = Modifier.padding(16.dp)) {
-                            Text("Manage TV Channels", color = Color.White, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 8.dp))
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFF15171E).copy(alpha = 0.7f)), 
+                        shape = RoundedCornerShape(24.dp),
+                        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.1f))
+                    ) {
+                        Column(modifier = Modifier.padding(20.dp)) {
+                            Text("Manage TV Channels", color = Color.White, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 12.dp))
                             existingTv.forEach { tv ->
-                                Row(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Row(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                                     Text(tv.name, color = Color.White, modifier = Modifier.weight(1f))
                                     IconButton(onClick = { 
                                         editingTvId = tv.id; tvName = tv.name; tvLogo = tv.logo; tvUrl = tv.streamUrl; tvCategory = tv.category; isVipTv = tv.isVip; isFeaturedTv = tv.isFeatured
                                     }) { Icon(Icons.Default.Edit, "Edit", tint = Color.Yellow) }
                                     IconButton(onClick = { db.collection("homeland_tv").document(tv.id).delete() }) { Icon(Icons.Default.Delete, "Delete", tint = Color.Red) }
                                 }
+                                HorizontalDivider(color = Color.White.copy(alpha = 0.05f))
                             }
                         }
                     }
@@ -408,14 +439,18 @@ fun AdminScreen(onBack: () -> Unit) {
                     val expiringSoonUsers = allUsers.filter { it.homelandVipExpiry > now && it.homelandVipExpiry <= threeDaysFromNow }.sortedBy { it.homelandVipExpiry }
 
                     if (expiringSoonUsers.isNotEmpty()) {
-                        Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF2D1B1B)), border = androidx.compose.foundation.BorderStroke(1.dp, Color.Red), shape = RoundedCornerShape(16.dp)) {
-                            Column(modifier = Modifier.padding(16.dp)) {
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = Color(0xFF2D1B1B).copy(alpha = 0.8f)), 
+                            border = BorderStroke(1.dp, Color.Red), 
+                            shape = RoundedCornerShape(24.dp)
+                        ) {
+                            Column(modifier = Modifier.padding(20.dp)) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Icon(Icons.Default.Warning, contentDescription = "Warning", tint = Color.Red)
                                     Spacer(modifier = Modifier.width(8.dp))
                                     Text("VIP Expiring Soon", color = Color.Red, fontWeight = FontWeight.Bold, fontSize = 16.sp)
                                 }
-                                Text("These users expire in the next 3 days. Message them to renew!", color = Color.Gray, fontSize = 12.sp, modifier = Modifier.padding(bottom = 8.dp))
+                                Text("These users expire in the next 3 days. Message them to renew!", color = Color.LightGray, fontSize = 12.sp, modifier = Modifier.padding(bottom = 12.dp, top = 4.dp))
                                 
                                 expiringSoonUsers.forEach { user ->
                                     val timeLeft = user.homelandVipExpiry - now
@@ -423,9 +458,9 @@ fun AdminScreen(onBack: () -> Unit) {
                                     val hoursLeft = (timeLeft % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60)
                                     val timeText = if (daysLeft > 0) "${daysLeft}d ${hoursLeft}h left" else "${hoursLeft}h left"
                                     
-                                    Row(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                                        Text(user.email, color = Color.White, fontSize = 12.sp, modifier = Modifier.weight(1f))
-                                        Text(timeText, color = Color.Red, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                                    Row(modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                                        Text(user.email, color = Color.White, fontSize = 13.sp, modifier = Modifier.weight(1f))
+                                        Text(timeText, color = Color.Red, fontWeight = FontWeight.Bold, fontSize = 12.sp)
                                     }
                                 }
                             }
@@ -433,44 +468,58 @@ fun AdminScreen(onBack: () -> Unit) {
                     }
                 }
                 item {
-                    Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF15171E)), shape = RoundedCornerShape(16.dp)) {
-                        Column(modifier = Modifier.padding(16.dp)) {
-                            Text("Generate VIP Coupon", color = Color.White, fontWeight = FontWeight.Bold)
-                            Spacer(modifier = Modifier.height(8.dp))
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFF15171E).copy(alpha = 0.7f)), 
+                        shape = RoundedCornerShape(24.dp),
+                        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.1f))
+                    ) {
+                        Column(modifier = Modifier.padding(20.dp)) {
+                            Text("Generate VIP Coupon", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                            Spacer(modifier = Modifier.height(16.dp))
                             Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                                OutlinedTextField(value = couponDays, onValueChange = { couponDays = it }, label = { Text("Days") }, modifier = Modifier.weight(1f), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White))
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Button(onClick = {
-                                    val days = couponDays.toIntOrNull() ?: 7
-                                    val code = "HOMELAND-${days}D-${Random.nextInt(1000, 9999)}"
-                                    db.collection("homeland_coupons").add(hashMapOf("code" to code, "days" to days, "isUsed" to false))
-                                        .addOnSuccessListener { statusMessage = "Success! Code: $code" }
-                                }, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE50914)), modifier = Modifier.height(50.dp)) { Text("Generate") }
+                                OutlinedTextField(value = couponDays, onValueChange = { couponDays = it }, label = { Text("Days") }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(12.dp), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White, focusedBorderColor = Color(0xFFE50914), unfocusedBorderColor = Color.DarkGray, focusedContainerColor = Color.Black.copy(alpha = 0.2f), unfocusedContainerColor = Color.Black.copy(alpha = 0.2f)))
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Button(
+                                    onClick = {
+                                        val days = couponDays.toIntOrNull() ?: 7
+                                        val code = "HOMELAND-${days}D-${Random.nextInt(1000, 9999)}"
+                                        db.collection("homeland_coupons").add(hashMapOf("code" to code, "days" to days, "isUsed" to false))
+                                            .addOnSuccessListener { statusMessage = "Success! Code: $code" }
+                                    }, 
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE50914)), 
+                                    modifier = Modifier.height(56.dp).shadow(8.dp, RoundedCornerShape(12.dp), spotColor = Color(0xFFE50914), ambientColor = Color(0xFFE50914)),
+                                    shape = RoundedCornerShape(12.dp)
+                                ) { Text("Generate", fontWeight = FontWeight.Bold) }
                             }
                         }
                     }
                 }
                 
                 item {
-                    Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF15171E)), shape = RoundedCornerShape(16.dp)) {
-                        Column(modifier = Modifier.padding(16.dp)) {
-                            Text("Manage Users", color = Color.White, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 8.dp))
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFF15171E).copy(alpha = 0.7f)), 
+                        shape = RoundedCornerShape(24.dp),
+                        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.1f))
+                    ) {
+                        Column(modifier = Modifier.padding(20.dp)) {
+                            Text("Manage Users", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp, modifier = Modifier.padding(bottom = 12.dp))
                             
                             OutlinedTextField(
                                 value = customVipDays, 
                                 onValueChange = { customVipDays = it }, 
                                 label = { Text("Custom Days (e.g. 30, 90)") }, 
-                                modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp), 
-                                colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White)
+                                modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp), 
+                                shape = RoundedCornerShape(12.dp),
+                                colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White, focusedBorderColor = Color(0xFFE50914), unfocusedBorderColor = Color.DarkGray, focusedContainerColor = Color.Black.copy(alpha = 0.2f), unfocusedContainerColor = Color.Black.copy(alpha = 0.2f))
                             )
 
                             allUsers.forEach { user ->
                                 val isVip = user.homelandVipExpiry > System.currentTimeMillis()
                                 
-                                Column(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+                                Column(modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp)) {
                                     Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                                         Column(modifier = Modifier.weight(1f)) {
-                                            Text(user.email, color = if (user.isBanned) Color.Red else Color.White, fontSize = 12.sp)
+                                            Text(user.email, color = if (user.isBanned) Color.Red else Color.White, fontSize = 13.sp, fontWeight = FontWeight.Medium)
                                             Text(
                                                 text = when {
                                                     user.isBanned -> "BANNED"
@@ -479,10 +528,10 @@ fun AdminScreen(onBack: () -> Unit) {
                                                 },
                                                 color = when {
                                                     user.isBanned -> Color.Red
-                                                    isVip -> Color(0xFFE50914)
+                                                    isVip -> Color(0xFFFCDC04)
                                                     else -> Color.Gray
                                                 },
-                                                fontSize = 10.sp,
+                                                fontSize = 11.sp,
                                                 fontWeight = FontWeight.Bold
                                             )
                                         }
@@ -501,12 +550,12 @@ fun AdminScreen(onBack: () -> Unit) {
                                         }
                                     }
                                     
-                                    Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth().padding(top = 4.dp)) {
+                                    Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth().padding(top = 6.dp)) {
                                         Button(onClick = {
                                             val base = if (isVip) user.homelandVipExpiry else System.currentTimeMillis()
                                             db.collection("users").document(user.uid).update("homelandVipExpiry", base + (7 * 24 * 60 * 60 * 1000L))
-                                        }, colors = ButtonDefaults.buttonColors(containerColor = Color.DarkGray), modifier = Modifier.padding(end = 8.dp), contentPadding = PaddingValues(horizontal = 12.dp)) { 
-                                            Text("+7d", fontSize = 10.sp) 
+                                        }, colors = ButtonDefaults.buttonColors(containerColor = Color.White.copy(alpha = 0.1f)), modifier = Modifier.padding(end = 8.dp), shape = RoundedCornerShape(8.dp), contentPadding = PaddingValues(horizontal = 12.dp)) { 
+                                            Text("+7d", fontSize = 11.sp, color = Color.White) 
                                         }
                                         
                                         Button(onClick = {
@@ -516,8 +565,8 @@ fun AdminScreen(onBack: () -> Unit) {
                                                 db.collection("users").document(user.uid).update("homelandVipExpiry", base + (daysToAdd.toLong() * 24 * 60 * 60 * 1000L))
                                                     .addOnSuccessListener { statusMessage = "Added $daysToAdd days for ${user.email}" }
                                             }
-                                        }, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE50914)), contentPadding = PaddingValues(horizontal = 12.dp)) { 
-                                            Text("+${customVipDays}d", fontSize = 10.sp) 
+                                        }, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE50914)), shape = RoundedCornerShape(8.dp), contentPadding = PaddingValues(horizontal = 12.dp)) { 
+                                            Text("+${customVipDays}d", fontSize = 11.sp, fontWeight = FontWeight.Bold) 
                                         }
                                     }
                                 }
@@ -528,58 +577,71 @@ fun AdminScreen(onBack: () -> Unit) {
                 }
             } else if (selectedTab == 3) {
                 item {
-                    Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF15171E)), shape = RoundedCornerShape(16.dp)) {
-                        Column(modifier = Modifier.padding(16.dp)) {
-                            Text("App Theme Settings", color = Color.White, fontWeight = FontWeight.Bold)
-                            Spacer(modifier = Modifier.height(8.dp))
-                            OutlinedTextField(value = themeFontUrl, onValueChange = { themeFontUrl = it }, label = { Text("Custom Font URL (.ttf or .otf)") }, modifier = Modifier.fillMaxWidth(), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White))
-                            Spacer(modifier = Modifier.height(8.dp))
-                            OutlinedTextField(value = themeBgImageUrl, onValueChange = { themeBgImageUrl = it }, label = { Text("Custom Background Image URL (Optional)") }, modifier = Modifier.fillMaxWidth(), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White))
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFF15171E).copy(alpha = 0.7f)), 
+                        shape = RoundedCornerShape(24.dp),
+                        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.1f))
+                    ) {
+                        Column(modifier = Modifier.padding(20.dp)) {
+                            Text("App Theme Settings", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
                             Spacer(modifier = Modifier.height(16.dp))
+                            OutlinedTextField(value = themeFontUrl, onValueChange = { themeFontUrl = it }, label = { Text("Custom Font URL (.ttf or .otf)") }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White, focusedBorderColor = Color(0xFFE50914), unfocusedBorderColor = Color.DarkGray, focusedContainerColor = Color.Black.copy(alpha = 0.2f), unfocusedContainerColor = Color.Black.copy(alpha = 0.2f)))
+                            Spacer(modifier = Modifier.height(12.dp))
+                            OutlinedTextField(value = themeBgImageUrl, onValueChange = { themeBgImageUrl = it }, label = { Text("Custom Background Image URL (Optional)") }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White, focusedBorderColor = Color(0xFFE50914), unfocusedBorderColor = Color.DarkGray, focusedContainerColor = Color.Black.copy(alpha = 0.2f), unfocusedContainerColor = Color.Black.copy(alpha = 0.2f)))
+                            Spacer(modifier = Modifier.height(20.dp))
                             Button(onClick = {
                                 val themeMap = hashMapOf("fontUrl" to themeFontUrl, "bgImageUrl" to themeBgImageUrl)
                                 db.collection("config").document("theme").set(themeMap, com.google.firebase.firestore.SetOptions.merge())
                                     .addOnSuccessListener { statusMessage = "Theme updated globally!" }
-                            }, modifier = Modifier.fillMaxWidth().height(50.dp), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE50914))) { Text("Apply Theme to All Devices") }
+                            }, modifier = Modifier.fillMaxWidth().height(52.dp).shadow(12.dp, RoundedCornerShape(12.dp), spotColor = Color(0xFFE50914), ambientColor = Color(0xFFE50914)), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE50914)), shape = RoundedCornerShape(12.dp)) { Text("Apply Theme to All Devices", fontWeight = FontWeight.Bold) }
                         }
                     }
                 }
                 item {
-                    Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF15171E)), shape = RoundedCornerShape(16.dp)) {
-                        Column(modifier = Modifier.padding(16.dp)) {
-                            Text("App Maintenance Mode", color = Color.White, fontWeight = FontWeight.Bold)
-                            Spacer(modifier = Modifier.height(8.dp))
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFF15171E).copy(alpha = 0.7f)), 
+                        shape = RoundedCornerShape(24.dp),
+                        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.1f))
+                    ) {
+                        Column(modifier = Modifier.padding(20.dp)) {
+                            Text("App Maintenance Mode", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                            Spacer(modifier = Modifier.height(16.dp))
                             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
                                 Text("Enable Maintenance Mode", color = Color.White, modifier = Modifier.weight(1f))
                                 Switch(checked = isMaintenanceActive, onCheckedChange = { isMaintenanceActive = it }, colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = Color.Red))
                             }
-                            Spacer(modifier = Modifier.height(8.dp))
-                            OutlinedTextField(value = maintenanceMsg, onValueChange = { maintenanceMsg = it }, label = { Text("Maintenance Message") }, modifier = Modifier.fillMaxWidth(), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White))
-                            Spacer(modifier = Modifier.height(16.dp))
+                            Spacer(modifier = Modifier.height(12.dp))
+                            OutlinedTextField(value = maintenanceMsg, onValueChange = { maintenanceMsg = it }, label = { Text("Maintenance Message") }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White, focusedBorderColor = Color(0xFFE50914), unfocusedBorderColor = Color.DarkGray, focusedContainerColor = Color.Black.copy(alpha = 0.2f), unfocusedContainerColor = Color.Black.copy(alpha = 0.2f)))
+                            Spacer(modifier = Modifier.height(20.dp))
                             Button(onClick = {
                                 db.collection("config").document("maintenance").set(hashMapOf("active" to isMaintenanceActive, "message" to maintenanceMsg))
                                     .addOnSuccessListener { statusMessage = "Maintenance settings updated!" }
-                            }, modifier = Modifier.fillMaxWidth().height(50.dp), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE50914))) { Text("Save Maintenance Settings") }
+                            }, modifier = Modifier.fillMaxWidth().height(52.dp).shadow(12.dp, RoundedCornerShape(12.dp), spotColor = Color(0xFFE50914), ambientColor = Color(0xFFE50914)), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE50914)), shape = RoundedCornerShape(12.dp)) { Text("Save Maintenance Settings", fontWeight = FontWeight.Bold) }
                         }
                     }
                 }
                 item {
-                    Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF15171E)), shape = RoundedCornerShape(16.dp)) {
-                        Column(modifier = Modifier.padding(16.dp)) {
-                            Text("Admin Security (2FA)", color = Color.White, fontWeight = FontWeight.Bold)
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFF15171E).copy(alpha = 0.7f)), 
+                        shape = RoundedCornerShape(24.dp),
+                        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.1f))
+                    ) {
+                        Column(modifier = Modifier.padding(20.dp)) {
+                            Text("Admin Security (2FA)", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
                             Spacer(modifier = Modifier.height(4.dp))
                             Text("Change your 6-digit PIN used to open this panel.", color = Color.Gray, fontSize = 12.sp)
-                            Spacer(modifier = Modifier.height(8.dp))
+                            Spacer(modifier = Modifier.height(12.dp))
                             
                             OutlinedTextField(
                                 value = newAdminPin, 
                                 onValueChange = { if (it.length <= 6) newAdminPin = it }, 
                                 label = { Text("New 6-digit PIN") }, 
                                 modifier = Modifier.fillMaxWidth(), 
-                                colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White)
+                                shape = RoundedCornerShape(12.dp),
+                                colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White, focusedBorderColor = Color(0xFFE50914), unfocusedBorderColor = Color.DarkGray, focusedContainerColor = Color.Black.copy(alpha = 0.2f), unfocusedContainerColor = Color.Black.copy(alpha = 0.2f))
                             )
                             
-                            Spacer(modifier = Modifier.height(16.dp))
+                            Spacer(modifier = Modifier.height(20.dp))
                             
                             Button(onClick = {
                                 if (newAdminPin.length == 6) {
@@ -594,23 +656,27 @@ fun AdminScreen(onBack: () -> Unit) {
                                 } else {
                                     statusMessage = "PIN must be exactly 6 digits."
                                 }
-                            }, modifier = Modifier.fillMaxWidth().height(50.dp), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE50914))) { 
-                                Text("Save New Admin PIN") 
+                            }, modifier = Modifier.fillMaxWidth().height(52.dp).shadow(12.dp, RoundedCornerShape(12.dp), spotColor = Color(0xFFE50914), ambientColor = Color(0xFFE50914)), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE50914)), shape = RoundedCornerShape(12.dp)) { 
+                                Text("Save New Admin PIN", fontWeight = FontWeight.Bold) 
                             }
                         }
                     }
                 }
             } else if (selectedTab == 4) {
                 item {
-                    Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF15171E)), shape = RoundedCornerShape(16.dp)) {
-                        Column(modifier = Modifier.padding(16.dp)) {
-                            Text("Send Push Notification", color = Color.White, fontWeight = FontWeight.Bold)
-                            Spacer(modifier = Modifier.height(8.dp))
-                            OutlinedTextField(value = pushTitle, onValueChange = { pushTitle = it }, label = { Text("Notification Title") }, modifier = Modifier.fillMaxWidth(), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White))
-                            Spacer(modifier = Modifier.height(8.dp))
-                            OutlinedTextField(value = pushMessage, onValueChange = { pushMessage = it }, label = { Text("Notification Message") }, modifier = Modifier.fillMaxWidth(), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White))
-                            
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFF15171E).copy(alpha = 0.7f)), 
+                        shape = RoundedCornerShape(24.dp),
+                        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.1f))
+                    ) {
+                        Column(modifier = Modifier.padding(20.dp)) {
+                            Text("Send Push Notification", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                            Spacer(modifier = Modifier.height(16.dp))
+                            OutlinedTextField(value = pushTitle, onValueChange = { pushTitle = it }, label = { Text("Notification Title") }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White, focusedBorderColor = Color(0xFFE50914), unfocusedBorderColor = Color.DarkGray, focusedContainerColor = Color.Black.copy(alpha = 0.2f), unfocusedContainerColor = Color.Black.copy(alpha = 0.2f)))
                             Spacer(modifier = Modifier.height(12.dp))
+                            OutlinedTextField(value = pushMessage, onValueChange = { pushMessage = it }, label = { Text("Notification Message") }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White, focusedBorderColor = Color(0xFFE50914), unfocusedBorderColor = Color.DarkGray, focusedContainerColor = Color.Black.copy(alpha = 0.2f), unfocusedContainerColor = Color.Black.copy(alpha = 0.2f)))
+                            
+                            Spacer(modifier = Modifier.height(16.dp))
                             
                             ExposedDropdownMenuBox(
                                 expanded = pushMovieExpanded,
@@ -623,15 +689,16 @@ fun AdminScreen(onBack: () -> Unit) {
                                     label = { Text("Attach Movie to Notification (Optional)") },
                                     trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = pushMovieExpanded) },
                                     modifier = Modifier.fillMaxWidth().menuAnchor(),
-                                    colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White)
+                                    shape = RoundedCornerShape(12.dp),
+                                    colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White, focusedBorderColor = Color(0xFFE50914), unfocusedBorderColor = Color.DarkGray, focusedContainerColor = Color.Black.copy(alpha = 0.2f), unfocusedContainerColor = Color.Black.copy(alpha = 0.2f))
                                 )
                                 ExposedDropdownMenu(
                                     expanded = pushMovieExpanded,
                                     onDismissRequest = { pushMovieExpanded = false },
-                                    modifier = Modifier.heightIn(max = 200.dp)
+                                    modifier = Modifier.heightIn(max = 200.dp).background(Color(0xFF15171E))
                                 ) {
                                     DropdownMenuItem(
-                                        text = { Text("None (Open Home Screen)") },
+                                        text = { Text("None (Open Home Screen)", color = Color.White) },
                                         onClick = {
                                             selectedPushMovieTitle = "None (Open Home Screen)"
                                             pushDeepLink = ""
@@ -640,7 +707,7 @@ fun AdminScreen(onBack: () -> Unit) {
                                     )
                                     existingMovies.forEach { movie ->
                                         DropdownMenuItem(
-                                            text = { Text(movie.title) },
+                                            text = { Text(movie.title, color = Color.White) },
                                             onClick = {
                                                 selectedPushMovieTitle = movie.title
                                                 pushDeepLink = "homeland://movie/${movie.id}"
@@ -651,7 +718,7 @@ fun AdminScreen(onBack: () -> Unit) {
                                 }
                             }
                             
-                            Spacer(modifier = Modifier.height(16.dp))
+                            Spacer(modifier = Modifier.height(20.dp))
                             
                             Button(onClick = {
                                 if (pushTitle.isBlank() || pushMessage.isBlank()) { statusMessage = "Fill in both fields."; return@Button }
@@ -674,26 +741,29 @@ fun AdminScreen(onBack: () -> Unit) {
                                     isLoading = false
                                     statusMessage = "Error: ${it.message}"
                                 }
-                            }, modifier = Modifier.fillMaxWidth().height(50.dp), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE50914))) {
-                                if (isLoading) CircularProgressIndicator(color = Color.White, modifier = Modifier.size(24.dp)) else Text("Send to All Users")
+                            }, modifier = Modifier.fillMaxWidth().height(52.dp).shadow(12.dp, RoundedCornerShape(12.dp), spotColor = Color(0xFFE50914), ambientColor = Color(0xFFE50914)), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE50914)), shape = RoundedCornerShape(12.dp)) {
+                                if (isLoading) CircularProgressIndicator(color = Color.White, modifier = Modifier.size(24.dp)) else Text("Send to All Users", fontWeight = FontWeight.Bold, fontSize = 16.sp)
                             }
                         }
                     }
                 }
             } else if (selectedTab == 5) {
-                // 🔥 NEW: Social Media Tab Content
                 item {
-                    Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF15171E)), shape = RoundedCornerShape(16.dp)) {
-                        Column(modifier = Modifier.padding(16.dp)) {
-                            Text("Social Media Links", color = Color.White, fontWeight = FontWeight.Bold)
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFF15171E).copy(alpha = 0.7f)), 
+                        shape = RoundedCornerShape(24.dp),
+                        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.1f))
+                    ) {
+                        Column(modifier = Modifier.padding(20.dp)) {
+                            Text("Social Media Links", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
                             Text("These links appear on Login & Profile screens.", color = Color.Gray, fontSize = 12.sp)
-                            Spacer(modifier = Modifier.height(12.dp))
+                            Spacer(modifier = Modifier.height(16.dp))
                             
-                            OutlinedTextField(value = whatsappLink, onValueChange = { whatsappLink = it }, label = { Text("WhatsApp Link") }, modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White))
-                            OutlinedTextField(value = telegramLink, onValueChange = { telegramLink = it }, label = { Text("Telegram Link") }, modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White))
-                            OutlinedTextField(value = tiktokLink, onValueChange = { tiktokLink = it }, label = { Text("TikTok Link") }, modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White))
-                            OutlinedTextField(value = twitterLink, onValueChange = { twitterLink = it }, label = { Text("Twitter (X) Link") }, modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White))
-                            OutlinedTextField(value = instagramLink, onValueChange = { instagramLink = it }, label = { Text("Instagram Link") }, modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White))
+                            OutlinedTextField(value = whatsappLink, onValueChange = { whatsappLink = it }, label = { Text("WhatsApp Link") }, modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp), shape = RoundedCornerShape(12.dp), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White, focusedBorderColor = Color(0xFFE50914), unfocusedBorderColor = Color.DarkGray, focusedContainerColor = Color.Black.copy(alpha = 0.2f), unfocusedContainerColor = Color.Black.copy(alpha = 0.2f)))
+                            OutlinedTextField(value = telegramLink, onValueChange = { telegramLink = it }, label = { Text("Telegram Link") }, modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp), shape = RoundedCornerShape(12.dp), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White, focusedBorderColor = Color(0xFFE50914), unfocusedBorderColor = Color.DarkGray, focusedContainerColor = Color.Black.copy(alpha = 0.2f), unfocusedContainerColor = Color.Black.copy(alpha = 0.2f)))
+                            OutlinedTextField(value = tiktokLink, onValueChange = { tiktokLink = it }, label = { Text("TikTok Link") }, modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp), shape = RoundedCornerShape(12.dp), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White, focusedBorderColor = Color(0xFFE50914), unfocusedBorderColor = Color.DarkGray, focusedContainerColor = Color.Black.copy(alpha = 0.2f), unfocusedContainerColor = Color.Black.copy(alpha = 0.2f)))
+                            OutlinedTextField(value = twitterLink, onValueChange = { twitterLink = it }, label = { Text("Twitter (X) Link") }, modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp), shape = RoundedCornerShape(12.dp), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White, focusedBorderColor = Color(0xFFE50914), unfocusedBorderColor = Color.DarkGray, focusedContainerColor = Color.Black.copy(alpha = 0.2f), unfocusedContainerColor = Color.Black.copy(alpha = 0.2f)))
+                            OutlinedTextField(value = instagramLink, onValueChange = { instagramLink = it }, label = { Text("Instagram Link") }, modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp), shape = RoundedCornerShape(12.dp), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White, focusedBorderColor = Color(0xFFE50914), unfocusedBorderColor = Color.DarkGray, focusedContainerColor = Color.Black.copy(alpha = 0.2f), unfocusedContainerColor = Color.Black.copy(alpha = 0.2f)))
                             
                             Spacer(modifier = Modifier.height(16.dp))
                             
@@ -708,8 +778,8 @@ fun AdminScreen(onBack: () -> Unit) {
                                 db.collection("config").document("social_links").set(linksMap)
                                     .addOnSuccessListener { statusMessage = "Success! Social links updated." }
                                     .addOnFailureListener { statusMessage = "Error: ${it.message}" }
-                            }, modifier = Modifier.fillMaxWidth().height(50.dp), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE50914))) { 
-                                Text("Save Social Links") 
+                            }, modifier = Modifier.fillMaxWidth().height(52.dp).shadow(12.dp, RoundedCornerShape(12.dp), spotColor = Color(0xFFE50914), ambientColor = Color(0xFFE50914)), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE50914)), shape = RoundedCornerShape(12.dp)) { 
+                                Text("Save Social Links", fontWeight = FontWeight.Bold, fontSize = 16.sp) 
                             }
                         }
                     }
