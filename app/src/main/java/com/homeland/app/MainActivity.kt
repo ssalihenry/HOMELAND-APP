@@ -114,6 +114,14 @@ data class ThemeConfig(
     val bgImageUrl: String = ""
 )
 
+// 🔥 NEW: Local VIP Plan for the dialog
+data class ClientVipPlan(
+    val id: String = "",
+    val name: String = "",
+    val price: String = "",
+    val days: Int = 0
+)
+
 fun translate(key: String, lang: String): String {
     val translations = mapOf(
         "English" to mapOf("home" to "Home", "tv" to "TV Live", "list" to "My List", "profile" to "Profile", "kids" to "Kids Mode", "lang" to "Language"),
@@ -190,7 +198,7 @@ fun downloadFile(context: Context, url: String, fileName: String, saveToPublic: 
     }
 }
 
-// 🔥 NEW: PREMIUM PAYMENT DIALOG
+// 🔥 NEW: PREMIUM PAYMENT DIALOG WITH PLANS
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PaymentDialog(
@@ -200,6 +208,30 @@ fun PaymentDialog(
     var tidInput by remember { mutableStateOf("") }
     var isLoading by remember { mutableStateOf(false) }
     var isSuccess by remember { mutableStateOf(false) }
+    
+    // Plans State
+    var plans by remember { mutableStateOf<List<ClientVipPlan>>(emptyList()) }
+    var selectedPlan by remember { mutableStateOf<ClientVipPlan?>(null) }
+
+    // Fetch Plans from Firestore
+    LaunchedEffect(Unit) {
+        FirebaseFirestore.getInstance().collection("homeland_vip_plans").get().addOnSuccessListener { snap ->
+            if (snap != null) {
+                val fetchedPlans = snap.documents.map {
+                    ClientVipPlan(
+                        id = it.id,
+                        name = it.getString("name") ?: "",
+                        price = it.getString("price") ?: "",
+                        days = it.getLong("days")?.toInt() ?: 0
+                    )
+                }
+                plans = fetchedPlans
+                if (fetchedPlans.isNotEmpty()) {
+                    selectedPlan = fetchedPlans[0] // Select first by default
+                }
+            }
+        }
+    }
 
     Dialog(onDismissRequest = onDismiss) {
         Card(
@@ -225,8 +257,33 @@ fun PaymentDialog(
                 } else {
                     Text("Upgrade to VIP", color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Black)
                     Spacer(modifier = Modifier.height(8.dp))
-                    Text("Pay via MTN/Airtel to unlock all premium content.", color = Color.Gray, fontSize = 13.sp, textAlign = TextAlign.Center)
-                    Spacer(modifier = Modifier.height(24.dp))
+                    Text("Select a plan to unlock all premium content.", color = Color.Gray, fontSize = 13.sp, textAlign = TextAlign.Center)
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // PLANS LIST
+                    if (plans.isEmpty()) {
+                        Text("No plans available at the moment.", color = Color.Red, fontSize = 14.sp)
+                    } else {
+                        plans.forEach { plan ->
+                            val isSelected = selectedPlan?.id == plan.id
+                            Card(
+                                modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp).clickable { selectedPlan = plan },
+                                colors = CardDefaults.cardColors(containerColor = if (isSelected) Color(0xFFE50914).copy(alpha = 0.2f) else Color.Black.copy(alpha = 0.3f)),
+                                border = BorderStroke(1.dp, if (isSelected) Color(0xFFE50914) else Color.White.copy(alpha = 0.1f)),
+                                shape = RoundedCornerShape(16.dp)
+                            ) {
+                                Row(modifier = Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                                    Column {
+                                        Text(plan.name, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                                        Text("${plan.days} Days", color = Color.LightGray, fontSize = 12.sp)
+                                    }
+                                    Text(plan.price, color = if (isSelected) Color(0xFFFCDC04) else Color.White, fontSize = 16.sp, fontWeight = FontWeight.Black)
+                                }
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
 
                     Card(
                         colors = CardDefaults.cardColors(containerColor = Color.Black.copy(alpha = 0.3f)),
@@ -242,7 +299,7 @@ fun PaymentDialog(
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(24.dp))
+                    Spacer(modifier = Modifier.height(16.dp))
 
                     Text("Enter Transaction ID (TID)", color = Color.White, fontSize = 14.sp, modifier = Modifier.align(Alignment.Start).padding(bottom = 8.dp))
                     
@@ -266,11 +323,14 @@ fun PaymentDialog(
 
                     Button(
                         onClick = {
-                            if (tidInput.isNotBlank()) {
+                            if (tidInput.isNotBlank() && selectedPlan != null) {
                                 isLoading = true
                                 val requestData = hashMapOf(
                                     "email" to userEmail,
                                     "tid" to tidInput.trim(),
+                                    "planName" to selectedPlan!!.name,
+                                    "price" to selectedPlan!!.price,
+                                    "days" to selectedPlan!!.days,
                                     "status" to "pending",
                                     "timestamp" to System.currentTimeMillis()
                                 )
@@ -285,7 +345,7 @@ fun PaymentDialog(
                                     }
                             }
                         },
-                        enabled = !isLoading && tidInput.isNotBlank(),
+                        enabled = !isLoading && tidInput.isNotBlank() && selectedPlan != null,
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(56.dp)
@@ -763,7 +823,7 @@ fun HomelandApp(
     var viewingDetails by remember { mutableStateOf<Movie?>(null) }
     var userVipExpiry by remember { mutableLongStateOf(0L) }
     var showVipModal by remember { mutableStateOf(false) }
-    var showPaymentDialog by remember { mutableStateOf(false) } // 🔥 NEW
+    var showPaymentDialog by remember { mutableStateOf(false) }
 
     var globalSearchQuery by remember { mutableStateOf("") }
 
@@ -931,7 +991,7 @@ fun HomelandApp(
         if (currentlyPlaying != null) currentlyPlaying = null 
         else if (viewingDetails != null) viewingDetails = null 
         else if (showVipModal) showVipModal = false 
-        else if (showPaymentDialog) showPaymentDialog = false // 🔥 NEW
+        else if (showPaymentDialog) showPaymentDialog = false 
         else if (showAdultPinPrompt) { showAdultPinPrompt = false; pendingAdultMovie = null }
         else if (selectedTab != 0) selectedTab = 0 
         else (context as? androidx.activity.ComponentActivity)?.finish()
@@ -986,7 +1046,6 @@ fun HomelandApp(
         return
     }
 
-    // 🔥 UPDATED: VIP Modal now opens Payment Dialog
     if (showVipModal) {
         AlertDialog(
             onDismissRequest = { showVipModal = false },
@@ -1280,7 +1339,7 @@ fun ProfileScreen(
     var couponCode by remember { mutableStateOf("") }
     val isVip = userVipExpiry > System.currentTimeMillis()
 
-    var showPaymentDialog by remember { mutableStateOf(false) } // 🔥 NEW
+    var showPaymentDialog by remember { mutableStateOf(false) }
 
     var socialLinks by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
     LaunchedEffect(Unit) {
@@ -1393,7 +1452,7 @@ fun ProfileScreen(
 
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
                     QuickActionButton(icon = Icons.Default.Star, label = "VIP Plans", modifier = Modifier.weight(1f), onClick = {
-                        if (!isVip) { showPaymentDialog = true } // 🔥 UPDATED TO OPEN DIALOG
+                        if (!isVip) { showPaymentDialog = true }
                         else { Toast.makeText(context, "You are already VIP!", Toast.LENGTH_SHORT).show() }
                     })
                     Spacer(modifier = Modifier.width(8.dp))
