@@ -35,6 +35,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.compose.animation.core.*
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -64,6 +65,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
@@ -725,7 +727,6 @@ fun HomelandApp(
                             }
                             "close_player" -> currentlyPlaying = null
                             
-                            // 🔥 NEW DPAD EVENTS
                             "dpad_up" -> {
                                 act?.dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DPAD_UP))
                                 act?.dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_DPAD_UP))
@@ -923,12 +924,20 @@ fun HomelandApp(
     } else {
         Scaffold(
             bottomBar = {
-                Box(modifier = Modifier.fillMaxWidth().background(Color(0xFF0B0C10).copy(alpha = 0.94f)).border(width = 1.dp, color = Color.White.copy(alpha = 0.08f), shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp))) {
-                    NavigationBar(containerColor = Color.Transparent) {
-                        NavigationBarItem(selected = selectedTab == 0, onClick = { vibrate(context); selectedTab = 0 }, icon = { Icon(Icons.Default.Home, "Home") }, label = { Text(translate("home", appLanguage)) }, colors = NavigationBarItemDefaults.colors(selectedIconColor = theme.primary, selectedTextColor = theme.primary, unselectedIconColor = Color.Gray, unselectedTextColor = Color.Gray, indicatorColor = theme.primary.copy(alpha = 0.2f)))
-                        NavigationBarItem(selected = selectedTab == 1, onClick = { vibrate(context); selectedTab = 1 }, icon = { Icon(Icons.Default.Tv, "TV Live") }, label = { Text(translate("tv", appLanguage)) }, colors = NavigationBarItemDefaults.colors(selectedIconColor = theme.primary, selectedTextColor = theme.primary, unselectedIconColor = Color.Gray, unselectedTextColor = Color.Gray, indicatorColor = theme.primary.copy(alpha = 0.2f)))
-                        NavigationBarItem(selected = selectedTab == 2, onClick = { vibrate(context); selectedTab = 2 }, icon = { Icon(Icons.Default.Favorite, "My List") }, label = { Text(translate("list", appLanguage)) }, colors = NavigationBarItemDefaults.colors(selectedIconColor = theme.primary, selectedTextColor = theme.primary, unselectedIconColor = Color.Gray, unselectedTextColor = Color.Gray, indicatorColor = theme.primary.copy(alpha = 0.2f)))
-                        NavigationBarItem(selected = selectedTab == 3, onClick = { vibrate(context); selectedTab = 3 }, icon = { Icon(Icons.Default.Person, "Profile") }, label = { Text(translate("profile", appLanguage)) }, colors = NavigationBarItemDefaults.colors(selectedIconColor = theme.primary, selectedTextColor = theme.primary, unselectedIconColor = Color.Gray, unselectedTextColor = Color.Gray, indicatorColor = theme.primary.copy(alpha = 0.2f)))
+                // 🔥 NEW: FLOATING GLASS BOTTOM BAR
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 12.dp) // Float it above the bottom
+                        .clip(RoundedCornerShape(32.dp))
+                        .background(Color(0xFF15171E).copy(alpha = 0.85f))
+                        .border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(32.dp))
+                ) {
+                    NavigationBar(containerColor = Color.Transparent, tonalElevation = 0.dp) {
+                        NavigationBarItem(selected = selectedTab == 0, onClick = { vibrate(context); selectedTab = 0 }, icon = { Icon(Icons.Default.Home, "Home") }, label = { Text(translate("home", appLanguage)) }, colors = NavigationBarItemDefaults.colors(selectedIconColor = theme.primary, selectedTextColor = theme.primary, unselectedIconColor = Color.Gray, unselectedTextColor = Color.Gray, indicatorColor = theme.primary.copy(alpha = 0.15f)))
+                        NavigationBarItem(selected = selectedTab == 1, onClick = { vibrate(context); selectedTab = 1 }, icon = { Icon(Icons.Default.Tv, "TV Live") }, label = { Text(translate("tv", appLanguage)) }, colors = NavigationBarItemDefaults.colors(selectedIconColor = theme.primary, selectedTextColor = theme.primary, unselectedIconColor = Color.Gray, unselectedTextColor = Color.Gray, indicatorColor = theme.primary.copy(alpha = 0.15f)))
+                        NavigationBarItem(selected = selectedTab == 2, onClick = { vibrate(context); selectedTab = 2 }, icon = { Icon(Icons.Default.Favorite, "My List") }, label = { Text(translate("list", appLanguage)) }, colors = NavigationBarItemDefaults.colors(selectedIconColor = theme.primary, selectedTextColor = theme.primary, unselectedIconColor = Color.Gray, unselectedTextColor = Color.Gray, indicatorColor = theme.primary.copy(alpha = 0.15f)))
+                        NavigationBarItem(selected = selectedTab == 3, onClick = { vibrate(context); selectedTab = 3 }, icon = { Icon(Icons.Default.Person, "Profile") }, label = { Text(translate("profile", appLanguage)) }, colors = NavigationBarItemDefaults.colors(selectedIconColor = theme.primary, selectedTextColor = theme.primary, unselectedIconColor = Color.Gray, unselectedTextColor = Color.Gray, indicatorColor = theme.primary.copy(alpha = 0.15f)))
                     }
                 }
             }
@@ -1139,7 +1148,6 @@ fun ProfileScreen(
     var couponCode by remember { mutableStateOf("") }
     val isVip = userVipExpiry > System.currentTimeMillis()
 
-    // 🔥 NEW: Social Links State & Fetch
     var socialLinks by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
     LaunchedEffect(Unit) {
         FirebaseFirestore.getInstance().collection("config").document("social_links")
@@ -1311,7 +1319,6 @@ fun ProfileScreen(
                     }
                 }
 
-                // 🔥 NEW: SOCIAL MEDIA LINKS
                 if (socialLinks.values.any { it.isNotBlank() }) {
                     Spacer(modifier = Modifier.height(24.dp))
                     HorizontalDivider(modifier = Modifier.fillMaxWidth(), color = Color.DarkGray.copy(alpha = 0.5f))
@@ -1652,7 +1659,6 @@ fun TVRemoteConnectDialog(theme: ThemeConfig, onDismiss: () -> Unit) {
                     
                     Spacer(modifier = Modifier.height(16.dp))
                     
-                    // Tabs
                     Text("Navigate", color = Color.Gray, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.align(Alignment.Start))
                     Spacer(modifier = Modifier.height(8.dp))
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -1664,7 +1670,6 @@ fun TVRemoteConnectDialog(theme: ThemeConfig, onDismiss: () -> Unit) {
                     
                     Spacer(modifier = Modifier.height(20.dp))
                     
-                    // D-PAD
                     Text("D-Pad", color = Color.Gray, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.align(Alignment.Start))
                     Spacer(modifier = Modifier.height(8.dp))
                     
@@ -1707,12 +1712,10 @@ fun TVRemoteConnectDialog(theme: ThemeConfig, onDismiss: () -> Unit) {
                     
                     Spacer(modifier = Modifier.height(20.dp))
                     
-                    // MEDIA CONTROLS
                     Text("Media & System", color = Color.Gray, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.align(Alignment.Start))
                     Spacer(modifier = Modifier.height(8.dp))
                     
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
-                        // Back
                         Box(
                             modifier = Modifier.size(60.dp).clip(CircleShape).background(Color(0xFF15171E)).clickable { sendCommand("back") },
                             contentAlignment = Alignment.Center
@@ -1720,7 +1723,6 @@ fun TVRemoteConnectDialog(theme: ThemeConfig, onDismiss: () -> Unit) {
                             Icon(Icons.Default.ArrowBack, "Back", tint = Color.White, modifier = Modifier.size(28.dp))
                         }
                         
-                        // Play/Pause
                         Box(
                             modifier = Modifier.size(72.dp).clip(CircleShape).background(Color(0xFF15171E)).clickable { sendCommand("toggle_play") },
                             contentAlignment = Alignment.Center
@@ -1728,7 +1730,6 @@ fun TVRemoteConnectDialog(theme: ThemeConfig, onDismiss: () -> Unit) {
                             Icon(Icons.Default.PlayArrow, "Play/Pause", tint = Color.White, modifier = Modifier.size(36.dp))
                         }
                         
-                        // Volume Up
                         Box(
                             modifier = Modifier.size(60.dp).clip(CircleShape).background(Color(0xFF15171E)).clickable { sendCommand("volume_up") },
                             contentAlignment = Alignment.Center
@@ -1736,7 +1737,6 @@ fun TVRemoteConnectDialog(theme: ThemeConfig, onDismiss: () -> Unit) {
                             Icon(Icons.Default.VolumeUp, "Volume Up", tint = Color.White, modifier = Modifier.size(28.dp))
                         }
                         
-                        // Volume Down
                         Box(
                             modifier = Modifier.size(60.dp).clip(CircleShape).background(Color(0xFF15171E)).clickable { sendCommand("volume_down") },
                             contentAlignment = Alignment.Center
@@ -1747,7 +1747,6 @@ fun TVRemoteConnectDialog(theme: ThemeConfig, onDismiss: () -> Unit) {
                     
                     Spacer(modifier = Modifier.height(20.dp))
                     
-                    // Search
                     Text("Search on TV", color = Color.Gray, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.align(Alignment.Start))
                     Spacer(modifier = Modifier.height(8.dp))
                     Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -2191,12 +2190,41 @@ fun TvLiveScreen(theme: ThemeConfig, userVipExpiry: Long, kidsMode: Boolean, onP
             Text("Featured Channels", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(start = 16.dp, top = 16.dp, bottom = 8.dp))
             LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 items(displayFeatured) { channel ->
-                    Box(modifier = Modifier.width(200.dp).height(110.dp).clip(RoundedCornerShape(16.dp)).clickable { vibrate(context); onPlayMedia(Movie(title = channel.name, videoUrl = channel.streamUrl, isVip = channel.isVip)) }) {
-                        SubcomposeAsyncImage(model = ImageRequest.Builder(LocalContext.current).data(channel.logo).crossfade(true).build(), contentDescription = channel.name, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize(), loading = { ShimmerBox(modifier = Modifier.fillMaxSize()) })
-                        Box(modifier = Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black))))
+                    // 🔥 FEATURED CARD (Glass Style)
+                    Box(
+                        modifier = Modifier
+                            .width(220.dp)
+                            .height(125.dp)
+                            .clip(RoundedCornerShape(20.dp))
+                            .border(1.dp, Color.White.copy(alpha = 0.15f), RoundedCornerShape(20.dp))
+                            .clickable { vibrate(context); onPlayMedia(Movie(title = channel.name, videoUrl = channel.streamUrl, isVip = channel.isVip)) }
+                    ) {
+                        SubcomposeAsyncImage(
+                            model = ImageRequest.Builder(LocalContext.current).data(channel.logo).crossfade(true).build(),
+                            contentDescription = channel.name,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize(),
+                            loading = { ShimmerBox(modifier = Modifier.fillMaxSize()) }
+                        )
+                        Box(modifier = Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.8f), Color.Black))))
+                        
                         Column(modifier = Modifier.align(Alignment.BottomStart).padding(12.dp)) {
-                            Text(channel.name, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-                            Row(verticalAlignment = Alignment.CenterVertically) { Box(modifier = Modifier.size(6.dp).clip(CircleShape).background(Color.Red)); Text(" LIVE", color = Color.Red, fontSize = 10.sp, fontWeight = FontWeight.Bold) }
+                            Text(channel.name, color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                            
+                            // Glass LIVE Badge
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier
+                                    .padding(top = 4.dp)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(Color.Black.copy(alpha = 0.5f))
+                                    .border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(8.dp))
+                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                            ) { 
+                                Box(modifier = Modifier.size(6.dp).clip(CircleShape).background(Color.Red))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("LIVE", color = Color.Red, fontSize = 10.sp, fontWeight = FontWeight.Bold) 
+                            }
                         }
                     }
                 }
@@ -2204,7 +2232,25 @@ fun TvLiveScreen(theme: ThemeConfig, userVipExpiry: Long, kidsMode: Boolean, onP
         }
 
         LazyRow(contentPadding = PaddingValues(16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            items(tvCategories) { category -> FilterChip(selected = selectedCategory == category, onClick = { selectedCategory = category }, label = { Text(category) }, colors = FilterChipDefaults.filterChipColors(selectedContainerColor = theme.primary, selectedLabelColor = Color.White, containerColor = Color(0xFF15171E), labelColor = Color.Gray)) }
+            items(tvCategories) { category -> 
+                FilterChip(
+                    selected = selectedCategory == category, 
+                    onClick = { selectedCategory = category }, 
+                    label = { Text(category) }, 
+                    colors = FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = theme.primary, 
+                        selectedLabelColor = Color.White, 
+                        containerColor = Color(0xFF15171E).copy(alpha = 0.6f), 
+                        labelColor = Color.Gray
+                    ),
+                    border = FilterChipDefaults.filterChipBorder(
+                        enabled = true,
+                        selected = selectedCategory == category,
+                        borderColor = Color.White.copy(alpha = 0.1f),
+                        selectedBorderColor = Color.Transparent
+                    )
+                ) 
+            }
         }
         
         val filtered = filteredChannels.filter { selectedCategory == "All" || it.category == selectedCategory }
@@ -2213,18 +2259,57 @@ fun TvLiveScreen(theme: ThemeConfig, userVipExpiry: Long, kidsMode: Boolean, onP
                 val isLocked = channel.isVip && userVipExpiry < System.currentTimeMillis()
                 var isFocused by remember { mutableStateOf(false) }
                 Box {
-                    Column(modifier = Modifier.fillMaxWidth().height(160.dp).clip(RoundedCornerShape(16.dp)).onFocusChanged { isFocused = it.isFocused }.border(if (isFocused) 3.dp else 0.dp, Color.White, RoundedCornerShape(16.dp)).background(Color(0xFF15171E)).clickable { vibrate(context); onPlayMedia(Movie(title = channel.name, videoUrl = channel.streamUrl, isVip = channel.isVip)) }.padding(12.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-                        SubcomposeAsyncImage(model = ImageRequest.Builder(LocalContext.current).data(channel.logo).crossfade(true).build(), contentDescription = channel.name, contentScale = ContentScale.Fit, modifier = Modifier.size(80.dp).clip(RoundedCornerShape(8.dp)), loading = { ShimmerBox(modifier = Modifier.fillMaxSize()) }, error = { Box(modifier = Modifier.fillMaxSize().background(Color(0xFF15171E)), contentAlignment = Alignment.Center) { Icon(Icons.Default.Tv, null, tint = Color.Gray) } })
-                        Spacer(modifier = Modifier.height(8.dp))
+                    // 🔥 CHANNEL CARD (Frosted Glass)
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(170.dp)
+                            .clip(RoundedCornerShape(24.dp))
+                            .onFocusChanged { isFocused = it.isFocused }
+                            .border(if (isFocused) 3.dp else 1.dp, if (isFocused) Color.White else Color.White.copy(alpha = 0.1f), RoundedCornerShape(24.dp))
+                            .background(Color(0xFF15171E).copy(alpha = 0.7f))
+                            .clickable { vibrate(context); onPlayMedia(Movie(title = channel.name, videoUrl = channel.streamUrl, isVip = channel.isVip)) }
+                            .padding(12.dp), 
+                        horizontalAlignment = Alignment.CenterHorizontally, 
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        SubcomposeAsyncImage(
+                            model = ImageRequest.Builder(LocalContext.current).data(channel.logo).crossfade(true).build(), 
+                            contentDescription = channel.name, 
+                            contentScale = ContentScale.Fit, 
+                            modifier = Modifier
+                                .size(80.dp)
+                                .clip(RoundedCornerShape(16.dp))
+                                .shadow(4.dp, RoundedCornerShape(16.dp)), // Shadow behind logo
+                            loading = { ShimmerBox(modifier = Modifier.fillMaxSize()) }, 
+                            error = { Box(modifier = Modifier.fillMaxSize().background(Color(0xFF15171E)), contentAlignment = Alignment.Center) { Icon(Icons.Default.Tv, null, tint = Color.Gray) } }
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
                         Text(channel.name, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        val infiniteTransition = rememberInfiniteTransition(label = "blink")
-                        val alpha by infiniteTransition.animateFloat(initialValue = 1f, targetValue = 0.2f, animationSpec = infiniteRepeatable(animation = tween(1000), repeatMode = RepeatMode.Reverse), label = "alpha")
-                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp)) {
+                        
+                        // Glass LIVE Badge
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically, 
+                            modifier = Modifier
+                                .padding(top = 6.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(Color.Black.copy(alpha = 0.4f))
+                                .border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(8.dp))
+                                .padding(horizontal = 8.dp, vertical = 3.dp)
+                        ) {
+                            val infiniteTransition = rememberInfiniteTransition(label = "blink")
+                            val alpha by infiniteTransition.animateFloat(
+                                initialValue = 1f, 
+                                targetValue = 0.2f, 
+                                animationSpec = infiniteRepeatable(animation = tween(1000), repeatMode = RepeatMode.Reverse), 
+                                label = "alpha"
+                            )
                             Box(modifier = Modifier.size(6.dp).clip(CircleShape).background(Color.Red.copy(alpha = alpha)))
-                            Text(" LIVE", color = Color.Red.copy(alpha = alpha), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("LIVE", color = Color.Red.copy(alpha = alpha), fontSize = 10.sp, fontWeight = FontWeight.Bold)
                         }
                     }
-                    if (isLocked) { Box(modifier = Modifier.matchParentSize().background(Color.Black.copy(alpha = 0.5f), RoundedCornerShape(16.dp)), contentAlignment = Alignment.Center) { Icon(Icons.Default.Lock, "Locked", tint = Color(0xFFFCDC04), modifier = Modifier.size(32.dp)) } }
+                    if (isLocked) { Box(modifier = Modifier.matchParentSize().background(Color.Black.copy(alpha = 0.6f), RoundedCornerShape(24.dp)), contentAlignment = Alignment.Center) { Icon(Icons.Default.Lock, "Locked", tint = Color(0xFFFCDC04), modifier = Modifier.size(32.dp)) } }
                 }
             }
         }
