@@ -15,6 +15,7 @@ import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Cancel
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -25,6 +26,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.Query
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import kotlin.random.Random
 
 val vjList = listOf("VJ Akaana", "VJ Arafa", "VJ Aron", "VJ Ashim", "VJ Ashim J", "VJ Banks", "VJ Baros", "VJ Bonny", "VJ Cabs", "VJ CB", "VJ Dan De", "VJ Eddy", "VJ Emmy", "VJ Fredy", "VJ Geofry", "VJ Ghost King", "VJ Ham", "VJ Harderway", "VJ HD", "VJ Heavy Q", "VJ Henrico", "VJ Isma", "VJ Isma K", "VJ Ivo", "VJ Jimmy", "VJ Jingo", "VJ Jovan", "VJ Jumpers", "VJ Junior", "VJ Kam", "VJ Kamran", "VJ Kevo", "VJ Kevin", "VJ Khan Lee", "VJ Kimuli", "VJ Kin", "VJ Kriss", "VJ Kriss S", "VJ Kriss Sweet", "VJ KS", "VJ Lance", "VJ Lash", "VJ Light", "VJ Little T", "VJ Mark", "VJ Martin K", "VJ MK", "VJ Monks", "VJ Mosco", "VJ Mox", "VJ Muba", "VJ Mukibi", "VJ Mun", "VJ Musa", "VJ Neil", "VJ Nelly", "VJ Nelson", "VJ Omutaka Ice P", "VJ Pauleta", "VJ Pax Woo", "VJ Phoenix", "VJ Raji", "VJ Roddy", "VJ Ronage", "VJ Ronnie", "VJ Ryan", "VJ Sammy", "VJ Shao Khan", "VJ Sharz", "VJ Shield", "VJ Silver", "VJ SMK", "VJ Son", "VJ Soul", "VJ Tom", "VJ Tonny", "VJ Ulio", "VJ Uncle T", "VJ Waza", "VJ Yat", "VJ Zaidi")
@@ -35,6 +40,13 @@ data class AdminUser(
     val email: String = "", 
     val homelandVipExpiry: Long = 0L,
     val isBanned: Boolean = false
+)
+
+data class PaymentRequest(
+    val id: String = "",
+    val email: String = "",
+    val tid: String = "",
+    val timestamp: Long = 0L
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -104,6 +116,10 @@ fun AdminScreen(onBack: () -> Unit) {
     var twitterLink by remember { mutableStateOf("") }
     var instagramLink by remember { mutableStateOf("") }
 
+    // 🔥 NEW: Payments State
+    var paymentRequests by remember { mutableStateOf<List<PaymentRequest>>(emptyList()) }
+    var daysToGrant by remember { mutableStateOf("30") }
+
     var existingMovies by remember { mutableStateOf<List<Movie>>(emptyList()) }
     var existingTv by remember { mutableStateOf<List<TvChannel>>(emptyList()) }
 
@@ -154,6 +170,22 @@ fun AdminScreen(onBack: () -> Unit) {
                     instagramLink = doc.getString("instagram") ?: ""
                 }
             }
+        } else if (selectedTab == 6) {
+            // 🔥 NEW: Listen for pending payments
+            db.collection("payment_requests")
+                .whereEqualTo("status", "pending")
+                .addSnapshotListener { snap, _ ->
+                    if (snap != null) {
+                        paymentRequests = snap.documents.map { doc ->
+                            PaymentRequest(
+                                id = doc.id,
+                                email = doc.getString("email") ?: "Unknown",
+                                tid = doc.getString("tid") ?: "",
+                                timestamp = doc.getLong("timestamp") ?: 0L
+                            )
+                        }.sortedByDescending { it.timestamp }
+                    }
+                }
         }
     }
 
@@ -178,6 +210,7 @@ fun AdminScreen(onBack: () -> Unit) {
                     Tab(selected = selectedTab == 0, onClick = { selectedTab = 0 }, text = { Text("Movies") })
                     Tab(selected = selectedTab == 1, onClick = { selectedTab = 1 }, text = { Text("TV Live") })
                     Tab(selected = selectedTab == 2, onClick = { selectedTab = 2 }, text = { Text("VIP") })
+                    Tab(selected = selectedTab == 6, onClick = { selectedTab = 6 }, text = { Text("Payments") }) // 🔥 NEW TAB
                     Tab(selected = selectedTab == 3, onClick = { selectedTab = 3 }, text = { Text("Theme") })
                     Tab(selected = selectedTab == 4, onClick = { selectedTab = 4 }, text = { Text("Push") })
                     Tab(selected = selectedTab == 5, onClick = { selectedTab = 5 }, text = { Text("Socials") }) 
@@ -191,11 +224,12 @@ fun AdminScreen(onBack: () -> Unit) {
         ) {
             if (statusMessage != null) {
                 item {
-                    Text(text = statusMessage!!, color = if (statusMessage!!.contains("Success")) Color.Green else Color.Red, fontWeight = FontWeight.Bold)
+                    Text(text = statusMessage!!, color = if (statusMessage!!.contains("Success") || statusMessage!!.contains("Approved")) Color.Green else Color.Red, fontWeight = FontWeight.Bold)
                 }
             }
 
             if (selectedTab == 0) {
+                // ... (Existing Movie Logic) ...
                 item {
                     Card(
                         colors = CardDefaults.cardColors(containerColor = Color(0xFF15171E).copy(alpha = 0.7f)), 
@@ -353,6 +387,7 @@ fun AdminScreen(onBack: () -> Unit) {
                     }
                 }
             } else if (selectedTab == 1) {
+                // ... (Existing TV Logic) ...
                 item {
                     Card(
                         colors = CardDefaults.cardColors(containerColor = Color(0xFF15171E).copy(alpha = 0.7f)), 
@@ -432,6 +467,7 @@ fun AdminScreen(onBack: () -> Unit) {
                     }
                 }
             } else if (selectedTab == 2) {
+                // ... (Existing VIP Logic) ...
                 item {
                     val now = System.currentTimeMillis()
                     val threeDaysFromNow = now + (3 * 24 * 60 * 60 * 1000L)
@@ -575,7 +611,110 @@ fun AdminScreen(onBack: () -> Unit) {
                         }
                     }
                 }
+            } else if (selectedTab == 6) {
+                // 🔥 NEW: PAYMENTS TAB
+                item {
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFF15171E).copy(alpha = 0.7f)), 
+                        shape = RoundedCornerShape(24.dp),
+                        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.1f))
+                    ) {
+                        Column(modifier = Modifier.padding(20.dp)) {
+                            Text("Pending Payments", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                            Text("Review TIDs and approve to grant VIP.", color = Color.Gray, fontSize = 12.sp)
+                            Spacer(modifier = Modifier.height(16.dp))
+
+                            OutlinedTextField(
+                                value = daysToGrant, 
+                                onValueChange = { daysToGrant = it }, 
+                                label = { Text("Days to grant upon approval") }, 
+                                modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp), 
+                                shape = RoundedCornerShape(12.dp),
+                                colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White, focusedBorderColor = Color(0xFFE50914), unfocusedBorderColor = Color.DarkGray, focusedContainerColor = Color.Black.copy(alpha = 0.2f), unfocusedContainerColor = Color.Black.copy(alpha = 0.2f))
+                            )
+
+                            if (paymentRequests.isEmpty()) {
+                                Text("No pending payments.", color = Color.Gray, fontSize = 14.sp)
+                            } else {
+                                paymentRequests.forEach { req ->
+                                    val dateStr = SimpleDateFormat("MMM dd, HH:mm", Locale.getDefault()).format(Date(req.timestamp))
+                                    
+                                    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp)) {
+                                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                            Text(req.email, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                                            Text(dateStr, color = Color.Gray, fontSize = 11.sp)
+                                        }
+                                        
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Text("TID: ", color = Color.Gray, fontSize = 12.sp)
+                                            Text(req.tid, color = Color(0xFFFCDC04), fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                        
+                                        Spacer(modifier = Modifier.height(12.dp))
+                                        
+                                        Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth()) {
+                                            // Reject Button
+                                            Button(
+                                                onClick = {
+                                                    db.collection("payment_requests").document(req.id).update("status", "rejected")
+                                                        .addOnSuccessListener { statusMessage = "Payment rejected." }
+                                                }, 
+                                                colors = ButtonDefaults.buttonColors(containerColor = Color.Red.copy(alpha = 0.2f)), 
+                                                shape = RoundedCornerShape(8.dp), 
+                                                contentPadding = PaddingValues(horizontal = 16.dp)
+                                            ) { 
+                                                Icon(Icons.Default.Cancel, contentDescription = "Reject", tint = Color.Red, modifier = Modifier.size(16.dp))
+                                                Spacer(modifier = Modifier.width(4.dp))
+                                                Text("Reject", fontSize = 12.sp, color = Color.Red) 
+                                            }
+                                            
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            
+                                            // Approve Button
+                                            Button(
+                                                onClick = {
+                                                    val days = daysToGrant.toIntOrNull() ?: 30
+                                                    val msToAdd = days.toLong() * 24 * 60 * 60 * 1000L
+                                                    
+                                                    // 1. Find user by email
+                                                    db.collection("users").whereEqualTo("email", req.email).get().addOnSuccessListener { userSnap ->
+                                                        if (!userSnap.isEmpty) {
+                                                            val userDoc = userSnap.documents[0]
+                                                            val currentExpiry = userDoc.getLong("homelandVipExpiry") ?: 0L
+                                                            // Add to current expiry if active, otherwise start from today
+                                                            val newExpiry = if (currentExpiry > System.currentTimeMillis()) currentExpiry + msToAdd else System.currentTimeMillis() + msToAdd
+                                                            
+                                                            // 2. Update user VIP
+                                                            userDoc.reference.update("homelandVipExpiry", newExpiry)
+                                                            
+                                                            // 3. Mark request as approved
+                                                            db.collection("payment_requests").document(req.id).update("status", "approved")
+                                                                .addOnSuccessListener { statusMessage = "Approved! $days days granted to ${req.email}" }
+                                                        } else {
+                                                            statusMessage = "Error: User email not found in database."
+                                                        }
+                                                    }
+                                                }, 
+                                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981)), 
+                                                shape = RoundedCornerShape(8.dp), 
+                                                contentPadding = PaddingValues(horizontal = 16.dp)
+                                            ) { 
+                                                Icon(Icons.Default.CheckCircle, contentDescription = "Approve", tint = Color.White, modifier = Modifier.size(16.dp))
+                                                Spacer(modifier = Modifier.width(4.dp))
+                                                Text("Approve", fontSize = 12.sp, fontWeight = FontWeight.Bold) 
+                                            }
+                                        }
+                                    }
+                                    HorizontalDivider(color = Color.White.copy(alpha = 0.05f))
+                                }
+                            }
+                        }
+                    }
+                }
             } else if (selectedTab == 3) {
+                // ... (Existing Theme Logic) ...
                 item {
                     Card(
                         colors = CardDefaults.cardColors(containerColor = Color(0xFF15171E).copy(alpha = 0.7f)), 
@@ -663,6 +802,7 @@ fun AdminScreen(onBack: () -> Unit) {
                     }
                 }
             } else if (selectedTab == 4) {
+                // ... (Existing Push Notification Logic) ...
                 item {
                     Card(
                         colors = CardDefaults.cardColors(containerColor = Color(0xFF15171E).copy(alpha = 0.7f)), 
@@ -748,6 +888,7 @@ fun AdminScreen(onBack: () -> Unit) {
                     }
                 }
             } else if (selectedTab == 5) {
+                // ... (Existing Socials Logic) ...
                 item {
                     Card(
                         colors = CardDefaults.cardColors(containerColor = Color(0xFF15171E).copy(alpha = 0.7f)), 
