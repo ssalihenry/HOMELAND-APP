@@ -37,6 +37,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow // 🔥 FIXED: Added missing import
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
@@ -66,7 +67,7 @@ import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
-import androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy // 🔥 NEW: For silent retries
+import androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import com.google.firebase.firestore.FirebaseFirestore
@@ -113,7 +114,7 @@ fun PlayerScreen(
 
     var hasError by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf("") }
-    var retryCount by remember { mutableIntStateOf(0) }
+    var retryCount by remember { mutableIntStateOf(0) } 
 
     var hasStartedPlaying by remember { mutableStateOf(false) }
     var isBuffering by remember { mutableStateOf(true) }
@@ -152,14 +153,14 @@ fun PlayerScreen(
             .setBufferDurationsMs(minBuffer, maxBuffer, 2500, 5000)
             .build()
 
-        // 🔥 Silent Retry for Data Source (Chunk Level)
-        val loadErrorHandlingPolicy = DefaultLoadErrorHandlingPolicy(3)
+        // 🔥 FIXED: Move LoadErrorHandlingPolicy to MediaSourceFactory
+        val mediaSourceFactory = DefaultMediaSourceFactory(dataSourceFactory)
+            .setLoadErrorHandlingPolicy(DefaultLoadErrorHandlingPolicy(3))
 
         ExoPlayer.Builder(context)
             .setTrackSelector(trackSelector)
-            .setMediaSourceFactory(DefaultMediaSourceFactory(dataSourceFactory))
+            .setMediaSourceFactory(mediaSourceFactory)
             .setLoadControl(loadControl)
-            .setLoadErrorHandlingPolicy(loadErrorHandlingPolicy) // Apply silent retry
             .setAudioAttributes(
                 AudioAttributes.Builder()
                     .setUsage(C.USAGE_MEDIA)
@@ -182,11 +183,10 @@ fun PlayerScreen(
                     if (isM3u8) {
                         mediaItemBuilder.setMimeType(MimeTypes.APPLICATION_M3U8)
                         
-                        // 🔥 Live Edge Protection
                         val liveConfig = MediaItem.LiveConfiguration.Builder()
-                            .setTargetOffsetMs(15000) // Stay 15s behind live edge
-                            .setMaxPlaybackSpeed(1.05f) // Speed up if falling behind
-                            .setMinPlaybackSpeed(0.95f) // Slow down if too close
+                            .setTargetOffsetMs(15000) 
+                            .setMaxPlaybackSpeed(1.05f) 
+                            .setMinPlaybackSpeed(0.95f) 
                             .build()
                         mediaItemBuilder.setLiveConfiguration(liveConfig)
                     }
@@ -272,7 +272,7 @@ fun PlayerScreen(
                 super.onPlayerError(error)
                 
                 if (retryCount < 3 && episodes.isEmpty()) {
-                    retryCount++
+                    retryCount += 1 // 🔥 FIXED: Increment syntax
                     isBuffering = true
                     hasError = false
                     
@@ -538,7 +538,7 @@ fun PlayerScreen(
                 modifier = Modifier
                     .align(Alignment.Center)
                     .clip(RoundedCornerShape(24.dp))
-                    .background(Color(0xFF15171E).copy(alpha = 0.85f)) // Glass background
+                    .background(Color(0xFF15171E).copy(alpha = 0.85f)) 
                     .border(1.dp, Color.White.copy(alpha = 0.15f), RoundedCornerShape(24.dp))
                     .padding(horizontal = 40.dp, vertical = 28.dp)
             ) {
@@ -639,10 +639,9 @@ fun PlayerScreen(
             }
         }
 
-        // 🔥 Premium Glass Error Screen
         if (hasError) {
             Box(
-                modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.7f)), // Semi-transparent, shows video frame behind
+                modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.7f)), 
                 contentAlignment = Alignment.Center
             ) {
                 Column(
@@ -650,7 +649,7 @@ fun PlayerScreen(
                     modifier = Modifier
                         .padding(32.dp)
                         .clip(RoundedCornerShape(32.dp))
-                        .background(Color(0xFF15171E).copy(alpha = 0.85f)) // Glass background
+                        .background(Color(0xFF15171E).copy(alpha = 0.85f)) 
                         .border(1.dp, Color.White.copy(alpha = 0.15f), RoundedCornerShape(32.dp))
                         .padding(32.dp)
                 ) {
