@@ -1025,7 +1025,8 @@ fun HomelandApp(
                         isFeatured = doc.getBoolean("isFeatured") ?: false, 
                         isAdult = doc.getBoolean("isAdult") ?: false, 
                         subtitleUrl = doc.getString("subtitleUrl") ?: "",
-                        episodes = episodes
+                        episodes = episodes,
+                        yocId = doc.getString("yocId") ?: ""
                     )
                     viewingDetails = movie 
                 }
@@ -1075,7 +1076,7 @@ fun HomelandApp(
 
     if (currentlyPlaying != null) {
         val movie = currentlyPlaying!!
-        PlayerScreen(title = movie.title, videoUrl = movie.videoUrl, episodes = movie.episodes, startPosition = 0L, subtitleUrl = movie.subtitleUrl.ifBlank { null }, tvSessionCode = tvSessionCode, onClose = { currentlyPlaying = null })
+        PlayerScreen(title = movie.title, videoUrl = movie.videoUrl, episodes = movie.episodes, startPosition = 0L, subtitleUrl = movie.subtitleUrl.ifBlank { null }, tvSessionCode = tvSessionCode, yocId = movie.yocId, onClose = { currentlyPlaying = null })
         return 
     }
 
@@ -1471,7 +1472,8 @@ fun ProfileScreen(
                         poster = it.getString("poster") ?: "", 
                         videoUrl = it.getString("videoUrl") ?: "", 
                         isVip = it.getBoolean("isVip") ?: false,
-                        episodes = episodes
+                        episodes = episodes,
+                        yocId = it.getString("yocId") ?: ""
                     )
                     val progress = historyMap[m.id]
                     if (progress != null) Pair(m, progress) else null
@@ -2211,7 +2213,7 @@ fun MovieDetailsScreen(movie: Movie, userVipExpiry: Long, onShowVipModal: () -> 
                                 if (isLocked) onPlay(movie) 
                                 else { 
                                     selectedEpisode = ep
-                                    onPlay(Movie(title = "$epLabel - ${movie.title}", videoUrl = ep.url, subtitleUrl = ep.subtitleUrl, isAdult = movie.isAdult)) 
+                                    onPlay(Movie(title = "$epLabel - ${movie.title}", videoUrl = ep.url, subtitleUrl = ep.subtitleUrl, isAdult = movie.isAdult, yocId = movie.yocId)) 
                                 } 
                             },
                         colors = CardDefaults.cardColors(containerColor = if (selectedEpisode == ep) Color.White else Color(0xFF15171E).copy(alpha = 0.7f)),
@@ -2297,7 +2299,8 @@ fun HomeScreen(
                         isVip = doc.getBoolean("isVip") ?: false, 
                         isFeatured = doc.getBoolean("isFeatured") ?: false, 
                         isAdult = doc.getBoolean("isAdult") ?: false,
-                        episodes = episodes
+                        episodes = episodes,
+                        yocId = doc.getString("yocId") ?: ""
                     ) 
                 }
                 movies = (movies + newMovies).distinctBy { it.id }
@@ -2335,7 +2338,8 @@ fun HomeScreen(
                         isVip = doc.getBoolean("isVip") ?: false, 
                         isFeatured = doc.getBoolean("isFeatured") ?: false, 
                         isAdult = doc.getBoolean("isAdult") ?: false,
-                        episodes = episodes
+                        episodes = episodes,
+                        yocId = doc.getString("yocId") ?: ""
                     ) 
                 }
                 lastVisibleMovie = snap.documents.lastOrNull()
@@ -2533,7 +2537,8 @@ fun MyListScreen(theme: ThemeConfig, profileName: String, userVipExpiry: Long, k
                             year = it.getString("year") ?: "", 
                             isVip = it.getBoolean("isVip") ?: false, 
                             isAdult = it.getBoolean("isAdult") ?: false,
-                            episodes = episodes
+                            episodes = episodes,
+                            yocId = it.getString("yocId") ?: ""
                         ) 
                     }.filter { it.id in profileFavs && (!kidsMode || !it.isAdult) }
                 }
