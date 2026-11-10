@@ -5,19 +5,15 @@ import android.app.PictureInPictureParams
 import android.content.Context
 import android.content.pm.ActivityInfo
 import android.media.AudioManager
-import android.net.ConnectivityManager
-import android.net.Network
-import android.net.NetworkCapabilities
-import android.net.NetworkRequest
 import android.os.Build
 import android.util.Rational
 import android.view.ViewGroup
 import android.widget.FrameLayout
+import androidx.annotation.OptIn
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
@@ -29,11 +25,8 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.detectDragGestures
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -44,7 +37,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
@@ -64,54 +56,22 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
-import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
-import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
-import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
-import androidx.media3.datasource.cache.CacheDataSource
-import androidx.media3.datasource.cache.LeastRecentlyUsedCacheEvictor
-import androidx.media3.datasource.cache.SimpleCache
-import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
-import androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.ListenerRegistration
-import com.google.firebase.firestore.Query
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
-import java.io.File
 import kotlin.math.abs
 
-// 🛡️ SAFE Global Cache Provider
-// If the cache dir is locked or corrupt, returns null so the player
-// instantly falls back to plain network playback. Never crashes.
-object CacheProvider {
-    private var simpleCache: SimpleCache? = null
-
-    fun getCache(context: Context): SimpleCache? {
-        if (simpleCache != null) return simpleCache
-        return try {
-            val cacheDir = File(context.cacheDir, "homeland_media_cache")
-            SimpleCache(cacheDir, LeastRecentlyUsedCacheEvictor(500L * 1024 * 1024)).also {
-                simpleCache = it
-            }
-        } catch (e: Exception) {
-            // Cache dir locked / corrupt — do NOT crash. Return null.
-            // Next call will retry, so a temporary lock doesn't permanently disable caching.
-            null
-        }
-    }
-}
-
-@OptIn(UnstableApi::class, ExperimentalMaterial3Api::class)
+@OptIn(UnstableApi::class)
 @Composable
 fun PlayerScreen(
     title: String,
@@ -125,19 +85,8 @@ fun PlayerScreen(
     val context = LocalContext.current
     val activity = context as? Activity
     val configuration = LocalConfiguration.current
-    val coroutineScope = rememberCoroutineScope()
-    val db = FirebaseFirestore.getInstance()
     
     var showResumeDialog by remember { mutableStateOf(startPosition > 5000L) }
-
-    var currentVideoUrl by remember { mutableStateOf(videoUrl) }
-    var currentTitle by remember { mutableStateOf(title) }
-    var isLocked by remember { mutableStateOf(false) }
-    var showChannelSwitcher by remember { mutableStateOf(false) }
-    var tvChannels by remember { mutableStateOf<List<TvChannel>>(emptyList()) }
-    
-    var showSeekRipple by remember { mutableStateOf(false) }
-    var seekRippleLeft by remember { mutableStateOf(true) }
 
     var isPlaying by remember { mutableStateOf(startPosition <= 5000L) }
     var currentPosition by remember { mutableLongStateOf(startPosition) }
@@ -159,7 +108,6 @@ fun PlayerScreen(
 
     var hasError by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf("") }
-    var retryCount by remember { mutableIntStateOf(0) } 
 
     var hasStartedPlaying by remember { mutableStateOf(false) }
     var isBuffering by remember { mutableStateOf(true) }
@@ -181,151 +129,58 @@ fun PlayerScreen(
     var seekPreviewTime by remember { mutableLongStateOf(0L) }
 
     val exoPlayer = remember {
+        // 🔥 THE FIX: Use a custom HTTP Data Source to spoof a Browser User-Agent
+        // This prevents TV servers from blocking the app.
         val httpDataSourceFactory = DefaultHttpDataSource.Factory()
             .setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
             .setAllowCrossProtocolRedirects(true)
             .setConnectTimeoutMs(15000)
             .setReadTimeoutMs(15000)
 
-        val upstreamFactory = DefaultDataSource.Factory(context, httpDataSourceFactory)
+        val dataSourceFactory = DefaultDataSource.Factory(context, httpDataSourceFactory)
 
-        // 🛡️ SAFE CACHE: try cache, fall back to plain network on ANY failure
-        val dataSourceFactory: DataSource.Factory = try {
-            val cache = CacheProvider.getCache(context)
-            if (cache != null) {
-                CacheDataSource.Factory()
-                    .setCache(cache)
-                    .setUpstreamDataSourceFactory(upstreamFactory)
-                    .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
-            } else {
-                upstreamFactory
-            }
-        } catch (e: Exception) {
-            upstreamFactory
-        }
-
-        // Stream type detection
-        val urlLower = currentVideoUrl.lowercase()
-        val isM3u8 = urlLower.contains("m3u8")
-        val isTs = !isM3u8 && urlLower.contains(".ts")
-
-        // 🔥 Buffers tuned for 8s DVR delay (m3u8) and standard live (ts/mp4)
-        val minBuffer = if (isM3u8) 15000 else 10000
-        val maxBuffer = if (isM3u8) 30000 else 20000
-
-        val loadControl = DefaultLoadControl.Builder()
-            .setBufferDurationsMs(minBuffer, maxBuffer, 2500, 5000)
-            .build()
-
-        val mediaSourceFactory = DefaultMediaSourceFactory(dataSourceFactory)
-            .setLoadErrorHandlingPolicy(DefaultLoadErrorHandlingPolicy(5))
-
-        try {
-            ExoPlayer.Builder(context)
-                .setTrackSelector(trackSelector)
-                .setMediaSourceFactory(mediaSourceFactory)
-                .setLoadControl(loadControl)
-                .setAudioAttributes(
-                    AudioAttributes.Builder()
-                        .setUsage(C.USAGE_MEDIA)
-                        .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
-                        .build(),
-                    true 
-                )
-                .setHandleAudioBecomingNoisy(true)
-                .setWakeMode(C.WAKE_MODE_NETWORK) 
-                .build().apply {
-                    if (episodes.isNotEmpty()) {
-                        val mediaItems = episodes.map { ep ->
-                            val mediaMetadata = androidx.media3.common.MediaMetadata.Builder().setTitle("${ep.season} ${ep.episode}").build()
-                            MediaItem.Builder().setUri(ep.url).setMediaMetadata(mediaMetadata).build()
-                        }
-                        setMediaItems(mediaItems)
-                    } else {
-                        val mediaItemBuilder = MediaItem.Builder().setUri(currentVideoUrl)
-                        when {
-                            isM3u8 -> {
-                                mediaItemBuilder.setMimeType(MimeTypes.APPLICATION_M3U8)
-                                // 🔥 8-SECOND DVR (was 25s — too aggressive for cheap IPTV servers)
-                                val liveConfig = MediaItem.LiveConfiguration.Builder()
-                                    .setTargetOffsetMs(8000)
-                                    .setMaxPlaybackSpeed(1.1f) 
-                                    .setMinPlaybackSpeed(0.9f) 
-                                    .build()
-                                mediaItemBuilder.setLiveConfiguration(liveConfig)
-                            }
-                            isTs -> {
-                                // ⚡ .ts → instant live play. No LiveConfiguration = targetOffset 0 = live edge.
-                            }
-                            // mp4 / unknown → default behavior
-                        }
-                        setMediaItem(mediaItemBuilder.build())
-                    }
-                    
-                    if (startPosition <= 5000L) {
-                        seekTo(startPosition)
-                        playWhenReady = true
-                    } else {
-                        seekTo(0)
-                        playWhenReady = false
-                    }
-                    prepare()
-                }
-        } catch (e: Exception) {
-            // 🛡️ Last-resort fallback: bare player, but still loads & plays the stream
-            ExoPlayer.Builder(context).build().apply {
+        ExoPlayer.Builder(context)
+            .setTrackSelector(trackSelector)
+            // Let ExoPlayer automatically figure out if it's .m3u8, .ts, or .mp4
+            .setMediaSourceFactory(DefaultMediaSourceFactory(dataSourceFactory))
+            .setAudioAttributes(
+                AudioAttributes.Builder()
+                    .setUsage(C.USAGE_MEDIA)
+                    .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
+                    .build(),
+                true 
+            )
+            .setHandleAudioBecomingNoisy(true)
+            .setWakeMode(C.WAKE_MODE_NETWORK) 
+            .build().apply {
                 if (episodes.isNotEmpty()) {
-                    val mediaItems = episodes.map { ep -> MediaItem.Builder().setUri(ep.url).build() }
+                    val mediaItems = episodes.map { ep ->
+                        val mediaMetadata = androidx.media3.common.MediaMetadata.Builder().setTitle("${ep.season} ${ep.episode}").build()
+                        MediaItem.Builder().setUri(ep.url).setMediaMetadata(mediaMetadata).build()
+                    }
                     setMediaItems(mediaItems)
                 } else {
-                    setMediaItem(MediaItem.Builder().setUri(currentVideoUrl).build())
+                    // Standard initialization (handles m3u8, ts, mp4 automatically)
+                    setMediaItem(MediaItem.fromUri(videoUrl))
                 }
-                seekTo(startPosition.coerceAtLeast(0L))
-                playWhenReady = true
+                
+                if (startPosition <= 5000L) {
+                    seekTo(startPosition)
+                    playWhenReady = true
+                } else {
+                    seekTo(0)
+                    playWhenReady = false
+                }
                 prepare()
             }
-        }
-    }
-
-    // 🛑 REMOVED: Secret Background Refresher (was angering cheap IPTV servers)
-
-    // 🔥 FEATURE: Auto-Resume on Network Switch
-    DisposableEffect(Unit) {
-        val connectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
-        val networkCallback = object : ConnectivityManager.NetworkCallback() {
-            override fun onAvailable(network: Network) {
-                coroutineScope.launch {
-                    delay(1000)
-                    if (!exoPlayer.isPlaying && !hasError) {
-                        exoPlayer.prepare()
-                        exoPlayer.play()
-                    }
-                }
-            }
-        }
-        val networkRequest = NetworkRequest.Builder()
-            .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
-            .build()
-        connectivityManager.registerNetworkCallback(networkRequest, networkCallback)
-
-        onDispose { connectivityManager.unregisterNetworkCallback(networkCallback) }
-    }
-
-    // 🔥 FEATURE: Fetch Channels for Switcher
-    LaunchedEffect(showChannelSwitcher) {
-        if (showChannelSwitcher) {
-            db.collection("homeland_tv").orderBy("name", Query.Direction.ASCENDING).get().addOnSuccessListener { snap ->
-                tvChannels = snap.documents.map { doc ->
-                    TvChannel(id = doc.id, name = doc.getString("name") ?: "", logo = doc.getString("logo") ?: "", streamUrl = doc.getString("streamUrl") ?: "", category = doc.getString("category") ?: "", isVip = doc.getBoolean("isVip") ?: false, isFeatured = doc.getBoolean("isFeatured") ?: false)
-                }
-            }
-        }
     }
 
     DisposableEffect(tvSessionCode, exoPlayer) {
         if (tvSessionCode == null) {
             return@DisposableEffect onDispose { }
         }
+
+        val db = FirebaseFirestore.getInstance()
         val startTs = System.currentTimeMillis() - 1000
         val processedIds = mutableSetOf<String>()
 
@@ -347,6 +202,7 @@ fun PlayerScreen(
                     }
                 }
             }
+
         onDispose { listener.remove() }
     }
 
@@ -368,11 +224,11 @@ fun PlayerScreen(
                         isBuffering = false
                         hasStartedPlaying = true
                         hasError = false 
-                        retryCount = 0 
                     }
                     Player.STATE_ENDED -> {
                         isBuffering = false
-                        if (episodes.isEmpty()) {
+                        // Auto-reconnect for live streams that drop
+                        if (videoUrl.contains(".ts") || videoUrl.contains(".m3u8")) {
                             exoPlayer.seekTo(0)
                             exoPlayer.prepare()
                             exoPlayer.play()
@@ -384,36 +240,18 @@ fun PlayerScreen(
             
             override fun onPlayerError(error: PlaybackException) {
                 super.onPlayerError(error)
-                
-                // 🔥 Error-based retry (NOT the periodic refresher — that's gone)
-                if (episodes.isEmpty()) {
-                    // Live TV: keep retrying in the background
-                    retryCount += 1 
-                    isBuffering = true
-                    hasError = false
-                    
-                    coroutineScope.launch {
-                        delay(2000)
-                        exoPlayer.prepare()
-                        exoPlayer.playWhenReady = true
-                    }
-                } else {
-                    // Movies: retry up to 5 times
-                    if (retryCount < 5) {
-                        retryCount += 1 
-                        isBuffering = true
-                        hasError = false
-                        
-                        coroutineScope.launch {
-                            delay(2000)
-                            exoPlayer.prepare()
-                            exoPlayer.playWhenReady = true
-                        }
-                    } else {
-                        hasError = true
-                        isBuffering = false
-                        errorMessage = "Connection lost after multiple attempts."
-                    }
+                hasError = true
+                isBuffering = false
+                errorMessage = when (error.errorCode) {
+                    PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED -> "No internet connection. Please check your network."
+                    PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT -> "Connection timed out. The server took too long to respond."
+                    PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS -> "Video source unavailable. It may be offline or broken."
+                    PlaybackException.ERROR_CODE_IO_FILE_NOT_FOUND -> "Video not found on the server."
+                    PlaybackException.ERROR_CODE_IO_CLEARTEXT_NOT_PERMITTED -> "This video uses an insecure connection."
+                    PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED -> "The video file is corrupted or unreadable."
+                    PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED -> "This stream format is not supported. Please try another source."
+                    PlaybackException.ERROR_CODE_DECODER_INIT_FAILED -> "This device cannot decode this video format."
+                    else -> "Something went wrong: ${error.errorCodeName}"
                 }
             }
         }
@@ -448,8 +286,8 @@ fun PlayerScreen(
         }
     }
 
-    LaunchedEffect(showControls, isPlaying, isLocked) {
-        if (showControls && isPlaying && !showResumeDialog && !hasError && hasStartedPlaying && !isLocked) {
+    LaunchedEffect(showControls, isPlaying) {
+        if (showControls && isPlaying && !showResumeDialog && !hasError && hasStartedPlaying) {
             delay(3000)
             showControls = false
         }
@@ -471,7 +309,7 @@ fun PlayerScreen(
             .focusRequester(focusRequester)
             .focusable()
             .onKeyEvent { keyEvent: KeyEvent ->
-                if (keyEvent.type == KeyEventType.KeyDown && !isLocked) {
+                if (keyEvent.type == KeyEventType.KeyDown) {
                     when (keyEvent.key) {
                         Key.MediaPlayPause, Key.Spacebar, Key.Enter, Key.DirectionCenter -> {
                             if (isPlaying) exoPlayer.pause() else exoPlayer.play()
@@ -483,32 +321,9 @@ fun PlayerScreen(
                         Key.Back, Key.Escape -> { exoPlayer.pause(); onClose(); true }
                         else -> false
                     }
-                } else if (keyEvent.type == KeyEventType.KeyDown && isLocked) {
-                    if (keyEvent.key == Key.Back || keyEvent.key == Key.Escape) { isLocked = false; showControls = true; true } else false
                 } else false
             }
-            .pointerInput(isLocked, hasError, hasStartedPlaying) {
-                detectTapGestures(
-                    onTap = { if (!isLocked) showControls = !showControls },
-                    onDoubleTap = { offset ->
-                        if (isLocked || hasError || !hasStartedPlaying) return@detectTapGestures
-                        val isLeftSide = offset.x < configuration.screenWidthDp.dp.toPx() / 2
-                        if (isLeftSide) {
-                            exoPlayer.seekTo((exoPlayer.currentPosition - 10000).coerceAtLeast(0))
-                            seekRippleLeft = true
-                        } else {
-                            exoPlayer.seekTo(exoPlayer.currentPosition + 10000)
-                            seekRippleLeft = false
-                        }
-                        showSeekRipple = true
-                        coroutineScope.launch {
-                            delay(500)
-                            showSeekRipple = false
-                        }
-                        showControls = true
-                    }
-                )
-            }
+            .clickable { showControls = !showControls }
     ) {
         if (!isAudioOnly) {
             AndroidView(
@@ -526,37 +341,27 @@ fun PlayerScreen(
                 modifier = Modifier.fillMaxSize()
             )
         } else {
-            Box(modifier = Modifier.fillMaxSize().background(Brush.radialGradient(colors = listOf(Color(0xFF1A0002), Color(0xFF0B0C10)), radius = 1200f)), contentAlignment = Alignment.Center) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Box(modifier = Modifier.size(130.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.05f)).border(1.dp, Color.White.copy(alpha = 0.1f), CircleShape), contentAlignment = Alignment.Center) {
-                        Icon(Icons.Default.Headphones, contentDescription = "Audio", tint = Color(0xFFE50914), modifier = Modifier.size(70.dp))
-                    }
-                    Spacer(modifier = Modifier.height(24.dp))
-                    Text(currentTitle, color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center, modifier = Modifier.padding(horizontal = 32.dp))
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text("Audio-Only Mode • Saving Data", color = Color.Gray, fontSize = 14.sp)
-                }
-            }
-        }
-
-        if (showSeekRipple) {
-            val rippleAlpha by animateFloatAsState(targetValue = if (showSeekRipple) 1f else 0f, animationSpec = tween(300), label = "ripple")
             Box(
                 modifier = Modifier
-                    .fillMaxHeight()
-                    .fillMaxWidth(0.4f)
-                    .align(if (seekRippleLeft) Alignment.CenterStart else Alignment.CenterEnd)
-                    .background(
-                        Brush.horizontalGradient(
-                            if (seekRippleLeft) listOf(Color.White.copy(alpha = 0.2f * rippleAlpha), Color.Transparent)
-                            else listOf(Color.Transparent, Color.White.copy(alpha = 0.2f * rippleAlpha))
-                        )
-                    ),
+                    .fillMaxSize()
+                    .background(Brush.radialGradient(colors = listOf(Color(0xFF1A0002), Color(0xFF0B0C10)), radius = 1200f)),
                 contentAlignment = Alignment.Center
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(if (seekRippleLeft) Icons.Default.FastRewind else Icons.Default.FastForward, null, tint = Color.White, modifier = Modifier.size(48.dp))
-                    Text("10s", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                    Box(
+                        modifier = Modifier
+                            .size(130.dp)
+                            .clip(CircleShape)
+                            .background(Color.White.copy(alpha = 0.05f))
+                            .border(1.dp, Color.White.copy(alpha = 0.1f), CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(Icons.Default.Headphones, contentDescription = "Audio", tint = Color(0xFFE50914), modifier = Modifier.size(70.dp))
+                    }
+                    Spacer(modifier = Modifier.height(24.dp))
+                    Text(title, color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center, modifier = Modifier.padding(horizontal = 32.dp))
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text("Audio-Only Mode • Saving Data", color = Color.Gray, fontSize = 14.sp)
                 }
             }
         }
@@ -564,10 +369,10 @@ fun PlayerScreen(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .pointerInput(isAudioOnly, hasError, hasStartedPlaying, isLocked) {
+                .pointerInput(isAudioOnly, hasError, hasStartedPlaying) {
                     detectDragGestures(
                         onDragStart = { offset ->
-                            if (showControls || isAudioOnly || hasError || !hasStartedPlaying || isLocked) return@detectDragGestures 
+                            if (showControls || isAudioOnly || hasError || !hasStartedPlaying) return@detectDragGestures 
                             val isLeftSide = offset.x < configuration.screenWidthDp / 2
                             gestureType = if (isLeftSide) "brightness" else "volume"
                             showGestureOverlay = true
@@ -610,8 +415,15 @@ fun PlayerScreen(
                 }
         )
 
-        if (showGestureOverlay && !isLocked) {
-            Box(modifier = Modifier.align(Alignment.Center).clip(RoundedCornerShape(24.dp)).background(Color.Black.copy(alpha = 0.6f)).border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(24.dp)).padding(horizontal = 32.dp, vertical = 24.dp)) {
+        if (showGestureOverlay) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .clip(RoundedCornerShape(24.dp))
+                    .background(Color.Black.copy(alpha = 0.6f))
+                    .border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(24.dp))
+                    .padding(horizontal = 32.dp, vertical = 24.dp)
+            ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     when (gestureType) {
                         "volume" -> { Icon(Icons.Default.VolumeUp, null, tint = Color.White, modifier = Modifier.size(40.dp)); Text("${(gestureValue * 100).toInt()}%", color = Color.White, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp)) }
@@ -622,11 +434,27 @@ fun PlayerScreen(
             }
         }
 
-        Box(modifier = Modifier.align(Alignment.TopStart).padding(top = 20.dp, start = 20.dp).clip(RoundedCornerShape(12.dp)).background(Color.Black.copy(alpha = 0.4f)).border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(12.dp)).padding(horizontal = 12.dp, vertical = 6.dp)) {
+        Box(
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .padding(top = 20.dp, start = 20.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .background(Color.Black.copy(alpha = 0.4f))
+                .border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(12.dp))
+                .padding(horizontal = 12.dp, vertical = 6.dp)
+        ) {
             Text(text = String.format("%.2f MB", dataUsedMb), color = Color(0xFF10B981), fontSize = 11.sp, fontWeight = FontWeight.Bold)
         }
 
-        Box(modifier = Modifier.align(Alignment.TopEnd).padding(top = 20.dp, end = 20.dp).clip(RoundedCornerShape(8.dp)).background(Color.Black.copy(alpha = 0.4f)).border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(8.dp)).padding(horizontal = 10.dp, vertical = 5.dp)) {
+        Box(
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(top = 20.dp, end = 20.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(Color.Black.copy(alpha = 0.4f))
+                .border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(8.dp))
+                .padding(horizontal = 10.dp, vertical = 5.dp)
+        ) {
             Text("HOMELAND APP", color = Color.White.copy(alpha = 0.7f), fontSize = 10.sp, fontWeight = FontWeight.Bold)
         }
 
@@ -637,7 +465,7 @@ fun PlayerScreen(
                     val scale by infiniteTransition.animateFloat(initialValue = 1f, targetValue = 1.12f, animationSpec = infiniteRepeatable(animation = tween(700, easing = FastOutSlowInEasing), repeatMode = RepeatMode.Reverse), label = "pulse")
                     Box(modifier = Modifier.size(100.dp).graphicsLayer { scaleX = scale; scaleY = scale }.clip(RoundedCornerShape(24.dp)).background(Color(0xFFE50914)), contentAlignment = Alignment.Center) { Text("H", color = Color.White, fontSize = 56.sp, fontWeight = FontWeight.Black) }
                     Spacer(modifier = Modifier.height(32.dp))
-                    Text(currentTitle, color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(horizontal = 32.dp))
+                    Text(title, color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(horizontal = 32.dp))
                     Spacer(modifier = Modifier.height(28.dp))
                     CircularProgressIndicator(color = Color(0xFFE50914), strokeWidth = 3.dp, modifier = Modifier.size(44.dp))
                     Spacer(modifier = Modifier.height(14.dp))
@@ -646,44 +474,24 @@ fun PlayerScreen(
             }
         }
 
-        if (hasStartedPlaying && isBuffering && !hasError && !isLocked) {
-            Box(modifier = Modifier.align(Alignment.Center).clip(RoundedCornerShape(24.dp)).background(Color(0xFF15171E).copy(alpha = 0.85f)).border(1.dp, Color.White.copy(alpha = 0.15f), RoundedCornerShape(24.dp)).padding(horizontal = 40.dp, vertical = 28.dp)) {
+        if (hasStartedPlaying && isBuffering && !hasError) {
+            Box(modifier = Modifier.align(Alignment.Center).clip(RoundedCornerShape(20.dp)).background(Color.Black.copy(alpha = 0.6f)).border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(20.dp)).padding(horizontal = 32.dp, vertical = 24.dp)) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    CircularProgressIndicator(color = Color(0xFFE50914), strokeWidth = 3.dp, modifier = Modifier.size(46.dp))
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Text(text = if (retryCount > 0) "Reconnecting... (Attempt $retryCount)" else "Buffering...", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                    CircularProgressIndicator(color = Color(0xFFE50914), strokeWidth = 3.dp, modifier = Modifier.size(42.dp))
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text("Buffering...", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Medium)
                 }
             }
         }
 
-        if (isLocked) {
-            Box(modifier = Modifier.fillMaxSize().clickable { showControls = true }, contentAlignment = Alignment.Center) {
-                AnimatedVisibility(visible = showControls, enter = fadeIn(), exit = fadeOut()) {
-                    Box(modifier = Modifier.size(60.dp).clip(CircleShape).background(Color.Black.copy(alpha = 0.6f)).border(1.dp, Color.White.copy(alpha = 0.2f), CircleShape).clickable { isLocked = false; showControls = true }, contentAlignment = Alignment.Center) {
-                        Icon(Icons.Default.LockOpen, "Unlock", tint = Color.White, modifier = Modifier.size(30.dp))
-                    }
-                }
-            }
-            LaunchedEffect(Unit) {
-                delay(3000)
-                showControls = false
-            }
-        }
-
-        AnimatedVisibility(visible = showControls && !hasError && hasStartedPlaying && !isLocked, enter = fadeIn(), exit = fadeOut(), modifier = Modifier.fillMaxSize()) {
+        AnimatedVisibility(visible = showControls && !hasError && hasStartedPlaying, enter = fadeIn(), exit = fadeOut(), modifier = Modifier.fillMaxSize()) {
             Box(modifier = Modifier.fillMaxSize().safeDrawingPadding()) {
                 Box(modifier = Modifier.fillMaxWidth().height(120.dp).background(Brush.verticalGradient(colors = listOf(Color.Black.copy(alpha = 0.8f), Color.Transparent))).align(Alignment.TopCenter))
 
                 Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp).align(Alignment.TopCenter), verticalAlignment = Alignment.CenterVertically) {
                     Box(modifier = Modifier.size(44.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.1f)).border(1.dp, Color.White.copy(alpha = 0.15f), CircleShape).clickable { exoPlayer.pause(); onClose() }, contentAlignment = Alignment.Center) { Icon(Icons.Default.Close, "Close", tint = Color.White) }
                     Spacer(modifier = Modifier.width(16.dp))
-                    Text(currentTitle, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    
-                    if (episodes.isEmpty()) {
-                        Box(modifier = Modifier.size(44.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.1f)).border(1.dp, Color.White.copy(alpha = 0.15f), CircleShape).clickable { showChannelSwitcher = true }, contentAlignment = Alignment.Center) {
-                            Icon(Icons.Default.PlaylistPlay, "Channels", tint = Color.White)
-                        }
-                    }
+                    Text(title, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
 
                 Box(modifier = Modifier.size(80.dp).align(Alignment.Center).clip(CircleShape).background(Color.White.copy(alpha = 0.1f)).border(1.dp, Color.White.copy(alpha = 0.2f), CircleShape).clickable { if (isPlaying) exoPlayer.pause() else exoPlayer.play() }, contentAlignment = Alignment.Center) { Icon(if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow, "Play/Pause", tint = Color.White, modifier = Modifier.size(48.dp)) }
@@ -698,9 +506,6 @@ fun PlayerScreen(
                     }
                     Spacer(modifier = Modifier.height(16.dp))
                     Row(modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                        
-                        Box(modifier = Modifier.size(44.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.1f)).border(1.dp, Color.White.copy(alpha = 0.15f), CircleShape).clickable { isLocked = true; showControls = false }, contentAlignment = Alignment.Center) { Icon(Icons.Default.Lock, "Lock", tint = Color.White, modifier = Modifier.size(22.dp)) }
-
                         Box(modifier = Modifier.size(44.dp).clip(CircleShape).background(if (isAudioOnly) Color(0xFFE50914).copy(alpha = 0.2f) else Color.White.copy(alpha = 0.1f)).border(1.dp, if (isAudioOnly) Color(0xFFE50914) else Color.White.copy(alpha = 0.15f), CircleShape).clickable { isAudioOnly = !isAudioOnly }, contentAlignment = Alignment.Center) { Icon(Icons.Default.Headphones, "Audio Only", tint = if (isAudioOnly) Color(0xFFE50914) else Color.White, modifier = Modifier.size(22.dp)) }
                         if (subtitleUrl != null && !isAudioOnly) {
                             Box(modifier = Modifier.size(44.dp).clip(CircleShape).background(if (subtitlesEnabled) Color(0xFFE50914).copy(alpha = 0.2f) else Color.White.copy(alpha = 0.1f)).border(1.dp, if (subtitlesEnabled) Color(0xFFE50914) else Color.White.copy(alpha = 0.15f), CircleShape).clickable { subtitlesEnabled = !subtitlesEnabled }, contentAlignment = Alignment.Center) { Icon(Icons.Default.ClosedCaption, "CC", tint = if (subtitlesEnabled) Color(0xFFE50914) else Color.White, modifier = Modifier.size(22.dp)) }
@@ -716,18 +521,7 @@ fun PlayerScreen(
                         }
                         Box {
                             Box(modifier = Modifier.size(44.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.1f)).border(1.dp, Color.White.copy(alpha = 0.15f), CircleShape).clickable { showSpeedMenu = !showSpeedMenu; showQualityMenu = false; showAspectMenu = false; showSleepMenu = false }, contentAlignment = Alignment.Center) { Icon(Icons.Default.Speed, "Speed", tint = Color.White, modifier = Modifier.size(22.dp)) }
-                            DropdownMenu(expanded = showSpeedMenu, onDismissRequest = { showSpeedMenu = false }, modifier = Modifier.background(Color(0xFF15171E))) { 
-                                listOf(0.5f, 1f, 1.5f, 2f).forEach { speed -> 
-                                    DropdownMenuItem(
-                                        text = { Text("${speed}x", color = if(playbackSpeed == speed) Color(0xFFE50914) else Color.White) }, 
-                                        onClick = { 
-                                            playbackSpeed = speed
-                                            exoPlayer.playbackParameters = PlaybackParameters(speed, 1.0f)
-                                            showSpeedMenu = false 
-                                        }
-                                    ) 
-                                } 
-                            }
+                            DropdownMenu(expanded = showSpeedMenu, onDismissRequest = { showSpeedMenu = false }, modifier = Modifier.background(Color(0xFF15171E))) { listOf(0.5f, 1f, 1.5f, 2f).forEach { speed -> DropdownMenuItem(text = { Text("${speed}x", color = if(playbackSpeed == speed) Color(0xFFE50914) else Color.White) }, onClick = { playbackSpeed = speed; showSpeedMenu = false }) } }
                         }
                         if (!isAudioOnly) {
                             Box {
@@ -766,7 +560,7 @@ fun PlayerScreen(
             }
         }
         
-        if (sleepTimerMillis > 0 && !showControls && !hasError && hasStartedPlaying && !isLocked) {
+        if (sleepTimerMillis > 0 && !showControls && !hasError && hasStartedPlaying) {
             Box(modifier = Modifier.align(Alignment.TopCenter).padding(top = 20.dp).clip(RoundedCornerShape(12.dp)).background(Color.Black.copy(alpha = 0.5f)).border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(12.dp)).padding(horizontal = 12.dp, vertical = 6.dp)) {
                 val mins = sleepTimerMillis / 60000
                 val secs = (sleepTimerMillis % 60000) / 1000
@@ -774,9 +568,9 @@ fun PlayerScreen(
             }
         }
 
-        if (hasError && !isLocked) {
-            Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.7f)), contentAlignment = Alignment.Center) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(32.dp).clip(RoundedCornerShape(32.dp)).background(Color(0xFF15171E).copy(alpha = 0.85f)).border(1.dp, Color.White.copy(alpha = 0.15f), RoundedCornerShape(32.dp)).padding(32.dp)) {
+        if (hasError) {
+            Box(modifier = Modifier.fillMaxSize().background(Color(0xFF0B0C10).copy(alpha = 0.96f)), contentAlignment = Alignment.Center) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(32.dp).clip(RoundedCornerShape(32.dp)).background(Color(0xFF15171E)).border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(32.dp)).padding(32.dp)) {
                     val infiniteTransition = rememberInfiniteTransition(label = "signal")
                     val pulseAlpha by infiniteTransition.animateFloat(initialValue = 1f, targetValue = 0.35f, animationSpec = infiniteRepeatable(animation = tween(1000), repeatMode = RepeatMode.Reverse), label = "pulse")
                     Box(modifier = Modifier.size(130.dp).background(Color.White.copy(alpha = 0.05f), CircleShape), contentAlignment = Alignment.Center) { Icon(Icons.Default.WifiOff, contentDescription = "Signal Lost", tint = Color(0xFFE50914).copy(alpha = pulseAlpha), modifier = Modifier.size(70.dp)) }
@@ -785,16 +579,7 @@ fun PlayerScreen(
                     Spacer(modifier = Modifier.height(12.dp))
                     Text(errorMessage, color = Color.Gray, fontSize = 14.sp, textAlign = TextAlign.Center, lineHeight = 20.sp, modifier = Modifier.padding(horizontal = 16.dp))
                     Spacer(modifier = Modifier.height(40.dp))
-                    Button(onClick = { 
-                        hasError = false
-                        hasStartedPlaying = false
-                        isBuffering = true
-                        retryCount = 0
-                        exoPlayer.prepare()
-                        exoPlayer.playWhenReady = true
-                    }, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE50914)), shape = RoundedCornerShape(50), modifier = Modifier.height(56.dp).fillMaxWidth(0.85f).shadow(12.dp, RoundedCornerShape(50), spotColor = Color(0xFFE50914), ambientColor = Color(0xFFE50914))) { 
-                        Icon(Icons.Default.Refresh, contentDescription = null, tint = Color.White); Spacer(modifier = Modifier.width(10.dp)); Text("Retry", fontSize = 17.sp, fontWeight = FontWeight.Bold) 
-                    }
+                    Button(onClick = { hasError = false; hasStartedPlaying = false; isBuffering = true; exoPlayer.prepare(); exoPlayer.playWhenReady = true }, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE50914)), shape = RoundedCornerShape(16.dp), modifier = Modifier.height(56.dp).fillMaxWidth(0.85f)) { Icon(Icons.Default.Refresh, contentDescription = null, tint = Color.White); Spacer(modifier = Modifier.width(10.dp)); Text("Retry", fontSize = 17.sp, fontWeight = FontWeight.Bold) }
                     Spacer(modifier = Modifier.height(16.dp))
                     TextButton(onClick = { exoPlayer.pause(); onClose() }) { Text("Close Player", color = Color.Gray, fontSize = 15.sp, fontWeight = FontWeight.Medium) }
                 }
@@ -810,68 +595,6 @@ fun PlayerScreen(
                 dismissButton = { TextButton(onClick = { exoPlayer.seekTo(0); exoPlayer.play(); showResumeDialog = false }) { Text("Start Over", color = Color.White) } },
                 containerColor = Color(0xFF15171E)
             )
-        }
-    }
-
-    if (showChannelSwitcher) {
-        ModalBottomSheet(
-            onDismissRequest = { showChannelSwitcher = false },
-            containerColor = Color(0xFF15171E),
-            contentColor = Color.White,
-            dragHandle = { BottomSheetDefaults.DragHandle(color = Color.White.copy(alpha = 0.3f)) }
-        ) {
-            Column(modifier = Modifier.padding(16.dp).fillMaxHeight(0.8f)) {
-                Text("Switch Channel", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 16.dp))
-                LazyColumn {
-                    items(tvChannels) { channel ->
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp).clip(RoundedCornerShape(12.dp)).background(Color.White.copy(alpha = 0.05f)).clickable {
-                                currentVideoUrl = channel.streamUrl
-                                currentTitle = channel.name
-                                showChannelSwitcher = false
-                                hasStartedPlaying = false
-                                isBuffering = true
-                                retryCount = 0
-                                hasError = false
-
-                                // 🔥 Same stream-type rules on channel switch
-                                val chUrlLower = channel.streamUrl.lowercase()
-                                val chIsM3u8 = chUrlLower.contains("m3u8")
-                                val chIsTs = !chIsM3u8 && chUrlLower.contains(".ts")
-
-                                val mediaItemBuilder = MediaItem.Builder().setUri(channel.streamUrl)
-                                when {
-                                    chIsM3u8 -> {
-                                        mediaItemBuilder.setMimeType(MimeTypes.APPLICATION_M3U8)
-                                        mediaItemBuilder.setLiveConfiguration(
-                                            MediaItem.LiveConfiguration.Builder()
-                                                .setTargetOffsetMs(8000) // 🔥 8s DVR (was 25s)
-                                                .setMaxPlaybackSpeed(1.1f)
-                                                .setMinPlaybackSpeed(0.9f)
-                                                .build()
-                                        )
-                                    }
-                                    chIsTs -> {
-                                        // ⚡ .ts → instant live play, no delay
-                                    }
-                                    // mp4 / unknown → default
-                                }
-
-                                exoPlayer.setMediaItem(mediaItemBuilder.build())
-                                exoPlayer.prepare()
-                                exoPlayer.playWhenReady = true
-                            }.padding(12.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Box(modifier = Modifier.size(40.dp).clip(CircleShape).background(Color.Black), contentAlignment = Alignment.Center) {
-                                Icon(Icons.Default.Tv, null, tint = Color.Gray, modifier = Modifier.size(20.dp))
-                            }
-                            Spacer(modifier = Modifier.width(16.dp))
-                            Text(channel.name, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Medium)
-                        }
-                    }
-                }
-            }
         }
     }
 }
