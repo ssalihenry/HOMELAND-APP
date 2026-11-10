@@ -5,6 +5,10 @@ import android.app.PictureInPictureParams
 import android.content.Context
 import android.content.pm.ActivityInfo
 import android.media.AudioManager
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
+import android.net.NetworkRequest
 import android.os.Build
 import android.util.Rational
 import android.view.ViewGroup
@@ -14,6 +18,7 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
@@ -25,8 +30,11 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -37,7 +45,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow // 🔥 FIXED: Added missing import
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
@@ -59,6 +67,7 @@ import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
+import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultDataSource
@@ -72,6 +81,7 @@ import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.ListenerRegistration
+import com.google.firebase.firestore.Query
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.abs
@@ -91,8 +101,20 @@ fun PlayerScreen(
     val activity = context as? Activity
     val configuration = LocalConfiguration.current
     val coroutineScope = rememberCoroutineScope()
+    val db = FirebaseFirestore.getInstance()
     
     var showResumeDialog by remember { mutableStateOf(startPosition > 5000L) }
+
+    // 🔥 NEW STATES FOR FEATURES
+    var currentVideoUrl by remember { mutableStateOf(videoUrl) }
+    var currentTitle by remember { mutableStateOf(title) }
+    var isLocked by remember { mutableStateOf(false) }
+    var showChannelSwitcher by remember { mutableStateOf(false) }
+    var tvChannels by remember { mutableStateOf<List<TvChannel>>(emptyList()) }
+    
+    // Gesture states for double tap
+    var showSeekRipple by remember { mutableStateOf(false) }
+    var seekRippleLeft by remember { mutableStateOf(true) }
 
     var isPlaying by remember { mutableStateOf(startPosition <= 5000L) }
     var currentPosition by remember { mutableLongStateOf(startPosition) }
@@ -135,8 +157,6 @@ fun PlayerScreen(
     var gestureValue by remember { mutableFloatStateOf(0f) } 
     var seekPreviewTime by remember { mutableLongStateOf(0L) }
 
-    val isM3u8 = remember { videoUrl.contains("m3u8", ignoreCase = true) }
-
     val exoPlayer = remember {
         val httpDataSourceFactory = DefaultHttpDataSource.Factory()
             .setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
@@ -146,16 +166,15 @@ fun PlayerScreen(
 
         val dataSourceFactory = DefaultDataSource.Factory(context, httpDataSourceFactory)
 
-        val minBuffer = if (isM3u8) 5000 else 15000
-        val maxBuffer = if (isM3u8) 15000 else 50000 
+        val minBuffer = if (currentVideoUrl.contains("m3u8", ignoreCase = true)) 5000 else 15000
+        val maxBuffer = if (currentVideoUrl.contains("m3u8", ignoreCase = true)) 15000 else 50000 
         
         val loadControl = DefaultLoadControl.Builder()
             .setBufferDurationsMs(minBuffer, maxBuffer, 2500, 5000)
             .build()
 
-        // 🔥 FIXED: Move LoadErrorHandlingPolicy to MediaSourceFactory
         val mediaSourceFactory = DefaultMediaSourceFactory(dataSourceFactory)
-            .setLoadErrorHandlingPolicy(DefaultLoadErrorHandlingPolicy(3))
+            .setLoadErrorHandlingPolicy(DefaultLoadErrorHandlingPolicy(5)) // Increased to 5 for better stability
 
         ExoPlayer.Builder(context)
             .setTrackSelector(trackSelector)
@@ -178,15 +197,15 @@ fun PlayerScreen(
                     }
                     setMediaItems(mediaItems)
                 } else {
-                    val mediaItemBuilder = MediaItem.Builder().setUri(videoUrl)
+                    val mediaItemBuilder = MediaItem.Builder().setUri(currentVideoUrl)
                     
-                    if (isM3u8) {
+                    if (currentVideoUrl.contains("m3u8", ignoreCase = true)) {
                         mediaItemBuilder.setMimeType(MimeTypes.APPLICATION_M3U8)
                         
                         val liveConfig = MediaItem.LiveConfiguration.Builder()
-                            .setTargetOffsetMs(15000) 
-                            .setMaxPlaybackSpeed(1.05f) 
-                            .setMinPlaybackSpeed(0.95f) 
+                            .setTargetOffsetMs(5000) // Closer to Live Edge for sports
+                            .setMaxPlaybackSpeed(1.1f) 
+                            .setMinPlaybackSpeed(0.9f) 
                             .build()
                         mediaItemBuilder.setLiveConfiguration(liveConfig)
                     }
@@ -205,12 +224,43 @@ fun PlayerScreen(
             }
     }
 
+    // 🔥 FEATURE: Auto-Resume on Network Switch
+    DisposableEffect(Unit) {
+        val connectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        val networkCallback = object : ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: Network) {
+                coroutineScope.launch {
+                    delay(1000) // Wait for network to stabilize
+                    if (!exoPlayer.isPlaying && !hasError) {
+                        exoPlayer.prepare()
+                        exoPlayer.play()
+                    }
+                }
+            }
+        }
+        val networkRequest = NetworkRequest.Builder()
+            .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+            .build()
+        connectivityManager.registerNetworkCallback(networkRequest, networkCallback)
+
+        onDispose { connectivityManager.unregisterNetworkCallback(networkCallback) }
+    }
+
+    // 🔥 FEATURE: Fetch Channels for Switcher
+    LaunchedEffect(showChannelSwitcher) {
+        if (showChannelSwitcher) {
+            db.collection("homeland_tv").orderBy("name", Query.Direction.ASCENDING).get().addOnSuccessListener { snap ->
+                tvChannels = snap.documents.map { doc ->
+                    TvChannel(id = doc.id, name = doc.getString("name") ?: "", logo = doc.getString("logo") ?: "", streamUrl = doc.getString("streamUrl") ?: "", category = doc.getString("category") ?: "", isVip = doc.getBoolean("isVip") ?: false, isFeatured = doc.getBoolean("isFeatured") ?: false)
+                }
+            }
+        }
+    }
+
     DisposableEffect(tvSessionCode, exoPlayer) {
         if (tvSessionCode == null) {
             return@DisposableEffect onDispose { }
         }
-
-        val db = FirebaseFirestore.getInstance()
         val startTs = System.currentTimeMillis() - 1000
         val processedIds = mutableSetOf<String>()
 
@@ -232,7 +282,6 @@ fun PlayerScreen(
                     }
                 }
             }
-
         onDispose { listener.remove() }
     }
 
@@ -271,45 +320,22 @@ fun PlayerScreen(
             override fun onPlayerError(error: PlaybackException) {
                 super.onPlayerError(error)
                 
-                if (retryCount < 3 && episodes.isEmpty()) {
-                    retryCount += 1 // 🔥 FIXED: Increment syntax
+                // 🔥 GHOST RECONNECT: Seamless recovery without black screen
+                if (retryCount < 5 && episodes.isEmpty()) {
+                    retryCount += 1 
                     isBuffering = true
                     hasError = false
                     
                     coroutineScope.launch {
                         delay(2000)
-                        exoPlayer.stop()
-                        exoPlayer.clearMediaItems()
-                        
-                        val mediaItemBuilder = MediaItem.Builder().setUri(videoUrl)
-                        if (isM3u8) {
-                            mediaItemBuilder.setMimeType(MimeTypes.APPLICATION_M3U8)
-                            val liveConfig = MediaItem.LiveConfiguration.Builder()
-                                .setTargetOffsetMs(15000)
-                                .setMaxPlaybackSpeed(1.05f)
-                                .setMinPlaybackSpeed(0.95f)
-                                .build()
-                            mediaItemBuilder.setLiveConfiguration(liveConfig)
-                        }
-                        
-                        exoPlayer.setMediaItem(mediaItemBuilder.build())
+                        // Do NOT stop or clear media items. Just prepare again.
                         exoPlayer.prepare()
                         exoPlayer.playWhenReady = true
                     }
                 } else {
                     hasError = true
                     isBuffering = false
-                    errorMessage = when (error.errorCode) {
-                        PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED -> "No internet connection. Please check your network."
-                        PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT -> "Connection timed out. The server took too long to respond."
-                        PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS -> "Video source unavailable. It may be offline or broken."
-                        PlaybackException.ERROR_CODE_IO_FILE_NOT_FOUND -> "Video not found on the server."
-                        PlaybackException.ERROR_CODE_IO_CLEARTEXT_NOT_PERMITTED -> "This video uses an insecure connection."
-                        PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED -> "The video file is corrupted or unreadable."
-                        PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED -> "This stream format is not supported. Please try another source."
-                        PlaybackException.ERROR_CODE_DECODER_INIT_FAILED -> "This device cannot decode this video format."
-                        else -> "Something went wrong after multiple retries: ${error.errorCodeName}"
-                    }
+                    errorMessage = "Connection lost after multiple attempts."
                 }
             }
         }
@@ -344,8 +370,8 @@ fun PlayerScreen(
         }
     }
 
-    LaunchedEffect(showControls, isPlaying) {
-        if (showControls && isPlaying && !showResumeDialog && !hasError && hasStartedPlaying) {
+    LaunchedEffect(showControls, isPlaying, isLocked) {
+        if (showControls && isPlaying && !showResumeDialog && !hasError && hasStartedPlaying && !isLocked) {
             delay(3000)
             showControls = false
         }
@@ -367,7 +393,7 @@ fun PlayerScreen(
             .focusRequester(focusRequester)
             .focusable()
             .onKeyEvent { keyEvent: KeyEvent ->
-                if (keyEvent.type == KeyEventType.KeyDown) {
+                if (keyEvent.type == KeyEventType.KeyDown && !isLocked) {
                     when (keyEvent.key) {
                         Key.MediaPlayPause, Key.Spacebar, Key.Enter, Key.DirectionCenter -> {
                             if (isPlaying) exoPlayer.pause() else exoPlayer.play()
@@ -379,9 +405,33 @@ fun PlayerScreen(
                         Key.Back, Key.Escape -> { exoPlayer.pause(); onClose(); true }
                         else -> false
                     }
+                } else if (keyEvent.type == KeyEventType.KeyDown && isLocked) {
+                    if (keyEvent.key == Key.Back || keyEvent.key == Key.Escape) { isLocked = false; showControls = true; true } else false
                 } else false
             }
-            .clickable { showControls = !showControls }
+            // 🔥 FEATURE: Double-Tap to Seek
+            .pointerInput(isLocked, hasError, hasStartedPlaying) {
+                detectTapGestures(
+                    onTap = { if (!isLocked) showControls = !showControls },
+                    onDoubleTap = { offset ->
+                        if (isLocked || hasError || !hasStartedPlaying) return@detectTapGestures
+                        val isLeftSide = offset.x < configuration.screenWidthDp.dp.toPx() / 2
+                        if (isLeftSide) {
+                            exoPlayer.seekTo((exoPlayer.currentPosition - 10000).coerceAtLeast(0))
+                            seekRippleLeft = true
+                        } else {
+                            exoPlayer.seekTo(exoPlayer.currentPosition + 10000)
+                            seekRippleLeft = false
+                        }
+                        showSeekRipple = true
+                        coroutineScope.launch {
+                            delay(500)
+                            showSeekRipple = false
+                        }
+                        showControls = true
+                    }
+                )
+            }
     ) {
         if (!isAudioOnly) {
             AndroidView(
@@ -399,27 +449,38 @@ fun PlayerScreen(
                 modifier = Modifier.fillMaxSize()
             )
         } else {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(Brush.radialGradient(colors = listOf(Color(0xFF1A0002), Color(0xFF0B0C10)), radius = 1200f)),
-                contentAlignment = Alignment.Center
-            ) {
+            Box(modifier = Modifier.fillMaxSize().background(Brush.radialGradient(colors = listOf(Color(0xFF1A0002), Color(0xFF0B0C10)), radius = 1200f)), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Box(
-                        modifier = Modifier
-                            .size(130.dp)
-                            .clip(CircleShape)
-                            .background(Color.White.copy(alpha = 0.05f))
-                            .border(1.dp, Color.White.copy(alpha = 0.1f), CircleShape),
-                        contentAlignment = Alignment.Center
-                    ) {
+                    Box(modifier = Modifier.size(130.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.05f)).border(1.dp, Color.White.copy(alpha = 0.1f), CircleShape), contentAlignment = Alignment.Center) {
                         Icon(Icons.Default.Headphones, contentDescription = "Audio", tint = Color(0xFFE50914), modifier = Modifier.size(70.dp))
                     }
                     Spacer(modifier = Modifier.height(24.dp))
-                    Text(title, color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center, modifier = Modifier.padding(horizontal = 32.dp))
+                    Text(currentTitle, color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center, modifier = Modifier.padding(horizontal = 32.dp))
                     Spacer(modifier = Modifier.height(8.dp))
                     Text("Audio-Only Mode • Saving Data", color = Color.Gray, fontSize = 14.sp)
+                }
+            }
+        }
+
+        // 🔥 Ripple Animation for Double Tap
+        if (showSeekRipple) {
+            val rippleAlpha by animateFloatAsState(targetValue = if (showSeekRipple) 1f else 0f, animationSpec = tween(300), label = "ripple")
+            Box(
+                modifier = Modifier
+                    .fillMaxHeight()
+                    .fillMaxWidth(0.4f)
+                    .align(if (seekRippleLeft) Alignment.CenterStart else Alignment.CenterEnd)
+                    .background(
+                        Brush.horizontalGradient(
+                            if (seekRippleLeft) listOf(Color.White.copy(alpha = 0.2f * rippleAlpha), Color.Transparent)
+                            else listOf(Color.Transparent, Color.White.copy(alpha = 0.2f * rippleAlpha))
+                        )
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(if (seekRippleLeft) Icons.Default.FastRewind else Icons.Default.FastForward, null, tint = Color.White, modifier = Modifier.size(48.dp))
+                    Text("10s", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
                 }
             }
         }
@@ -427,10 +488,10 @@ fun PlayerScreen(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .pointerInput(isAudioOnly, hasError, hasStartedPlaying) {
+                .pointerInput(isAudioOnly, hasError, hasStartedPlaying, isLocked) {
                     detectDragGestures(
                         onDragStart = { offset ->
-                            if (showControls || isAudioOnly || hasError || !hasStartedPlaying) return@detectDragGestures 
+                            if (showControls || isAudioOnly || hasError || !hasStartedPlaying || isLocked) return@detectDragGestures 
                             val isLeftSide = offset.x < configuration.screenWidthDp / 2
                             gestureType = if (isLeftSide) "brightness" else "volume"
                             showGestureOverlay = true
@@ -473,15 +534,8 @@ fun PlayerScreen(
                 }
         )
 
-        if (showGestureOverlay) {
-            Box(
-                modifier = Modifier
-                    .align(Alignment.Center)
-                    .clip(RoundedCornerShape(24.dp))
-                    .background(Color.Black.copy(alpha = 0.6f))
-                    .border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(24.dp))
-                    .padding(horizontal = 32.dp, vertical = 24.dp)
-            ) {
+        if (showGestureOverlay && !isLocked) {
+            Box(modifier = Modifier.align(Alignment.Center).clip(RoundedCornerShape(24.dp)).background(Color.Black.copy(alpha = 0.6f)).border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(24.dp)).padding(horizontal = 32.dp, vertical = 24.dp)) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     when (gestureType) {
                         "volume" -> { Icon(Icons.Default.VolumeUp, null, tint = Color.White, modifier = Modifier.size(40.dp)); Text("${(gestureValue * 100).toInt()}%", color = Color.White, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp)) }
@@ -492,27 +546,12 @@ fun PlayerScreen(
             }
         }
 
-        Box(
-            modifier = Modifier
-                .align(Alignment.TopStart)
-                .padding(top = 20.dp, start = 20.dp)
-                .clip(RoundedCornerShape(12.dp))
-                .background(Color.Black.copy(alpha = 0.4f))
-                .border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(12.dp))
-                .padding(horizontal = 12.dp, vertical = 6.dp)
-        ) {
+        // Top Info Pills
+        Box(modifier = Modifier.align(Alignment.TopStart).padding(top = 20.dp, start = 20.dp).clip(RoundedCornerShape(12.dp)).background(Color.Black.copy(alpha = 0.4f)).border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(12.dp)).padding(horizontal = 12.dp, vertical = 6.dp)) {
             Text(text = String.format("%.2f MB", dataUsedMb), color = Color(0xFF10B981), fontSize = 11.sp, fontWeight = FontWeight.Bold)
         }
 
-        Box(
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .padding(top = 20.dp, end = 20.dp)
-                .clip(RoundedCornerShape(8.dp))
-                .background(Color.Black.copy(alpha = 0.4f))
-                .border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(8.dp))
-                .padding(horizontal = 10.dp, vertical = 5.dp)
-        ) {
+        Box(modifier = Modifier.align(Alignment.TopEnd).padding(top = 20.dp, end = 20.dp).clip(RoundedCornerShape(8.dp)).background(Color.Black.copy(alpha = 0.4f)).border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(8.dp)).padding(horizontal = 10.dp, vertical = 5.dp)) {
             Text("HOMELAND APP", color = Color.White.copy(alpha = 0.7f), fontSize = 10.sp, fontWeight = FontWeight.Bold)
         }
 
@@ -523,7 +562,7 @@ fun PlayerScreen(
                     val scale by infiniteTransition.animateFloat(initialValue = 1f, targetValue = 1.12f, animationSpec = infiniteRepeatable(animation = tween(700, easing = FastOutSlowInEasing), repeatMode = RepeatMode.Reverse), label = "pulse")
                     Box(modifier = Modifier.size(100.dp).graphicsLayer { scaleX = scale; scaleY = scale }.clip(RoundedCornerShape(24.dp)).background(Color(0xFFE50914)), contentAlignment = Alignment.Center) { Text("H", color = Color.White, fontSize = 56.sp, fontWeight = FontWeight.Black) }
                     Spacer(modifier = Modifier.height(32.dp))
-                    Text(title, color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(horizontal = 32.dp))
+                    Text(currentTitle, color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(horizontal = 32.dp))
                     Spacer(modifier = Modifier.height(28.dp))
                     CircularProgressIndicator(color = Color(0xFFE50914), strokeWidth = 3.dp, modifier = Modifier.size(44.dp))
                     Spacer(modifier = Modifier.height(14.dp))
@@ -532,37 +571,54 @@ fun PlayerScreen(
             }
         }
 
-        // 🔥 Premium Buffering/Reconnecting Overlay
-        if (hasStartedPlaying && isBuffering && !hasError) {
-            Box(
-                modifier = Modifier
-                    .align(Alignment.Center)
-                    .clip(RoundedCornerShape(24.dp))
-                    .background(Color(0xFF15171E).copy(alpha = 0.85f)) 
-                    .border(1.dp, Color.White.copy(alpha = 0.15f), RoundedCornerShape(24.dp))
-                    .padding(horizontal = 40.dp, vertical = 28.dp)
-            ) {
+        if (hasStartedPlaying && isBuffering && !hasError && !isLocked) {
+            Box(modifier = Modifier.align(Alignment.Center).clip(RoundedCornerShape(24.dp)).background(Color(0xFF15171E).copy(alpha = 0.85f)).border(1.dp, Color.White.copy(alpha = 0.15f), RoundedCornerShape(24.dp)).padding(horizontal = 40.dp, vertical = 28.dp)) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     CircularProgressIndicator(color = Color(0xFFE50914), strokeWidth = 3.dp, modifier = Modifier.size(46.dp))
                     Spacer(modifier = Modifier.height(16.dp))
-                    Text(
-                        text = if (retryCount > 0) "Reconnecting... (Attempt $retryCount/3)" else "Buffering...", 
-                        color = Color.White, 
-                        fontSize = 14.sp, 
-                        fontWeight = FontWeight.SemiBold
-                    )
+                    Text(text = if (retryCount > 0) "Reconnecting... (Attempt $retryCount/5)" else "Buffering...", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
                 }
             }
         }
 
-        AnimatedVisibility(visible = showControls && !hasError && hasStartedPlaying, enter = fadeIn(), exit = fadeOut(), modifier = Modifier.fillMaxSize()) {
+        // 🔥 SCREEN LOCK OVERLAY
+        if (isLocked) {
+            Box(modifier = Modifier.fillMaxSize().clickable { showControls = true }, contentAlignment = Alignment.Center) {
+                AnimatedVisibility(visible = showControls, enter = fadeIn(), exit = fadeOut()) {
+                    Box(
+                        modifier = Modifier
+                            .size(60.dp)
+                            .clip(CircleShape)
+                            .background(Color.Black.copy(alpha = 0.6f))
+                            .border(1.dp, Color.White.copy(alpha = 0.2f), CircleShape)
+                            .clickable { isLocked = false; showControls = true },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(Icons.Default.LockOpen, "Unlock", tint = Color.White, modifier = Modifier.size(30.dp))
+                    }
+                }
+            }
+            LaunchedEffect(Unit) {
+                delay(3000)
+                showControls = false
+            }
+        }
+
+        AnimatedVisibility(visible = showControls && !hasError && hasStartedPlaying && !isLocked, enter = fadeIn(), exit = fadeOut(), modifier = Modifier.fillMaxSize()) {
             Box(modifier = Modifier.fillMaxSize().safeDrawingPadding()) {
                 Box(modifier = Modifier.fillMaxWidth().height(120.dp).background(Brush.verticalGradient(colors = listOf(Color.Black.copy(alpha = 0.8f), Color.Transparent))).align(Alignment.TopCenter))
 
                 Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp).align(Alignment.TopCenter), verticalAlignment = Alignment.CenterVertically) {
                     Box(modifier = Modifier.size(44.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.1f)).border(1.dp, Color.White.copy(alpha = 0.15f), CircleShape).clickable { exoPlayer.pause(); onClose() }, contentAlignment = Alignment.Center) { Icon(Icons.Default.Close, "Close", tint = Color.White) }
                     Spacer(modifier = Modifier.width(16.dp))
-                    Text(title, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(currentTitle, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    
+                    // 🔥 FEATURE: Playlist / Channel Switcher Icon
+                    if (episodes.isEmpty()) {
+                        Box(modifier = Modifier.size(44.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.1f)).border(1.dp, Color.White.copy(alpha = 0.15f), CircleShape).clickable { showChannelSwitcher = true }, contentAlignment = Alignment.Center) {
+                            Icon(Icons.Default.PlaylistPlay, "Channels", tint = Color.White)
+                        }
+                    }
                 }
 
                 Box(modifier = Modifier.size(80.dp).align(Alignment.Center).clip(CircleShape).background(Color.White.copy(alpha = 0.1f)).border(1.dp, Color.White.copy(alpha = 0.2f), CircleShape).clickable { if (isPlaying) exoPlayer.pause() else exoPlayer.play() }, contentAlignment = Alignment.Center) { Icon(if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow, "Play/Pause", tint = Color.White, modifier = Modifier.size(48.dp)) }
@@ -577,6 +633,10 @@ fun PlayerScreen(
                     }
                     Spacer(modifier = Modifier.height(16.dp))
                     Row(modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                        
+                        // 🔥 SCREEN LOCK ICON
+                        Box(modifier = Modifier.size(44.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.1f)).border(1.dp, Color.White.copy(alpha = 0.15f), CircleShape).clickable { isLocked = true; showControls = false }, contentAlignment = Alignment.Center) { Icon(Icons.Default.Lock, "Lock", tint = Color.White, modifier = Modifier.size(22.dp)) }
+
                         Box(modifier = Modifier.size(44.dp).clip(CircleShape).background(if (isAudioOnly) Color(0xFFE50914).copy(alpha = 0.2f) else Color.White.copy(alpha = 0.1f)).border(1.dp, if (isAudioOnly) Color(0xFFE50914) else Color.White.copy(alpha = 0.15f), CircleShape).clickable { isAudioOnly = !isAudioOnly }, contentAlignment = Alignment.Center) { Icon(Icons.Default.Headphones, "Audio Only", tint = if (isAudioOnly) Color(0xFFE50914) else Color.White, modifier = Modifier.size(22.dp)) }
                         if (subtitleUrl != null && !isAudioOnly) {
                             Box(modifier = Modifier.size(44.dp).clip(CircleShape).background(if (subtitlesEnabled) Color(0xFFE50914).copy(alpha = 0.2f) else Color.White.copy(alpha = 0.1f)).border(1.dp, if (subtitlesEnabled) Color(0xFFE50914) else Color.White.copy(alpha = 0.15f), CircleShape).clickable { subtitlesEnabled = !subtitlesEnabled }, contentAlignment = Alignment.Center) { Icon(Icons.Default.ClosedCaption, "CC", tint = if (subtitlesEnabled) Color(0xFFE50914) else Color.White, modifier = Modifier.size(22.dp)) }
@@ -592,7 +652,19 @@ fun PlayerScreen(
                         }
                         Box {
                             Box(modifier = Modifier.size(44.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.1f)).border(1.dp, Color.White.copy(alpha = 0.15f), CircleShape).clickable { showSpeedMenu = !showSpeedMenu; showQualityMenu = false; showAspectMenu = false; showSleepMenu = false }, contentAlignment = Alignment.Center) { Icon(Icons.Default.Speed, "Speed", tint = Color.White, modifier = Modifier.size(22.dp)) }
-                            DropdownMenu(expanded = showSpeedMenu, onDismissRequest = { showSpeedMenu = false }, modifier = Modifier.background(Color(0xFF15171E))) { listOf(0.5f, 1f, 1.5f, 2f).forEach { speed -> DropdownMenuItem(text = { Text("${speed}x", color = if(playbackSpeed == speed) Color(0xFFE50914) else Color.White) }, onClick = { playbackSpeed = speed; showSpeedMenu = false }) } }
+                            DropdownMenu(expanded = showSpeedMenu, onDismissRequest = { showSpeedMenu = false }, modifier = Modifier.background(Color(0xFF15171E))) { 
+                                listOf(0.5f, 1f, 1.5f, 2f).forEach { speed -> 
+                                    DropdownMenuItem(
+                                        text = { Text("${speed}x", color = if(playbackSpeed == speed) Color(0xFFE50914) else Color.White) }, 
+                                        onClick = { 
+                                            playbackSpeed = speed
+                                            // 🔥 PITCH CORRECTION: Keeps voices natural at 1.5x & 2x
+                                            exoPlayer.playbackParameters = PlaybackParameters(speed, 1.0f)
+                                            showSpeedMenu = false 
+                                        }
+                                    ) 
+                                } 
+                            }
                         }
                         if (!isAudioOnly) {
                             Box {
@@ -631,7 +703,7 @@ fun PlayerScreen(
             }
         }
         
-        if (sleepTimerMillis > 0 && !showControls && !hasError && hasStartedPlaying) {
+        if (sleepTimerMillis > 0 && !showControls && !hasError && hasStartedPlaying && !isLocked) {
             Box(modifier = Modifier.align(Alignment.TopCenter).padding(top = 20.dp).clip(RoundedCornerShape(12.dp)).background(Color.Black.copy(alpha = 0.5f)).border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(12.dp)).padding(horizontal = 12.dp, vertical = 6.dp)) {
                 val mins = sleepTimerMillis / 60000
                 val secs = (sleepTimerMillis % 60000) / 1000
@@ -639,20 +711,9 @@ fun PlayerScreen(
             }
         }
 
-        if (hasError) {
-            Box(
-                modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.7f)), 
-                contentAlignment = Alignment.Center
-            ) {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally, 
-                    modifier = Modifier
-                        .padding(32.dp)
-                        .clip(RoundedCornerShape(32.dp))
-                        .background(Color(0xFF15171E).copy(alpha = 0.85f)) 
-                        .border(1.dp, Color.White.copy(alpha = 0.15f), RoundedCornerShape(32.dp))
-                        .padding(32.dp)
-                ) {
+        if (hasError && !isLocked) {
+            Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.7f)), contentAlignment = Alignment.Center) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(32.dp).clip(RoundedCornerShape(32.dp)).background(Color(0xFF15171E).copy(alpha = 0.85f)).border(1.dp, Color.White.copy(alpha = 0.15f), RoundedCornerShape(32.dp)).padding(32.dp)) {
                     val infiniteTransition = rememberInfiniteTransition(label = "signal")
                     val pulseAlpha by infiniteTransition.animateFloat(initialValue = 1f, targetValue = 0.35f, animationSpec = infiniteRepeatable(animation = tween(1000), repeatMode = RepeatMode.Reverse), label = "pulse")
                     Box(modifier = Modifier.size(130.dp).background(Color.White.copy(alpha = 0.05f), CircleShape), contentAlignment = Alignment.Center) { Icon(Icons.Default.WifiOff, contentDescription = "Signal Lost", tint = Color(0xFFE50914).copy(alpha = pulseAlpha), modifier = Modifier.size(70.dp)) }
@@ -661,30 +722,15 @@ fun PlayerScreen(
                     Spacer(modifier = Modifier.height(12.dp))
                     Text(errorMessage, color = Color.Gray, fontSize = 14.sp, textAlign = TextAlign.Center, lineHeight = 20.sp, modifier = Modifier.padding(horizontal = 16.dp))
                     Spacer(modifier = Modifier.height(40.dp))
-                    Button(
-                        onClick = { 
-                            hasError = false
-                            hasStartedPlaying = false
-                            isBuffering = true
-                            retryCount = 0
-                            exoPlayer.stop()
-                            exoPlayer.clearMediaItems()
-                            val mediaItemBuilder = MediaItem.Builder().setUri(videoUrl)
-                            if (isM3u8) mediaItemBuilder.setMimeType(MimeTypes.APPLICATION_M3U8)
-                            exoPlayer.setMediaItem(mediaItemBuilder.build())
-                            exoPlayer.prepare()
-                            exoPlayer.playWhenReady = true
-                        }, 
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE50914)), 
-                        shape = RoundedCornerShape(50), 
-                        modifier = Modifier
-                            .height(56.dp)
-                            .fillMaxWidth(0.85f)
-                            .shadow(12.dp, RoundedCornerShape(50), spotColor = Color(0xFFE50914), ambientColor = Color(0xFFE50914))
-                    ) { 
-                        Icon(Icons.Default.Refresh, contentDescription = null, tint = Color.White)
-                        Spacer(modifier = Modifier.width(10.dp))
-                        Text("Retry", fontSize = 17.sp, fontWeight = FontWeight.Bold) 
+                    Button(onClick = { 
+                        hasError = false
+                        hasStartedPlaying = false
+                        isBuffering = true
+                        retryCount = 0
+                        exoPlayer.prepare()
+                        exoPlayer.playWhenReady = true
+                    }, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE50914)), shape = RoundedCornerShape(50), modifier = Modifier.height(56.dp).fillMaxWidth(0.85f).shadow(12.dp, RoundedCornerShape(50), spotColor = Color(0xFFE50914), ambientColor = Color(0xFFE50914))) { 
+                        Icon(Icons.Default.Refresh, contentDescription = null, tint = Color.White); Spacer(modifier = Modifier.width(10.dp)); Text("Retry", fontSize = 17.sp, fontWeight = FontWeight.Bold) 
                     }
                     Spacer(modifier = Modifier.height(16.dp))
                     TextButton(onClick = { exoPlayer.pause(); onClose() }) { Text("Close Player", color = Color.Gray, fontSize = 15.sp, fontWeight = FontWeight.Medium) }
@@ -701,6 +747,50 @@ fun PlayerScreen(
                 dismissButton = { TextButton(onClick = { exoPlayer.seekTo(0); exoPlayer.play(); showResumeDialog = false }) { Text("Start Over", color = Color.White) } },
                 containerColor = Color(0xFF15171E)
             )
+        }
+    }
+
+    // 🔥 SUB-MENU: Channel Switcher Bottom Sheet
+    if (showChannelSwitcher) {
+        ModalBottomSheet(
+            onDismissRequest = { showChannelSwitcher = false },
+            containerColor = Color(0xFF15171E),
+            contentColor = Color.White,
+            dragHandle = { BottomSheetDefaults.DragHandle(color = Color.White.copy(alpha = 0.3f)) }
+        ) {
+            Column(modifier = Modifier.padding(16.dp).fillMaxHeight(0.8f)) {
+                Text("Switch Channel", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 16.dp))
+                LazyColumn {
+                    items(tvChannels) { channel ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp).clip(RoundedCornerShape(12.dp)).background(Color.White.copy(alpha = 0.05f)).clickable {
+                                currentVideoUrl = channel.streamUrl
+                                currentTitle = channel.name
+                                showChannelSwitcher = false
+                                hasStartedPlaying = false
+                                isBuffering = true
+                                
+                                // Prepare new channel
+                                val mediaItemBuilder = MediaItem.Builder().setUri(channel.streamUrl)
+                                if (channel.streamUrl.contains("m3u8", ignoreCase = true)) {
+                                    mediaItemBuilder.setMimeType(MimeTypes.APPLICATION_M3U8)
+                                    mediaItemBuilder.setLiveConfiguration(MediaItem.LiveConfiguration.Builder().setTargetOffsetMs(5000).setMaxPlaybackSpeed(1.1f).setMinPlaybackSpeed(0.9f).build())
+                                }
+                                exoPlayer.setMediaItem(mediaItemBuilder.build())
+                                exoPlayer.prepare()
+                                exoPlayer.playWhenReady = true
+                            }.padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Box(modifier = Modifier.size(40.dp).clip(CircleShape).background(Color.Black), contentAlignment = Alignment.Center) {
+                                Icon(Icons.Default.Tv, null, tint = Color.Gray, modifier = Modifier.size(20.dp))
+                            }
+                            Spacer(modifier = Modifier.width(16.dp))
+                            Text(channel.name, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Medium)
+                        }
+                    }
+                }
+            }
         }
     }
 }
