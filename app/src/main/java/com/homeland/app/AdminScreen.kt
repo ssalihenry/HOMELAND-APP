@@ -48,6 +48,7 @@ import java.io.ByteArrayOutputStream
 import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
+import com.google.android.gms.tasks.Tasks // 🔥 ADDED: For Tasks.await()
 
 val vjList = listOf("VJ Akaana", "VJ Arafa", "VJ Aron", "VJ Ashim", "VJ Ashim J", "VJ Banks", "VJ Baros", "VJ Bonny", "VJ Cabs", "VJ CB", "VJ Dan De", "VJ Eddy", "VJ Emmy", "VJ Fredy", "VJ Geofry", "VJ Ghost King", "VJ Ham", "VJ Harderway", "VJ HD", "VJ Heavy Q", "VJ Henrico", "VJ Isma", "VJ Isma K", "VJ Ivo", "VJ Jimmy", "VJ Jingo", "VJ Jovan", "VJ Jumpers", "VJ Junior", "VJ Kam", "VJ Kamran", "VJ Kevo", "VJ Kevin", "VJ Khan Lee", "VJ Kimuli", "VJ Kin", "VJ Kriss", "VJ Kriss S", "VJ Kriss Sweet", "VJ KS", "VJ Lance", "VJ Lash", "VJ Light", "VJ Little T", "VJ Mark", "VJ Martin K", "VJ MK", "VJ Monks", "VJ Mosco", "VJ Mox", "VJ Muba", "VJ Mukibi", "VJ Mun", "VJ Musa", "VJ Neil", "VJ Nelly", "VJ Nelson", "VJ Omutaka Ice P", "VJ Pauleta", "VJ Pax Woo", "VJ Phoenix", "VJ Raji", "VJ Roddy", "VJ Ronage", "VJ Ronnie", "VJ Ryan", "VJ Sammy", "VJ Shao Khan", "VJ Sharz", "VJ Shield", "VJ Silver", "VJ SMK", "VJ Son", "VJ Soul", "VJ Tom", "VJ Tonny", "VJ Ulio", "VJ Uncle T", "VJ Waza", "VJ Yat", "VJ Zaidi")
 val categories = listOf("Action", "Sci-Fi", "Comedy", "Animation", "Romantic", "Horror", "Adventure")
@@ -1118,7 +1119,8 @@ fun AdminScreen(onBack: () -> Unit) {
 // 🔥 ADDED: YOCINEMA SYNC NETWORK LOGIC
 
 suspend fun executeYocSync(context: Context, apiKey: String, db: FirebaseFirestore, onProgress: (String) -> Unit): Pair<Int, Int> = withContext(Dispatchers.IO) {
-    val snapCheck = db.collection("homeland_movies").get().await()
+    // 🔥 FIX: Use Tasks.await() instead of .await() extension
+    val snapCheck = Tasks.await(db.collection("homeland_movies").get())
     val haveIds = snapCheck.documents.mapNotNull { it.getString("yocId") }.toSet()
 
     val all = mutableListOf<JSONObject>()
@@ -1295,7 +1297,8 @@ suspend fun executeYocSync(context: Context, apiKey: String, db: FirebaseFiresto
             } catch (e: Exception) { /* Ignore token failure */ }
 
             // 6. Save to Firebase
-            db.collection("homeland_movies").add(doc).await()
+            // 🔥 FIX: Use Tasks.await() instead of .await()
+            Tasks.await(db.collection("homeland_movies").add(doc))
             added++
 
             // 🚨 CRITICAL: 150ms delay to prevent Firebase spam block
