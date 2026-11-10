@@ -74,6 +74,7 @@ import androidx.media3.common.Tracks
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.datasource.ResolvingDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
@@ -87,6 +88,15 @@ import com.google.firebase.firestore.Query
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.abs
+
+// 🔥 ADDED IMPORTS FOR YOCINEMA TOKENS
+import android.net.Uri
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Dispatchers
+import org.json.JSONObject
+import java.net.HttpURLConnection
+import java.net.URL
+import java.net.URLEncoder
 
 // 🔥 ADDED: Data class to hold actual video qualities from the manifest
 data class VideoQuality(
@@ -107,6 +117,7 @@ fun PlayerScreen(
     startPosition: Long = 0L,
     subtitleUrl: String? = null,
     tvSessionCode: String? = null,
+    yocId: String? = null, // 🔥 ADDED: Needed to fetch the Yocinema token
     onClose: () -> Unit
 ) {
     val context = LocalContext.current
@@ -159,6 +170,9 @@ fun PlayerScreen(
     // 🔥 ADDED: State to hold the dynamically fetched qualities
     var availableQualities by remember { mutableStateOf<List<VideoQuality>>(emptyList()) }
 
+    // 🔥 ADDED: State to hold the current Yocinema Token
+    val tokenState = remember { mutableStateOf<String?>(null) }
+
     val focusRequester = remember { FocusRequester() }
 
     val audioManager = remember { context.getSystemService(Context.AUDIO_SERVICE) as AudioManager }
@@ -179,6 +193,23 @@ fun PlayerScreen(
 
         val dataSourceFactory = DefaultDataSource.Factory(context, httpDataSourceFactory)
 
+        // 🔥 ADDED: ResolvingDataSource to inject token into EVERY HLS segment request
+        val resolvingDataSourceFactory = ResolvingDataSource.Factory(dataSourceFactory) { dataSpec ->
+            var finalUri = dataSpec.uri
+            val uriString = finalUri.toString()
+            
+            // Only append token if it's a Yocinema proxy URL and the token isn't already there
+            if (uriString.contains("muno-yoc-proxy") && !uriString.contains("streamToken=")) {
+                val token = tokenState.value
+                if (!token.isNullOrEmpty()) {
+                    val sep = if (uriString.contains("?")) "&" else "?"
+                    val newUri = Uri.parse(uriString + sep + "streamToken=" + URLEncoder.encode(token, "UTF-8"))
+                    finalUri = newUri
+                }
+            }
+            dataSpec.withUri(finalUri)
+        }
+
         val minBuffer = if (currentVideoUrl.contains("m3u8", ignoreCase = true)) 5000 else 15000
         val maxBuffer = if (currentVideoUrl.contains("m3u8", ignoreCase = true)) 15000 else 50000 
         
@@ -186,7 +217,7 @@ fun PlayerScreen(
             .setBufferDurationsMs(minBuffer, maxBuffer, 2500, 5000)
             .build()
 
-        val mediaSourceFactory = DefaultMediaSourceFactory(dataSourceFactory)
+        val mediaSourceFactory = DefaultMediaSourceFactory(resolvingDataSourceFactory)
             .setLoadErrorHandlingPolicy(DefaultLoadErrorHandlingPolicy(5))
 
         ExoPlayer.Builder(context)
@@ -202,39 +233,54 @@ fun PlayerScreen(
             )
             .setHandleAudioBecomingNoisy(true)
             .setWakeMode(C.WAKE_MODE_NETWORK) 
-            .build().apply {
-                if (episodes.isNotEmpty()) {
-                    val mediaItems = episodes.map { ep ->
-                        val mediaMetadata = androidx.media3.common.MediaMetadata.Builder().setTitle("${ep.season} ${ep.episode}").build()
-                        MediaItem.Builder().setUri(ep.url).setMediaMetadata(mediaMetadata).build()
-                    }
-                    setMediaItems(mediaItems)
-                } else {
-                    val mediaItemBuilder = MediaItem.Builder().setUri(currentVideoUrl)
-                    
-                    if (currentVideoUrl.contains("m3u8", ignoreCase = true)) {
-                        mediaItemBuilder.setMimeType(MimeTypes.APPLICATION_M3U8)
-                        
-                        val liveConfig = MediaItem.LiveConfiguration.Builder()
-                            .setTargetOffsetMs(5000) 
-                            .setMaxPlaybackSpeed(1.1f) 
-                            .setMinPlaybackSpeed(0.9f) 
-                            .build()
-                        mediaItemBuilder.setLiveConfiguration(liveConfig)
-                    }
-                    
-                    setMediaItem(mediaItemBuilder.build())
-                }
-                
-                if (startPosition <= 5000L) {
-                    seekTo(startPosition)
-                    playWhenReady = true
-                } else {
-                    seekTo(0)
-                    playWhenReady = false
-                }
-                prepare()
+            .build()
+    }
+
+    // 🔥 ADDED: Fetch token, rewrite URLs, and prepare the player
+    LaunchedEffect(videoUrl, episodes, yocId) {
+        val isSeries = episodes.isNotEmpty() || videoUrl.contains("/episodes/")
+        
+        // 1. Fetch fresh token if we have a yocId
+        if (!yocId.isNullOrEmpty()) {
+            tokenState.value = fetchFreshYocToken(yocId)
+        }
+        
+        // 2. Rewrite URLs with proxy and token
+        val finalVideoUrl = proxyYocUrl(videoUrl, tokenState.value, isSeries)
+        val finalEpisodes = episodes.map { ep -> ep.copy(url = proxyYocUrl(ep.url, tokenState.value, true)) }
+        
+        // 3. Set Media Items and Prepare
+        if (finalEpisodes.isNotEmpty()) {
+            val mediaItems = finalEpisodes.map { ep ->
+                val mediaMetadata = androidx.media3.common.MediaMetadata.Builder().setTitle("${ep.season} ${ep.episode}").build()
+                MediaItem.Builder().setUri(ep.url).setMediaMetadata(mediaMetadata).build()
             }
+            exoPlayer.setMediaItems(mediaItems)
+        } else {
+            val mediaItemBuilder = MediaItem.Builder().setUri(finalVideoUrl)
+            
+            if (finalVideoUrl.contains("m3u8", ignoreCase = true)) {
+                mediaItemBuilder.setMimeType(MimeTypes.APPLICATION_M3U8)
+                
+                val liveConfig = MediaItem.LiveConfiguration.Builder()
+                    .setTargetOffsetMs(5000) 
+                    .setMaxPlaybackSpeed(1.1f) 
+                    .setMinPlaybackSpeed(0.9f) 
+                    .build()
+                mediaItemBuilder.setLiveConfiguration(liveConfig)
+            }
+            
+            exoPlayer.setMediaItem(mediaItemBuilder.build())
+        }
+        
+        if (startPosition <= 5000L) {
+            exoPlayer.seekTo(startPosition)
+            exoPlayer.playWhenReady = true
+        } else {
+            exoPlayer.seekTo(0)
+            exoPlayer.playWhenReady = false
+        }
+        exoPlayer.prepare()
     }
 
     // 🔥 FEATURE: Auto-Resume on Network Switch
@@ -846,4 +892,51 @@ fun formatTime(millis: Long): String {
     val minutes = (totalSeconds % 3600) / 60
     val seconds = totalSeconds % 60
     return if (hours > 0) String.format("%02d:%02d:%02d", hours, minutes, seconds) else String.format("%02d:%02d", minutes, seconds)
+}
+
+// 🔥 ADDED: YOCINEMA HELPER FUNCTIONS
+
+suspend fun fetchFreshYocToken(yocId: String): String? = withContext(Dispatchers.IO) {
+    try {
+        val url = URL("https://muno-yoc-proxy.henryssali219.workers.dev/movies/$yocId/stream-token")
+        val conn = url.openConnection() as HttpURLConnection
+        conn.requestMethod = "POST"
+        conn.setRequestProperty("Content-Type", "application/json")
+        conn.doOutput = true
+        conn.outputStream.use { it.write("{}".toByteArray()) }
+        
+        if (conn.responseCode == 200) {
+            val response = conn.inputStream.bufferedReader().readText()
+            val json = JSONObject(response)
+            if (json.optBoolean("success", false) && json.has("data")) {
+                json.getJSONObject("data").optString("streamToken", null)
+            } else {
+                json.optString("streamToken", null)
+            }
+        } else {
+            null
+        }
+    } catch (e: Exception) {
+        null
+    }
+}
+
+fun proxyYocUrl(url: String, token: String?, isSeries: Boolean = false): String {
+    if (url.isEmpty()) return url
+    if (!url.contains("api.yocinema.dpdns.org")) return url
+    
+    val parts = url.split("api.yocinema.dpdns.org/api/v1")
+    val path = if (parts.size > 1) parts[1] else ""
+    
+    val sep = if (path.contains("?")) "&" else "?"
+    var out = "https://muno-yoc-proxy.henryssali219.workers.dev$path"
+    
+    if (!token.isNullOrEmpty()) {
+        out += "$sep" + "streamToken=" + URLEncoder.encode(token, "UTF-8")
+    }
+    if (isSeries) {
+        val sep2 = if (out.contains("?")) "&" else "?"
+        out += "${sep2}isSeries=true"
+    }
+    return out
 }
