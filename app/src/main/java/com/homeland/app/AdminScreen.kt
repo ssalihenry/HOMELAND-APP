@@ -35,7 +35,7 @@ import kotlin.random.Random
 // 🔥 ADDED IMPORTS FOR YOCINEMA SYNC & BACKGROUND SCOPE
 import android.content.Context
 import android.graphics.Bitmap
-import android.graphics.BitmapFactory
+import android.graphics.drawable.BitmapDrawable
 import android.os.Handler
 import android.os.Looper
 import android.util.Base64
@@ -55,6 +55,11 @@ import java.net.URL
 import java.net.URLEncoder
 import java.util.concurrent.TimeUnit
 import com.google.android.gms.tasks.Tasks 
+
+// 🔥 COIL IMPORTS FOR DOWNLOADING COVER IMAGES (browser-like handling of redirects, WebP, headers)
+import coil.imageLoader
+import coil.request.ImageRequest
+import coil.request.SuccessResult
 
 // 🔥 GLOBAL BACKGROUND SYNC SCOPE & STATE
 val AppSyncScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
@@ -1242,30 +1247,38 @@ suspend fun executeYocSync(context: Context, apiKey: String, db: FirebaseFiresto
             detConn.disconnect()
             val detail = JSONObject(detResponse).getJSONObject("data")
 
-            // Cover fetch
+            // 🔥 FIX: Using Coil to fetch the cover image (handles WebP, redirects, headers natively like a browser)
             var posterBase64 = ""
             try {
-                val covUrl = URL("https://muno-yoc-proxy.henryssali219.workers.dev/movies/$yocId/cover")
-                val covConn = covUrl.openConnection() as HttpURLConnection
-                covConn.connectTimeout = 10000
-                covConn.readTimeout = 20000
-                covConn.setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-                val inputStream = covConn.inputStream
-                val originalBitmap = BitmapFactory.decodeStream(inputStream)
-                covConn.disconnect()
+                val imageRequest = ImageRequest.Builder(context)
+                    .data("https://muno-yoc-proxy.henryssali219.workers.dev/movies/$yocId/cover")
+                    .allowHardware(false) // Important for Bitmap operations
+                    .build()
+                    
+                val result = context.imageLoader.execute(imageRequest)
                 
-                if (originalBitmap != null) {
-                    val maxWidth = 400
-                    val ratio = originalBitmap.height.toFloat() / originalBitmap.width.toFloat()
-                    val newHeight = (maxWidth * ratio).toInt()
-                    val resized = Bitmap.createScaledBitmap(originalBitmap, maxWidth, newHeight, true)
-                    val outputStream = ByteArrayOutputStream()
-                    resized.compress(Bitmap.CompressFormat.JPEG, 70, outputStream)
-                    val bytes = outputStream.toByteArray()
-                    posterBase64 = "data:image/jpeg;base64," + Base64.encodeToString(bytes, Base64.NO_WRAP)
+                if (result is SuccessResult) {
+                    val drawable = result.drawable
+                    val bitmap = if (drawable is BitmapDrawable) drawable.bitmap else null
+                    
+                    if (bitmap != null) {
+                        val maxWidth = 400
+                        val ratio = bitmap.height.toFloat() / bitmap.width.toFloat()
+                        val newHeight = (maxWidth * ratio).toInt()
+                        val resized = Bitmap.createScaledBitmap(bitmap, maxWidth, newHeight, true)
+                        
+                        val outputStream = ByteArrayOutputStream()
+                        resized.compress(Bitmap.CompressFormat.JPEG, 70, outputStream)
+                        val bytes = outputStream.toByteArray()
+                        posterBase64 = "data:image/jpeg;base64," + Base64.encodeToString(bytes, Base64.NO_WRAP)
+                    }
                 }
             } catch (e: Exception) {
                 Log.w("YOC_SYNC", "Cover fetch failed for $yocId", e)
+            }
+
+            // Fallback if cover failed
+            if (posterBase64.isEmpty()) {
                 posterBase64 = "https://images.unsplash.com/photo-1536440136628-849c177e76a1?auto=format&fit=crop&w=400&q=80"
             }
 
