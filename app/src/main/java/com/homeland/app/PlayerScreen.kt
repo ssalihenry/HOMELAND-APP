@@ -66,12 +66,11 @@ import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
+import androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy // 🔥 NEW: For silent retries
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.ListenerRegistration
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.abs
@@ -114,7 +113,7 @@ fun PlayerScreen(
 
     var hasError by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf("") }
-    var retryCount by remember { mutableIntStateOf(0) } // 🔥 NEW: Auto-Retry counter
+    var retryCount by remember { mutableIntStateOf(0) }
 
     var hasStartedPlaying by remember { mutableStateOf(false) }
     var isBuffering by remember { mutableStateOf(true) }
@@ -138,7 +137,6 @@ fun PlayerScreen(
     val isM3u8 = remember { videoUrl.contains("m3u8", ignoreCase = true) }
 
     val exoPlayer = remember {
-        // 1. Custom HTTP Data Source
         val httpDataSourceFactory = DefaultHttpDataSource.Factory()
             .setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
             .setAllowCrossProtocolRedirects(true)
@@ -147,23 +145,21 @@ fun PlayerScreen(
 
         val dataSourceFactory = DefaultDataSource.Factory(context, httpDataSourceFactory)
 
-        // 2. 🔥 DYNAMIC BUFFER (15s for HLS Live, 50s for Movies/TS)
         val minBuffer = if (isM3u8) 5000 else 15000
-        val maxBuffer = if (isM3u8) 15000 else 50000 // HLS sliding window limit
+        val maxBuffer = if (isM3u8) 15000 else 50000 
         
         val loadControl = DefaultLoadControl.Builder()
-            .setBufferDurationsMs(
-                minBuffer,
-                maxBuffer,
-                2500,
-                5000
-            )
+            .setBufferDurationsMs(minBuffer, maxBuffer, 2500, 5000)
             .build()
+
+        // 🔥 Silent Retry for Data Source (Chunk Level)
+        val loadErrorHandlingPolicy = DefaultLoadErrorHandlingPolicy(3)
 
         ExoPlayer.Builder(context)
             .setTrackSelector(trackSelector)
             .setMediaSourceFactory(DefaultMediaSourceFactory(dataSourceFactory))
             .setLoadControl(loadControl)
+            .setLoadErrorHandlingPolicy(loadErrorHandlingPolicy) // Apply silent retry
             .setAudioAttributes(
                 AudioAttributes.Builder()
                     .setUsage(C.USAGE_MEDIA)
@@ -182,9 +178,19 @@ fun PlayerScreen(
                     setMediaItems(mediaItems)
                 } else {
                     val mediaItemBuilder = MediaItem.Builder().setUri(videoUrl)
+                    
                     if (isM3u8) {
                         mediaItemBuilder.setMimeType(MimeTypes.APPLICATION_M3U8)
+                        
+                        // 🔥 Live Edge Protection
+                        val liveConfig = MediaItem.LiveConfiguration.Builder()
+                            .setTargetOffsetMs(15000) // Stay 15s behind live edge
+                            .setMaxPlaybackSpeed(1.05f) // Speed up if falling behind
+                            .setMinPlaybackSpeed(0.95f) // Slow down if too close
+                            .build()
+                        mediaItemBuilder.setLiveConfiguration(liveConfig)
                     }
+                    
                     setMediaItem(mediaItemBuilder.build())
                 }
                 
@@ -248,7 +254,7 @@ fun PlayerScreen(
                         isBuffering = false
                         hasStartedPlaying = true
                         hasError = false 
-                        retryCount = 0 // 🔥 Reset retry counter on success
+                        retryCount = 0 
                     }
                     Player.STATE_ENDED -> {
                         isBuffering = false
@@ -265,20 +271,26 @@ fun PlayerScreen(
             override fun onPlayerError(error: PlaybackException) {
                 super.onPlayerError(error)
                 
-                // 🔥 AUTO-RETRY LOGIC
                 if (retryCount < 3 && episodes.isEmpty()) {
                     retryCount++
                     isBuffering = true
                     hasError = false
                     
                     coroutineScope.launch {
-                        delay(2000) // Wait 2 seconds before retrying
+                        delay(2000)
                         exoPlayer.stop()
                         exoPlayer.clearMediaItems()
                         
-                        // Rebuild the media item to get a fresh connection
                         val mediaItemBuilder = MediaItem.Builder().setUri(videoUrl)
-                        if (isM3u8) mediaItemBuilder.setMimeType(MimeTypes.APPLICATION_M3U8)
+                        if (isM3u8) {
+                            mediaItemBuilder.setMimeType(MimeTypes.APPLICATION_M3U8)
+                            val liveConfig = MediaItem.LiveConfiguration.Builder()
+                                .setTargetOffsetMs(15000)
+                                .setMaxPlaybackSpeed(1.05f)
+                                .setMinPlaybackSpeed(0.95f)
+                                .build()
+                            mediaItemBuilder.setLiveConfiguration(liveConfig)
+                        }
                         
                         exoPlayer.setMediaItem(mediaItemBuilder.build())
                         exoPlayer.prepare()
@@ -520,12 +532,25 @@ fun PlayerScreen(
             }
         }
 
+        // 🔥 Premium Buffering/Reconnecting Overlay
         if (hasStartedPlaying && isBuffering && !hasError) {
-            Box(modifier = Modifier.align(Alignment.Center).clip(RoundedCornerShape(20.dp)).background(Color.Black.copy(alpha = 0.6f)).border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(20.dp)).padding(horizontal = 32.dp, vertical = 24.dp)) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .clip(RoundedCornerShape(24.dp))
+                    .background(Color(0xFF15171E).copy(alpha = 0.85f)) // Glass background
+                    .border(1.dp, Color.White.copy(alpha = 0.15f), RoundedCornerShape(24.dp))
+                    .padding(horizontal = 40.dp, vertical = 28.dp)
+            ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    CircularProgressIndicator(color = Color(0xFFE50914), strokeWidth = 3.dp, modifier = Modifier.size(42.dp))
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Text(if (retryCount > 0) "Reconnecting..." else "Buffering...", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                    CircularProgressIndicator(color = Color(0xFFE50914), strokeWidth = 3.dp, modifier = Modifier.size(46.dp))
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text(
+                        text = if (retryCount > 0) "Reconnecting... (Attempt $retryCount/3)" else "Buffering...", 
+                        color = Color.White, 
+                        fontSize = 14.sp, 
+                        fontWeight = FontWeight.SemiBold
+                    )
                 }
             }
         }
@@ -614,9 +639,21 @@ fun PlayerScreen(
             }
         }
 
+        // 🔥 Premium Glass Error Screen
         if (hasError) {
-            Box(modifier = Modifier.fillMaxSize().background(Color(0xFF0B0C10).copy(alpha = 0.96f)), contentAlignment = Alignment.Center) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(32.dp).clip(RoundedCornerShape(32.dp)).background(Color(0xFF15171E)).border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(32.dp)).padding(32.dp)) {
+            Box(
+                modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.7f)), // Semi-transparent, shows video frame behind
+                contentAlignment = Alignment.Center
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally, 
+                    modifier = Modifier
+                        .padding(32.dp)
+                        .clip(RoundedCornerShape(32.dp))
+                        .background(Color(0xFF15171E).copy(alpha = 0.85f)) // Glass background
+                        .border(1.dp, Color.White.copy(alpha = 0.15f), RoundedCornerShape(32.dp))
+                        .padding(32.dp)
+                ) {
                     val infiniteTransition = rememberInfiniteTransition(label = "signal")
                     val pulseAlpha by infiniteTransition.animateFloat(initialValue = 1f, targetValue = 0.35f, animationSpec = infiniteRepeatable(animation = tween(1000), repeatMode = RepeatMode.Reverse), label = "pulse")
                     Box(modifier = Modifier.size(130.dp).background(Color.White.copy(alpha = 0.05f), CircleShape), contentAlignment = Alignment.Center) { Icon(Icons.Default.WifiOff, contentDescription = "Signal Lost", tint = Color(0xFFE50914).copy(alpha = pulseAlpha), modifier = Modifier.size(70.dp)) }
@@ -625,19 +662,31 @@ fun PlayerScreen(
                     Spacer(modifier = Modifier.height(12.dp))
                     Text(errorMessage, color = Color.Gray, fontSize = 14.sp, textAlign = TextAlign.Center, lineHeight = 20.sp, modifier = Modifier.padding(horizontal = 16.dp))
                     Spacer(modifier = Modifier.height(40.dp))
-                    Button(onClick = { 
-                        hasError = false
-                        hasStartedPlaying = false
-                        isBuffering = true
-                        retryCount = 0
-                        exoPlayer.stop()
-                        exoPlayer.clearMediaItems()
-                        val mediaItemBuilder = MediaItem.Builder().setUri(videoUrl)
-                        if (isM3u8) mediaItemBuilder.setMimeType(MimeTypes.APPLICATION_M3U8)
-                        exoPlayer.setMediaItem(mediaItemBuilder.build())
-                        exoPlayer.prepare()
-                        exoPlayer.playWhenReady = true
-                    }, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE50914)), shape = RoundedCornerShape(16.dp), modifier = Modifier.height(56.dp).fillMaxWidth(0.85f)) { Icon(Icons.Default.Refresh, contentDescription = null, tint = Color.White); Spacer(modifier = Modifier.width(10.dp)); Text("Retry", fontSize = 17.sp, fontWeight = FontWeight.Bold) }
+                    Button(
+                        onClick = { 
+                            hasError = false
+                            hasStartedPlaying = false
+                            isBuffering = true
+                            retryCount = 0
+                            exoPlayer.stop()
+                            exoPlayer.clearMediaItems()
+                            val mediaItemBuilder = MediaItem.Builder().setUri(videoUrl)
+                            if (isM3u8) mediaItemBuilder.setMimeType(MimeTypes.APPLICATION_M3U8)
+                            exoPlayer.setMediaItem(mediaItemBuilder.build())
+                            exoPlayer.prepare()
+                            exoPlayer.playWhenReady = true
+                        }, 
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE50914)), 
+                        shape = RoundedCornerShape(50), 
+                        modifier = Modifier
+                            .height(56.dp)
+                            .fillMaxWidth(0.85f)
+                            .shadow(12.dp, RoundedCornerShape(50), spotColor = Color(0xFFE50914), ambientColor = Color(0xFFE50914))
+                    ) { 
+                        Icon(Icons.Default.Refresh, contentDescription = null, tint = Color.White)
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Text("Retry", fontSize = 17.sp, fontWeight = FontWeight.Bold) 
+                    }
                     Spacer(modifier = Modifier.height(16.dp))
                     TextButton(onClick = { exoPlayer.pause(); onClose() }) { Text("Close Player", color = Color.Gray, fontSize = 15.sp, fontWeight = FontWeight.Medium) }
                 }
