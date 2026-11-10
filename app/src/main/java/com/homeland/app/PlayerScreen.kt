@@ -86,7 +86,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 
-@OptIn(UnstableApi::class)
+@OptIn(UnstableApi::class, ExperimentalMaterial3Api::class) // 🔥 FIXED: Added ExperimentalMaterial3Api
 @Composable
 fun PlayerScreen(
     title: String,
@@ -105,14 +105,12 @@ fun PlayerScreen(
     
     var showResumeDialog by remember { mutableStateOf(startPosition > 5000L) }
 
-    // 🔥 NEW STATES FOR FEATURES
     var currentVideoUrl by remember { mutableStateOf(videoUrl) }
     var currentTitle by remember { mutableStateOf(title) }
     var isLocked by remember { mutableStateOf(false) }
     var showChannelSwitcher by remember { mutableStateOf(false) }
     var tvChannels by remember { mutableStateOf<List<TvChannel>>(emptyList()) }
     
-    // Gesture states for double tap
     var showSeekRipple by remember { mutableStateOf(false) }
     var seekRippleLeft by remember { mutableStateOf(true) }
 
@@ -174,7 +172,7 @@ fun PlayerScreen(
             .build()
 
         val mediaSourceFactory = DefaultMediaSourceFactory(dataSourceFactory)
-            .setLoadErrorHandlingPolicy(DefaultLoadErrorHandlingPolicy(5)) // Increased to 5 for better stability
+            .setLoadErrorHandlingPolicy(DefaultLoadErrorHandlingPolicy(5))
 
         ExoPlayer.Builder(context)
             .setTrackSelector(trackSelector)
@@ -203,7 +201,7 @@ fun PlayerScreen(
                         mediaItemBuilder.setMimeType(MimeTypes.APPLICATION_M3U8)
                         
                         val liveConfig = MediaItem.LiveConfiguration.Builder()
-                            .setTargetOffsetMs(5000) // Closer to Live Edge for sports
+                            .setTargetOffsetMs(5000) 
                             .setMaxPlaybackSpeed(1.1f) 
                             .setMinPlaybackSpeed(0.9f) 
                             .build()
@@ -230,7 +228,7 @@ fun PlayerScreen(
         val networkCallback = object : ConnectivityManager.NetworkCallback() {
             override fun onAvailable(network: Network) {
                 coroutineScope.launch {
-                    delay(1000) // Wait for network to stabilize
+                    delay(1000)
                     if (!exoPlayer.isPlaying && !hasError) {
                         exoPlayer.prepare()
                         exoPlayer.play()
@@ -320,7 +318,6 @@ fun PlayerScreen(
             override fun onPlayerError(error: PlaybackException) {
                 super.onPlayerError(error)
                 
-                // 🔥 GHOST RECONNECT: Seamless recovery without black screen
                 if (retryCount < 5 && episodes.isEmpty()) {
                     retryCount += 1 
                     isBuffering = true
@@ -328,7 +325,6 @@ fun PlayerScreen(
                     
                     coroutineScope.launch {
                         delay(2000)
-                        // Do NOT stop or clear media items. Just prepare again.
                         exoPlayer.prepare()
                         exoPlayer.playWhenReady = true
                     }
@@ -409,7 +405,6 @@ fun PlayerScreen(
                     if (keyEvent.key == Key.Back || keyEvent.key == Key.Escape) { isLocked = false; showControls = true; true } else false
                 } else false
             }
-            // 🔥 FEATURE: Double-Tap to Seek
             .pointerInput(isLocked, hasError, hasStartedPlaying) {
                 detectTapGestures(
                     onTap = { if (!isLocked) showControls = !showControls },
@@ -462,7 +457,6 @@ fun PlayerScreen(
             }
         }
 
-        // 🔥 Ripple Animation for Double Tap
         if (showSeekRipple) {
             val rippleAlpha by animateFloatAsState(targetValue = if (showSeekRipple) 1f else 0f, animationSpec = tween(300), label = "ripple")
             Box(
@@ -546,7 +540,6 @@ fun PlayerScreen(
             }
         }
 
-        // Top Info Pills
         Box(modifier = Modifier.align(Alignment.TopStart).padding(top = 20.dp, start = 20.dp).clip(RoundedCornerShape(12.dp)).background(Color.Black.copy(alpha = 0.4f)).border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(12.dp)).padding(horizontal = 12.dp, vertical = 6.dp)) {
             Text(text = String.format("%.2f MB", dataUsedMb), color = Color(0xFF10B981), fontSize = 11.sp, fontWeight = FontWeight.Bold)
         }
@@ -581,19 +574,10 @@ fun PlayerScreen(
             }
         }
 
-        // 🔥 SCREEN LOCK OVERLAY
         if (isLocked) {
             Box(modifier = Modifier.fillMaxSize().clickable { showControls = true }, contentAlignment = Alignment.Center) {
                 AnimatedVisibility(visible = showControls, enter = fadeIn(), exit = fadeOut()) {
-                    Box(
-                        modifier = Modifier
-                            .size(60.dp)
-                            .clip(CircleShape)
-                            .background(Color.Black.copy(alpha = 0.6f))
-                            .border(1.dp, Color.White.copy(alpha = 0.2f), CircleShape)
-                            .clickable { isLocked = false; showControls = true },
-                        contentAlignment = Alignment.Center
-                    ) {
+                    Box(modifier = Modifier.size(60.dp).clip(CircleShape).background(Color.Black.copy(alpha = 0.6f)).border(1.dp, Color.White.copy(alpha = 0.2f), CircleShape).clickable { isLocked = false; showControls = true }, contentAlignment = Alignment.Center) {
                         Icon(Icons.Default.LockOpen, "Unlock", tint = Color.White, modifier = Modifier.size(30.dp))
                     }
                 }
@@ -613,7 +597,6 @@ fun PlayerScreen(
                     Spacer(modifier = Modifier.width(16.dp))
                     Text(currentTitle, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
                     
-                    // 🔥 FEATURE: Playlist / Channel Switcher Icon
                     if (episodes.isEmpty()) {
                         Box(modifier = Modifier.size(44.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.1f)).border(1.dp, Color.White.copy(alpha = 0.15f), CircleShape).clickable { showChannelSwitcher = true }, contentAlignment = Alignment.Center) {
                             Icon(Icons.Default.PlaylistPlay, "Channels", tint = Color.White)
@@ -634,7 +617,6 @@ fun PlayerScreen(
                     Spacer(modifier = Modifier.height(16.dp))
                     Row(modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
                         
-                        // 🔥 SCREEN LOCK ICON
                         Box(modifier = Modifier.size(44.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.1f)).border(1.dp, Color.White.copy(alpha = 0.15f), CircleShape).clickable { isLocked = true; showControls = false }, contentAlignment = Alignment.Center) { Icon(Icons.Default.Lock, "Lock", tint = Color.White, modifier = Modifier.size(22.dp)) }
 
                         Box(modifier = Modifier.size(44.dp).clip(CircleShape).background(if (isAudioOnly) Color(0xFFE50914).copy(alpha = 0.2f) else Color.White.copy(alpha = 0.1f)).border(1.dp, if (isAudioOnly) Color(0xFFE50914) else Color.White.copy(alpha = 0.15f), CircleShape).clickable { isAudioOnly = !isAudioOnly }, contentAlignment = Alignment.Center) { Icon(Icons.Default.Headphones, "Audio Only", tint = if (isAudioOnly) Color(0xFFE50914) else Color.White, modifier = Modifier.size(22.dp)) }
@@ -658,7 +640,6 @@ fun PlayerScreen(
                                         text = { Text("${speed}x", color = if(playbackSpeed == speed) Color(0xFFE50914) else Color.White) }, 
                                         onClick = { 
                                             playbackSpeed = speed
-                                            // 🔥 PITCH CORRECTION: Keeps voices natural at 1.5x & 2x
                                             exoPlayer.playbackParameters = PlaybackParameters(speed, 1.0f)
                                             showSpeedMenu = false 
                                         }
@@ -750,7 +731,6 @@ fun PlayerScreen(
         }
     }
 
-    // 🔥 SUB-MENU: Channel Switcher Bottom Sheet
     if (showChannelSwitcher) {
         ModalBottomSheet(
             onDismissRequest = { showChannelSwitcher = false },
@@ -770,7 +750,6 @@ fun PlayerScreen(
                                 hasStartedPlaying = false
                                 isBuffering = true
                                 
-                                // Prepare new channel
                                 val mediaItemBuilder = MediaItem.Builder().setUri(channel.streamUrl)
                                 if (channel.streamUrl.contains("m3u8", ignoreCase = true)) {
                                     mediaItemBuilder.setMimeType(MimeTypes.APPLICATION_M3U8)
