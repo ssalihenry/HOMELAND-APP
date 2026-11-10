@@ -71,9 +71,9 @@ import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
-import androidx.media3.datasource.cache.CacheDataSource // 🔥 NEW IMPORT
-import androidx.media3.datasource.cache.LeastRecentlyUsedCacheEvictor // 🔥 NEW IMPORT
-import androidx.media3.datasource.cache.SimpleCache // 🔥 NEW IMPORT
+import androidx.media3.datasource.cache.CacheDataSource
+import androidx.media3.datasource.cache.LeastRecentlyUsedCacheEvictor
+import androidx.media3.datasource.cache.SimpleCache
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
@@ -86,8 +86,21 @@ import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.firestore.Query
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import java.io.File // 🔥 NEW IMPORT
+import java.io.File
 import kotlin.math.abs
+
+// 🔥 FIXED: Global Cache Provider (Prevents the "Clear Cache" crash)
+object CacheProvider {
+    private var simpleCache: SimpleCache? = null
+
+    fun getCache(context: Context): SimpleCache {
+        if (simpleCache == null) {
+            val cacheDir = File(context.cacheDir, "homeland_media_cache")
+            simpleCache = SimpleCache(cacheDir, LeastRecentlyUsedCacheEvictor(500L * 1024 * 1024)) // 500MB Limit
+        }
+        return simpleCache!!
+    }
+}
 
 @OptIn(UnstableApi::class, ExperimentalMaterial3Api::class)
 @Composable
@@ -159,81 +172,83 @@ fun PlayerScreen(
     var seekPreviewTime by remember { mutableLongStateOf(0L) }
 
     val exoPlayer = remember {
-        // 1. Setup the Disk Cache (DVR Mode)
-        val cacheDir = File(context.cacheDir, "homeland_media_cache")
-        val simpleCache = SimpleCache(cacheDir, LeastRecentlyUsedCacheEvictor(500L * 1024 * 1024)) // 500MB Limit
+        try {
+            val simpleCache = CacheProvider.getCache(context)
 
-        val httpDataSourceFactory = DefaultHttpDataSource.Factory()
-            .setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-            .setAllowCrossProtocolRedirects(true)
-            .setConnectTimeoutMs(15000)
-            .setReadTimeoutMs(15000)
+            val httpDataSourceFactory = DefaultHttpDataSource.Factory()
+                .setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+                .setAllowCrossProtocolRedirects(true)
+                .setConnectTimeoutMs(15000)
+                .setReadTimeoutMs(15000)
 
-        val upstreamFactory = DefaultDataSource.Factory(context, httpDataSourceFactory)
-        
-        // 2. Wrap the Data Source with the Cache
-        val cacheDataSourceFactory = CacheDataSource.Factory()
-            .setCache(simpleCache)
-            .setUpstreamDataSourceFactory(upstreamFactory)
-            .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
+            val upstreamFactory = DefaultDataSource.Factory(context, httpDataSourceFactory)
+            
+            val cacheDataSourceFactory = CacheDataSource.Factory()
+                .setCache(simpleCache)
+                .setUpstreamDataSourceFactory(upstreamFactory)
+                .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
 
-        val minBuffer = if (currentVideoUrl.contains("m3u8", ignoreCase = true)) 5000 else 15000
-        val maxBuffer = if (currentVideoUrl.contains("m3u8", ignoreCase = true)) 15000 else 50000 
-        
-        val loadControl = DefaultLoadControl.Builder()
-            .setBufferDurationsMs(minBuffer, maxBuffer, 2500, 5000)
-            .build()
+            val isM3u8 = currentVideoUrl.contains("m3u8", ignoreCase = true)
+            val minBuffer = if (isM3u8) 5000 else 10000
+            val maxBuffer = if (isM3u8) 15000 else 20000 // 🔥 FIXED: Reduced from 50s to 20s to prevent crashes
+            
+            val loadControl = DefaultLoadControl.Builder()
+                .setBufferDurationsMs(minBuffer, maxBuffer, 2500, 5000)
+                .build()
 
-        val mediaSourceFactory = DefaultMediaSourceFactory(cacheDataSourceFactory)
-            .setLoadErrorHandlingPolicy(DefaultLoadErrorHandlingPolicy(5))
+            val mediaSourceFactory = DefaultMediaSourceFactory(cacheDataSourceFactory)
+                .setLoadErrorHandlingPolicy(DefaultLoadErrorHandlingPolicy(5))
 
-        ExoPlayer.Builder(context)
-            .setTrackSelector(trackSelector)
-            .setMediaSourceFactory(mediaSourceFactory)
-            .setLoadControl(loadControl)
-            .setAudioAttributes(
-                AudioAttributes.Builder()
-                    .setUsage(C.USAGE_MEDIA)
-                    .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
-                    .build(),
-                true 
-            )
-            .setHandleAudioBecomingNoisy(true)
-            .setWakeMode(C.WAKE_MODE_NETWORK) 
-            .build().apply {
-                if (episodes.isNotEmpty()) {
-                    val mediaItems = episodes.map { ep ->
-                        val mediaMetadata = androidx.media3.common.MediaMetadata.Builder().setTitle("${ep.season} ${ep.episode}").build()
-                        MediaItem.Builder().setUri(ep.url).setMediaMetadata(mediaMetadata).build()
-                    }
-                    setMediaItems(mediaItems)
-                } else {
-                    val mediaItemBuilder = MediaItem.Builder().setUri(currentVideoUrl)
-                    
-                    if (currentVideoUrl.contains("m3u8", ignoreCase = true)) {
-                        mediaItemBuilder.setMimeType(MimeTypes.APPLICATION_M3U8)
+            ExoPlayer.Builder(context)
+                .setTrackSelector(trackSelector)
+                .setMediaSourceFactory(mediaSourceFactory)
+                .setLoadControl(loadControl)
+                .setAudioAttributes(
+                    AudioAttributes.Builder()
+                        .setUsage(C.USAGE_MEDIA)
+                        .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
+                        .build(),
+                    true 
+                )
+                .setHandleAudioBecomingNoisy(true)
+                .setWakeMode(C.WAKE_MODE_NETWORK) 
+                .build().apply {
+                    if (episodes.isNotEmpty()) {
+                        val mediaItems = episodes.map { ep ->
+                            val mediaMetadata = androidx.media3.common.MediaMetadata.Builder().setTitle("${ep.season} ${ep.episode}").build()
+                            MediaItem.Builder().setUri(ep.url).setMediaMetadata(mediaMetadata).build()
+                        }
+                        setMediaItems(mediaItems)
+                    } else {
+                        val mediaItemBuilder = MediaItem.Builder().setUri(currentVideoUrl)
                         
-                        // 🔥 THE DVR MAGIC: 40 Seconds behind Live
-                        val liveConfig = MediaItem.LiveConfiguration.Builder()
-                            .setTargetOffsetMs(8000) // 40 Seconds delay
-                            .setMaxPlaybackSpeed(1.1f) 
-                            .setMinPlaybackSpeed(0.9f) 
-                            .build()
-                        mediaItemBuilder.setLiveConfiguration(liveConfig)
+                        if (isM3u8) {
+                            mediaItemBuilder.setMimeType(MimeTypes.APPLICATION_M3U8)
+                            
+                            val liveConfig = MediaItem.LiveConfiguration.Builder()
+                                .setTargetOffsetMs(8000) // 8 Seconds delay
+                                .setMaxPlaybackSpeed(1.1f) 
+                                .setMinPlaybackSpeed(0.9f) 
+                                .build()
+                            mediaItemBuilder.setLiveConfiguration(liveConfig)
+                        }
+                        
+                        setMediaItem(mediaItemBuilder.build())
                     }
                     
-                    setMediaItem(mediaItemBuilder.build())
+                    if (startPosition <= 5000L) {
+                        seekTo(startPosition)
+                        playWhenReady = true
+                    } else {
+                        seekTo(0)
+                        playWhenReady = false
+                    }
+                    prepare()
                 }
-                
-                if (startPosition <= 5000L) {
-                    seekTo(startPosition)
-                    playWhenReady = true
-                } else {
-                    seekTo(0)
-                    playWhenReady = false
-                }
-                prepare()
-            }
+        } catch (e: Exception) {
+            // Safe fallback for any initialization errors
+            ExoPlayer.Builder(context).build()
+        }
     }
 
     // 🔥 FEATURE: Auto-Resume on Network Switch
