@@ -32,13 +32,15 @@ import java.util.Date
 import java.util.Locale
 import kotlin.random.Random
 
-// 🔥 ADDED IMPORTS FOR YOCINEMA SYNC
+// 🔥 ADDED IMPORTS FOR YOCINEMA SYNC & BACKGROUND SCOPE
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.util.Base64
 import androidx.compose.ui.platform.LocalContext
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -48,7 +50,12 @@ import java.io.ByteArrayOutputStream
 import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
-import com.google.android.gms.tasks.Tasks // 🔥 ADDED: For Tasks.await()
+import com.google.android.gms.tasks.Tasks 
+
+// 🔥 GLOBAL BACKGROUND SYNC SCOPE & STATE
+val AppSyncScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+var globalIsSyncing by mutableStateOf(false)
+var globalSyncProgressMsg by mutableStateOf("")
 
 val vjList = listOf("VJ Akaana", "VJ Arafa", "VJ Aron", "VJ Ashim", "VJ Ashim J", "VJ Banks", "VJ Baros", "VJ Bonny", "VJ Cabs", "VJ CB", "VJ Dan De", "VJ Eddy", "VJ Emmy", "VJ Fredy", "VJ Geofry", "VJ Ghost King", "VJ Ham", "VJ Harderway", "VJ HD", "VJ Heavy Q", "VJ Henrico", "VJ Isma", "VJ Isma K", "VJ Ivo", "VJ Jimmy", "VJ Jingo", "VJ Jovan", "VJ Jumpers", "VJ Junior", "VJ Kam", "VJ Kamran", "VJ Kevo", "VJ Kevin", "VJ Khan Lee", "VJ Kimuli", "VJ Kin", "VJ Kriss", "VJ Kriss S", "VJ Kriss Sweet", "VJ KS", "VJ Lance", "VJ Lash", "VJ Light", "VJ Little T", "VJ Mark", "VJ Martin K", "VJ MK", "VJ Monks", "VJ Mosco", "VJ Mox", "VJ Muba", "VJ Mukibi", "VJ Mun", "VJ Musa", "VJ Neil", "VJ Nelly", "VJ Nelson", "VJ Omutaka Ice P", "VJ Pauleta", "VJ Pax Woo", "VJ Phoenix", "VJ Raji", "VJ Roddy", "VJ Ronage", "VJ Ronnie", "VJ Ryan", "VJ Sammy", "VJ Shao Khan", "VJ Sharz", "VJ Shield", "VJ Silver", "VJ SMK", "VJ Son", "VJ Soul", "VJ Tom", "VJ Tonny", "VJ Ulio", "VJ Uncle T", "VJ Waza", "VJ Yat", "VJ Zaidi")
 val categories = listOf("Action", "Sci-Fi", "Comedy", "Animation", "Romantic", "Horror", "Adventure")
@@ -82,7 +89,6 @@ data class PaymentRequest(
 fun AdminScreen(onBack: () -> Unit) {
     val db = FirebaseFirestore.getInstance()
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
     val prefs = context.getSharedPreferences("homeland_prefs", Context.MODE_PRIVATE)
     
     var selectedTab by remember { mutableIntStateOf(0) } 
@@ -90,10 +96,8 @@ fun AdminScreen(onBack: () -> Unit) {
     var isLoading by remember { mutableStateOf(false) }
     var statusMessage by remember { mutableStateOf<String?>(null) }
 
-    // 🔥 YOCINEMA SYNC STATE
+    // 🔥 YOCINEMA SYNC STATE (Using Global variables)
     var yocApiKey by remember { mutableStateOf(prefs.getString("yoc_api_key", "") ?: "") }
-    var isSyncing by remember { mutableStateOf(false) }
-    var syncProgressMsg by remember { mutableStateOf("") }
     var lastSyncTime by remember { mutableLongStateOf(prefs.getLong("yoc_last_sync", 0L)) }
 
     var editingMovieId by remember { mutableStateOf<String?>(null) }
@@ -286,7 +290,6 @@ fun AdminScreen(onBack: () -> Unit) {
 
             if (selectedTab == 0) {
                 
-                // 🔥 YOCINEMA AUTO-SYNC CARD
                 item {
                     Card(
                         colors = CardDefaults.cardColors(containerColor = Color(0xFF15171E).copy(alpha = 0.7f)), 
@@ -334,37 +337,38 @@ fun AdminScreen(onBack: () -> Unit) {
                                             statusMessage = "Error: Please enter a valid API Key first."
                                             return@Button
                                         }
-                                        isSyncing = true
-                                        syncProgressMsg = "Starting sync..."
-                                        scope.launch {
+                                        globalIsSyncing = true
+                                        globalSyncProgressMsg = "Starting sync..."
+                                        
+                                        // 🔥 Use AppSyncScope to survive navigation
+                                        AppSyncScope.launch {
                                             try {
                                                 val result = executeYocSync(context, yocApiKey, db) { msg ->
-                                                    syncProgressMsg = msg
+                                                    globalSyncProgressMsg = msg
                                                 }
-                                                statusMessage = "Success! Added ${result.first} movies. Failed: ${result.second}."
+                                                globalSyncProgressMsg = "Success! Added ${result.first} movies. Failed: ${result.second}."
                                                 lastSyncTime = System.currentTimeMillis()
                                                 prefs.edit().putLong("yoc_last_sync", lastSyncTime).apply()
                                             } catch (e: Exception) {
-                                                statusMessage = "Sync Error: ${e.message}"
+                                                globalSyncProgressMsg = "Sync Error: ${e.message}"
                                             } finally {
-                                                isSyncing = false
-                                                syncProgressMsg = ""
+                                                globalIsSyncing = false
                                             }
                                         }
                                     },
                                     modifier = Modifier.weight(1f),
                                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE50914)),
                                     shape = RoundedCornerShape(12.dp),
-                                    enabled = !isSyncing
+                                    enabled = !globalIsSyncing
                                 ) { 
-                                    if (isSyncing) CircularProgressIndicator(color = Color.White, modifier = Modifier.size(20.dp))
+                                    if (globalIsSyncing) CircularProgressIndicator(color = Color.White, modifier = Modifier.size(20.dp))
                                     else Text("Sync Now", fontWeight = FontWeight.Bold) 
                                 }
                             }
                             
-                            if (isSyncing) {
+                            if (globalIsSyncing) {
                                 Spacer(modifier = Modifier.height(8.dp))
-                                Text(syncProgressMsg, color = Color(0xFFFCDC04), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                Text(globalSyncProgressMsg, color = Color(0xFFFCDC04), fontSize = 12.sp, fontWeight = FontWeight.Bold)
                             } else if (lastSyncTime > 0) {
                                 val sdf = SimpleDateFormat("MMM dd, HH:mm", Locale.getDefault())
                                 Spacer(modifier = Modifier.height(8.dp))
@@ -1119,7 +1123,6 @@ fun AdminScreen(onBack: () -> Unit) {
 // 🔥 ADDED: YOCINEMA SYNC NETWORK LOGIC
 
 suspend fun executeYocSync(context: Context, apiKey: String, db: FirebaseFirestore, onProgress: (String) -> Unit): Pair<Int, Int> = withContext(Dispatchers.IO) {
-    // 🔥 FIX: Use Tasks.await() instead of .await() extension
     val snapCheck = Tasks.await(db.collection("homeland_movies").get())
     val haveIds = snapCheck.documents.mapNotNull { it.getString("yocId") }.toSet()
 
@@ -1193,6 +1196,7 @@ suspend fun executeYocSync(context: Context, apiKey: String, db: FirebaseFiresto
             try {
                 val covUrl = URL("https://muno-yoc-proxy.henryssali219.workers.dev/movies/$yocId/cover")
                 val covConn = covUrl.openConnection() as HttpURLConnection
+                covConn.setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
                 val inputStream = covConn.inputStream
                 val originalBitmap = BitmapFactory.decodeStream(inputStream)
                 
@@ -1297,7 +1301,6 @@ suspend fun executeYocSync(context: Context, apiKey: String, db: FirebaseFiresto
             } catch (e: Exception) { /* Ignore token failure */ }
 
             // 6. Save to Firebase
-            // 🔥 FIX: Use Tasks.await() instead of .await()
             Tasks.await(db.collection("homeland_movies").add(doc))
             added++
 
