@@ -215,7 +215,7 @@ fun PlayerScreen(
                         
                         // 🔥 THE DVR MAGIC: 40 Seconds behind Live
                         val liveConfig = MediaItem.LiveConfiguration.Builder()
-                            .setTargetOffsetMs(40000) // 40 Seconds delay
+                            .setTargetOffsetMs(8000) // 40 Seconds delay
                             .setMaxPlaybackSpeed(1.1f) 
                             .setMinPlaybackSpeed(0.9f) 
                             .build()
@@ -767,7 +767,7 @@ fun PlayerScreen(
                                 val mediaItemBuilder = MediaItem.Builder().setUri(channel.streamUrl)
                                 if (channel.streamUrl.contains("m3u8", ignoreCase = true)) {
                                     mediaItemBuilder.setMimeType(MimeTypes.APPLICATION_M3U8)
-                                    mediaItemBuilder.setLiveConfiguration(MediaItem.LiveConfiguration.Builder().setTargetOffsetMs(40000).setMaxPlaybackSpeed(1.1f).setMinPlaybackSpeed(0.9f).build())
+                                    mediaItemBuilder.setLiveConfiguration(MediaItem.LiveConfiguration.Builder().setTargetOffsetMs(8000).setMaxPlaybackSpeed(1.1f).setMinPlaybackSpeed(0.9f).build())
                                 }
                                 exoPlayer.setMediaItem(mediaItemBuilder.build())
                                 exoPlayer.prepare()
