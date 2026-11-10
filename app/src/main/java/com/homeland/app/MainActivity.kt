@@ -123,12 +123,12 @@ data class ClientVipPlan(
 
 fun translate(key: String, lang: String): String {
     val translations = mapOf(
-        "English" to mapOf("home" to "Home", "tv" to "TV Live", "list" to "My List", "profile" to "Profile", "kids" to "Kids Mode", "lang" to "Language"),
-        "Luganda" to mapOf("home" to "Awaka", "tv" to "TV Live", "list" to "Olukalala", "profile" to "Profile", "kids" to "Kids Mode", "lang" to "Olulimi"),
-        "Lunyankole" to mapOf("home" to "Omuka", "tv" to "TV Live", "list" to "Orutonde", "profile" to "Profile", "kids" to "Kids Mode", "lang" to "Orurimi"),
-        "Arabic" to mapOf("home" to "الرئيسية", "tv" to "بث مباشر", "list" to "قائمتي", "profile" to "الملف الشخصي", "kids" to "وضع الأطفال", "lang" to "اللغة"),
-        "Chinese" to mapOf("home" to "首页", "tv" to "电视直播", "list" to "我的列表", "profile" to "个人资料", "kids" to "儿童模式", "lang" to "语言"),
-        "Japanese" to mapOf("home" to "ホーム", "tv" to "テレビ", "list" to "マイリスト", "profile" to "プロフィール", "kids" to "キッズモード", "lang" to "言語")
+        "English" to mapOf("home" to "Home", "tv" to "TV Live", "list" to "Series", "profile" to "Profile", "kids" to "Kids Mode", "lang" to "Language"),
+        "Luganda" to mapOf("home" to "Awaka", "tv" to "TV Live", "list" to "Series", "profile" to "Profile", "kids" to "Kids Mode", "lang" to "Olulimi"),
+        "Lunyankole" to mapOf("home" to "Omuka", "tv" to "TV Live", "list" to "Series", "profile" to "Profile", "kids" to "Kids Mode", "lang" to "Orurimi"),
+        "Arabic" to mapOf("home" to "الرئيسية", "tv" to "بث مباشر", "list" to "مسلسلات", "profile" to "الملف الشخصي", "kids" to "وضع الأطفال", "lang" to "اللغة"),
+        "Chinese" to mapOf("home" to "首页", "tv" to "电视直播", "list" to "系列", "profile" to "个人资料", "kids" to "儿童模式", "lang" to "语言"),
+        "Japanese" to mapOf("home" to "ホーム", "tv" to "テレビ", "list" to "シリーズ", "profile" to "プロフィール", "kids" to "キッズモード", "lang" to "言語")
     )
     return translations[lang]?.get(key) ?: key
 }
@@ -871,6 +871,7 @@ fun HomelandApp(
     var userVipExpiry by remember { mutableLongStateOf(0L) }
     var showVipModal by remember { mutableStateOf(false) }
     var showPaymentDialog by remember { mutableStateOf(false) }
+    var showExitDialog by remember { mutableStateOf(false) }
 
     var globalSearchQuery by remember { mutableStateOf("") }
 
@@ -1042,7 +1043,18 @@ fun HomelandApp(
         else if (showPaymentDialog) showPaymentDialog = false 
         else if (showAdultPinPrompt) { showAdultPinPrompt = false; pendingAdultMovie = null }
         else if (selectedTab != 0) selectedTab = 0 
-        else (context as? androidx.activity.ComponentActivity)?.finish()
+        else showExitDialog = true 
+    }
+
+    if (showExitDialog) {
+        AlertDialog(
+            onDismissRequest = { showExitDialog = false },
+            title = { Text("Exit Homeland?", color = Color.White) },
+            text = { Text("We always welcome you back!", color = Color.Gray) },
+            confirmButton = { Button(onClick = { (context as? Activity)?.finish() }, colors = ButtonDefaults.buttonColors(containerColor = theme.primary), shape = RoundedCornerShape(50)) { Text("Yes") } },
+            dismissButton = { TextButton(onClick = { showExitDialog = false }) { Text("No", color = Color.Gray) } },
+            containerColor = Color(0xFF15171E)
+        )
     }
 
     if (showPaymentDialog) {
@@ -1087,7 +1099,7 @@ fun HomelandApp(
             onPlay = { movieToPlay -> 
                 if (movieToPlay.isVip && userVipExpiry < System.currentTimeMillis()) showVipModal = true
                 else if (movieToPlay.isAdult && savedPin != null) { pendingAdultMovie = movieToPlay; showAdultPinPrompt = true } 
-                else { viewingDetails = null; tryPlay(movieToPlay) }
+                else { tryPlay(movieToPlay) }
             },
             onBack = { viewingDetails = null }
         )
@@ -1133,7 +1145,7 @@ fun HomelandApp(
                 Spacer(modifier = Modifier.height(32.dp))
                 NavigationRailItem(selected = selectedTab == 0, onClick = { vibrate(context); selectedTab = 0 }, icon = { Icon(Icons.Default.Home, "Home") }, label = { Text(translate("home", appLanguage)) }, colors = NavigationRailItemDefaults.colors(selectedIconColor = theme.primary, selectedTextColor = theme.primary, unselectedIconColor = Color.Gray))
                 NavigationRailItem(selected = selectedTab == 1, onClick = { vibrate(context); selectedTab = 1 }, icon = { Icon(Icons.Default.Tv, "TV") }, label = { Text(translate("tv", appLanguage)) }, colors = NavigationRailItemDefaults.colors(selectedIconColor = theme.primary, selectedTextColor = theme.primary, unselectedIconColor = Color.Gray))
-                NavigationRailItem(selected = selectedTab == 2, onClick = { vibrate(context); selectedTab = 2 }, icon = { Icon(Icons.Default.Favorite, "My List") }, label = { Text(translate("list", appLanguage)) }, colors = NavigationRailItemDefaults.colors(selectedIconColor = theme.primary, selectedTextColor = theme.primary, unselectedIconColor = Color.Gray))
+                NavigationRailItem(selected = selectedTab == 2, onClick = { vibrate(context); selectedTab = 2 }, icon = { Icon(Icons.Default.VideoLibrary, "Series") }, label = { Text(translate("list", appLanguage)) }, colors = NavigationRailItemDefaults.colors(selectedIconColor = theme.primary, selectedTextColor = theme.primary, unselectedIconColor = Color.Gray))
                 NavigationRailItem(selected = selectedTab == 3, onClick = { vibrate(context); selectedTab = 3 }, icon = { Icon(Icons.Default.Person, "Profile") }, label = { Text(translate("profile", appLanguage)) }, colors = NavigationRailItemDefaults.colors(selectedIconColor = theme.primary, selectedTextColor = theme.primary, unselectedIconColor = Color.Gray))
             }
 
@@ -1145,7 +1157,7 @@ fun HomelandApp(
                     when (selectedTab) {
                         0 -> HomeScreen(theme = theme, profileName = profileName, userVipExpiry = userVipExpiry, kidsMode = kidsMode, searchQuery = globalSearchQuery, onSearchQueryChange = { globalSearchQuery = it }, onDetails = { viewingDetails = it })
                         1 -> TvLiveScreen(theme = theme, userVipExpiry = userVipExpiry, kidsMode = kidsMode, onPlayMedia = { tryPlay(it) })
-                        2 -> MyListScreen(theme = theme, profileName = profileName, userVipExpiry = userVipExpiry, kidsMode = kidsMode, onDetails = { viewingDetails = it })
+                        2 -> SeriesScreen(theme = theme, profileName = profileName, userVipExpiry = userVipExpiry, kidsMode = kidsMode, onDetails = { viewingDetails = it })
                         3 -> ProfileScreen(auth, profileName = profileName, userVipExpiry, theme, savedPin = savedPin, wifiOnlyMode = wifiOnlyMode, onWifiOnlyChanged = { wifiOnlyMode = it; prefs.edit().putBoolean("wifi_only", it).apply() }, appLanguage = appLanguage, onLanguageChanged = onLanguageChanged, kidsMode = kidsMode, onKidsModeChanged = onKidsModeChanged, isTv = true, tvSessionCode = tvSessionCode, onLogout, onSwitchProfile, onPlay = { tryPlay(it) })
                     }
                 }
@@ -1165,7 +1177,7 @@ fun HomelandApp(
                     NavigationBar(containerColor = Color.Transparent, tonalElevation = 0.dp) {
                         NavigationBarItem(selected = selectedTab == 0, onClick = { vibrate(context); selectedTab = 0 }, icon = { Icon(Icons.Default.Home, "Home") }, label = { Text(translate("home", appLanguage)) }, colors = NavigationBarItemDefaults.colors(selectedIconColor = theme.primary, selectedTextColor = theme.primary, unselectedIconColor = Color.Gray, unselectedTextColor = Color.Gray, indicatorColor = theme.primary.copy(alpha = 0.15f)))
                         NavigationBarItem(selected = selectedTab == 1, onClick = { vibrate(context); selectedTab = 1 }, icon = { Icon(Icons.Default.Tv, "TV Live") }, label = { Text(translate("tv", appLanguage)) }, colors = NavigationBarItemDefaults.colors(selectedIconColor = theme.primary, selectedTextColor = theme.primary, unselectedIconColor = Color.Gray, unselectedTextColor = Color.Gray, indicatorColor = theme.primary.copy(alpha = 0.15f)))
-                        NavigationBarItem(selected = selectedTab == 2, onClick = { vibrate(context); selectedTab = 2 }, icon = { Icon(Icons.Default.Favorite, "My List") }, label = { Text(translate("list", appLanguage)) }, colors = NavigationBarItemDefaults.colors(selectedIconColor = theme.primary, selectedTextColor = theme.primary, unselectedIconColor = Color.Gray, unselectedTextColor = Color.Gray, indicatorColor = theme.primary.copy(alpha = 0.15f)))
+                        NavigationBarItem(selected = selectedTab == 2, onClick = { vibrate(context); selectedTab = 2 }, icon = { Icon(Icons.Default.VideoLibrary, "Series") }, label = { Text(translate("list", appLanguage)) }, colors = NavigationBarItemDefaults.colors(selectedIconColor = theme.primary, selectedTextColor = theme.primary, unselectedIconColor = Color.Gray, unselectedTextColor = Color.Gray, indicatorColor = theme.primary.copy(alpha = 0.15f)))
                         NavigationBarItem(selected = selectedTab == 3, onClick = { vibrate(context); selectedTab = 3 }, icon = { Icon(Icons.Default.Person, "Profile") }, label = { Text(translate("profile", appLanguage)) }, colors = NavigationBarItemDefaults.colors(selectedIconColor = theme.primary, selectedTextColor = theme.primary, unselectedIconColor = Color.Gray, unselectedTextColor = Color.Gray, indicatorColor = theme.primary.copy(alpha = 0.15f)))
                     }
                 }
@@ -1179,7 +1191,7 @@ fun HomelandApp(
                     when (selectedTab) {
                         0 -> HomeScreen(theme = theme, profileName = profileName, userVipExpiry = userVipExpiry, kidsMode = kidsMode, searchQuery = globalSearchQuery, onSearchQueryChange = { globalSearchQuery = it }, onDetails = { viewingDetails = it })
                         1 -> TvLiveScreen(theme = theme, userVipExpiry = userVipExpiry, kidsMode = kidsMode, onPlayMedia = { tryPlay(it) })
-                        2 -> MyListScreen(theme = theme, profileName = profileName, userVipExpiry = userVipExpiry, kidsMode = kidsMode, onDetails = { viewingDetails = it })
+                        2 -> SeriesScreen(theme = theme, profileName = profileName, userVipExpiry = userVipExpiry, kidsMode = kidsMode, onDetails = { viewingDetails = it })
                         3 -> ProfileScreen(auth, profileName = profileName, userVipExpiry, theme, savedPin = savedPin, wifiOnlyMode = wifiOnlyMode, onWifiOnlyChanged = { wifiOnlyMode = it; prefs.edit().putBoolean("wifi_only", it).apply() }, appLanguage = appLanguage, onLanguageChanged = onLanguageChanged, kidsMode = kidsMode, onKidsModeChanged = onKidsModeChanged, isTv = false, tvSessionCode = null, onLogout, onSwitchProfile, onPlay = { tryPlay(it) })
                     }
                 }
@@ -1948,7 +1960,7 @@ fun TVRemoteConnectDialog(theme: ThemeConfig, onDismiss: () -> Unit) {
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         RemoteTabButton(icon = Icons.Default.Home, label = "Home", onClick = { sendCommand("tab", "0") }, theme = theme, modifier = Modifier.weight(1f))
                         RemoteTabButton(icon = Icons.Default.Tv, label = "TV", onClick = { sendCommand("tab", "1") }, theme = theme, modifier = Modifier.weight(1f))
-                        RemoteTabButton(icon = Icons.Default.Favorite, label = "List", onClick = { sendCommand("tab", "2") }, theme = theme, modifier = Modifier.weight(1f))
+                        RemoteTabButton(icon = Icons.Default.VideoLibrary, label = "Series", onClick = { sendCommand("tab", "2") }, theme = theme, modifier = Modifier.weight(1f))
                         RemoteTabButton(icon = Icons.Default.Person, label = "Profile", onClick = { sendCommand("tab", "3") }, theme = theme, modifier = Modifier.weight(1f))
                     }
                     
@@ -2270,11 +2282,12 @@ fun HomeScreen(
     var isFetchingMore by remember { mutableStateOf(false) }
 
     val gridState = rememberLazyGridState()
+    val context = LocalContext.current
 
     fun loadMoreMovies() {
         if (isFetchingMore || lastVisibleMovie == null) return
         isFetchingMore = true
-        var query = db.collection("homeland_movies").orderBy("timestamp", Query.Direction.DESCENDING).limit(20)
+        var query = db.collection("homeland_movies").orderBy("timestamp", Query.Direction.DESCENDING).limit(100)
         if (lastVisibleMovie != null) query = query.startAfter(lastVisibleMovie)
         query.get().addOnSuccessListener { snap ->
             if (snap != null && !snap.isEmpty) {
@@ -2315,7 +2328,8 @@ fun HomeScreen(
     }
 
     LaunchedEffect(Unit) {
-        db.collection("homeland_movies").orderBy("timestamp", Query.Direction.DESCENDING).limit(20).get().addOnSuccessListener { snap ->
+        // Fetch a larger initial batch to prevent the feeling of missing movies
+        db.collection("homeland_movies").orderBy("timestamp", Query.Direction.DESCENDING).limit(100).get().addOnSuccessListener { snap ->
             if (snap != null) {
                 movies = snap.documents.map { doc -> 
                     val episodes = (doc.get("episodes") as? List<Map<String, Any>>)?.map { ep ->
@@ -2350,8 +2364,9 @@ fun HomeScreen(
         }
     }
 
-    if (isLoading) { Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = theme.primary) } } 
-    else {
+    if (isLoading && movies.isEmpty()) { 
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = theme.primary) } 
+    } else {
         Column(modifier = Modifier.fillMaxSize()) {
             Row(modifier = Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                 Box(modifier = Modifier.size(32.dp).background(theme.primary, RoundedCornerShape(8.dp)), contentAlignment = Alignment.Center) { Text("H", color = Color.White, fontWeight = FontWeight.Black, fontSize = 20.sp) }
@@ -2386,7 +2401,6 @@ fun HomeScreen(
                 Box(modifier = Modifier.fillMaxWidth().height(260.dp).padding(bottom = 16.dp)) {
                     HorizontalPager(state = pagerState, modifier = Modifier.fillMaxSize()) { page ->
                         val movie = featuredMovies[page]
-                        val context = LocalContext.current
                         val trailerExoPlayer = remember { ExoPlayer.Builder(context).build().apply { setMediaItem(MediaItem.fromUri(movie.videoUrl)); prepare(); playWhenReady = false; volume = 0f; repeatMode = Player.REPEAT_MODE_ONE } }
                         LaunchedEffect(movie.id) { delay(3000); trailerExoPlayer.playWhenReady = true }
                         DisposableEffect(movie.id) { onDispose { trailerExoPlayer.release() } }
@@ -2433,7 +2447,7 @@ fun HomeScreen(
                 items(movieCategories) { category -> 
                     FilterChip(
                         selected = selectedCategory == category, 
-                        onClick = { selectedCategory = category }, 
+                        onClick = { vibrate(context); selectedCategory = category }, 
                         label = { Text(category) }, 
                         colors = FilterChipDefaults.filterChipColors(
                             selectedContainerColor = theme.primary, 
@@ -2507,63 +2521,62 @@ fun MovieCard(movie: Movie, theme: ThemeConfig, profileName: String, userVipExpi
 }
 
 @Composable
-fun MyListScreen(theme: ThemeConfig, profileName: String, userVipExpiry: Long, kidsMode: Boolean, onDetails: (Movie) -> Unit) {
+fun SeriesScreen(theme: ThemeConfig, profileName: String, userVipExpiry: Long, kidsMode: Boolean, onDetails: (Movie) -> Unit) {
     val db = FirebaseFirestore.getInstance()
-    val uid = FirebaseAuth.getInstance().currentUser?.uid
-    var favMovies by remember { mutableStateOf<List<Movie>>(emptyList()) }
+    var series by remember { mutableStateOf<List<Movie>>(emptyList()) }
+    var isLoading by remember { mutableStateOf(true) }
 
-    LaunchedEffect(uid, profileName) {
-        if (uid != null) {
-            db.collection("users").document(uid).addSnapshotListener { doc, _ ->
-                val favMap = doc?.get("favorites") as? Map<*, *>
-                val profileFavs = (favMap?.get(profileName) as? List<*>)?.map { it.toString() } ?: emptyList()
-                db.collection("homeland_movies").get().addOnSuccessListener { snap ->
-                    favMovies = snap.documents.mapNotNull { 
-                        val episodes = (it.get("episodes") as? List<Map<String, Any>>)?.map { ep ->
-                            Episode(
-                                season = ep["season"] as? String ?: "",
-                                episode = ep["episode"] as? String ?: "",
-                                url = ep["url"] as? String ?: "",
-                                subtitleUrl = ep["subtitleUrl"] as? String ?: ""
-                            )
-                        } ?: emptyList()
+    LaunchedEffect(Unit) {
+        db.collection("homeland_movies").whereEqualTo("type", "TV Show").addSnapshotListener { snap, _ ->
+            if (snap != null) {
+                series = snap.documents.map { doc -> 
+                    val episodes = (doc.get("episodes") as? List<Map<String, Any>>)?.map { ep ->
+                        Episode(
+                            season = ep["season"] as? String ?: "",
+                            episode = ep["episode"] as? String ?: "",
+                            url = ep["url"] as? String ?: "",
+                            subtitleUrl = ep["subtitleUrl"] as? String ?: ""
+                        )
+                    } ?: emptyList()
 
-                        Movie(
-                            id = it.id, 
-                            title = it.getString("title") ?: "", 
-                            poster = it.getString("poster") ?: "", 
-                            videoUrl = it.getString("videoUrl") ?: "", 
-                            videoTag = it.getString("videoTag") ?: "", 
-                            year = it.getString("year") ?: "", 
-                            isVip = it.getBoolean("isVip") ?: false, 
-                            isAdult = it.getBoolean("isAdult") ?: false,
-                            episodes = episodes,
-                            yocId = it.getString("yocId") ?: ""
-                        ) 
-                    }.filter { it.id in profileFavs && (!kidsMode || !it.isAdult) }
-                }
+                    Movie(
+                        id = doc.id, 
+                        title = doc.getString("title") ?: "", 
+                        poster = doc.getString("poster") ?: "", 
+                        videoUrl = doc.getString("videoUrl") ?: "", 
+                        videoTag = doc.getString("videoTag") ?: "", 
+                        year = doc.getString("year") ?: "", 
+                        isVip = doc.getBoolean("isVip") ?: false, 
+                        isAdult = doc.getBoolean("isAdult") ?: false,
+                        episodes = episodes,
+                        yocId = doc.getString("yocId") ?: ""
+                    ) 
+                }.filter { !kidsMode || !it.isAdult }
+                isLoading = false
             }
         }
     }
 
     Column(modifier = Modifier.fillMaxSize().padding(16.dp).systemBarsPadding()) {
         Row(modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(modifier = Modifier.size(32.dp).background(theme.primary, RoundedCornerShape(8.dp)), contentAlignment = Alignment.Center) { Icon(Icons.Default.Favorite, null, tint = Color.White, modifier = Modifier.size(20.dp)) }
+            Box(modifier = Modifier.size(32.dp).background(theme.primary, RoundedCornerShape(8.dp)), contentAlignment = Alignment.Center) { Icon(Icons.Default.VideoLibrary, null, tint = Color.White, modifier = Modifier.size(20.dp)) }
             Spacer(modifier = Modifier.width(12.dp))
-            Text("My List ($profileName)", color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Bold)
+            Text("TV Shows & Series", color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Bold)
         }
         
-        if (favMovies.isEmpty()) {
+        if (isLoading && series.isEmpty()) {
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = theme.primary) }
+        } else if (series.isEmpty()) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(Icons.Default.FavoriteBorder, null, tint = Color.DarkGray, modifier = Modifier.size(64.dp))
+                    Icon(Icons.Default.VideoLibrary, null, tint = Color.DarkGray, modifier = Modifier.size(64.dp))
                     Spacer(modifier = Modifier.height(16.dp))
-                    Text("Your list is empty. Add favorites from Home.", color = Color.Gray)
+                    Text("No series available yet.", color = Color.Gray)
                 }
             }
         } else {
             LazyVerticalGrid(columns = GridCells.Adaptive(110.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                items(favMovies) { movie -> MovieCard(movie, theme, profileName, userVipExpiry, onDetails) }
+                items(series) { movie -> MovieCard(movie, theme, profileName, userVipExpiry, onDetails) }
             }
         }
     }
@@ -2639,7 +2652,7 @@ fun TvLiveScreen(theme: ThemeConfig, userVipExpiry: Long, kidsMode: Boolean, onP
             items(tvCategories) { category -> 
                 FilterChip(
                     selected = selectedCategory == category, 
-                    onClick = { selectedCategory = category }, 
+                    onClick = { vibrate(context); selectedCategory = category }, 
                     label = { Text(category) }, 
                     colors = FilterChipDefaults.filterChipColors(
                         selectedContainerColor = theme.primary, 
