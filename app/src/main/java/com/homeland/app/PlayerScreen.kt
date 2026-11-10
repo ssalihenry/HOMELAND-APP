@@ -89,7 +89,7 @@ import kotlinx.coroutines.launch
 import java.io.File
 import kotlin.math.abs
 
-// 🔥 FIXED: Global Cache Provider (Prevents the "Clear Cache" crash)
+// 🔥 Global Cache Provider
 object CacheProvider {
     private var simpleCache: SimpleCache? = null
 
@@ -189,8 +189,9 @@ fun PlayerScreen(
                 .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
 
             val isM3u8 = currentVideoUrl.contains("m3u8", ignoreCase = true)
-            val minBuffer = if (isM3u8) 5000 else 10000
-            val maxBuffer = if (isM3u8) 15000 else 20000 // 🔥 FIXED: Reduced from 50s to 20s to prevent crashes
+            // 🔥 FIXED: Increased m3u8 buffer to 45s to hold the 25s delay safely
+            val minBuffer = if (isM3u8) 15000 else 10000
+            val maxBuffer = if (isM3u8) 45000 else 20000 
             
             val loadControl = DefaultLoadControl.Builder()
                 .setBufferDurationsMs(minBuffer, maxBuffer, 2500, 5000)
@@ -225,8 +226,9 @@ fun PlayerScreen(
                         if (isM3u8) {
                             mediaItemBuilder.setMimeType(MimeTypes.APPLICATION_M3U8)
                             
+                            // 🔥 THE 25-SECOND DVR MAGIC
                             val liveConfig = MediaItem.LiveConfiguration.Builder()
-                                .setTargetOffsetMs(8000) // 8 Seconds delay
+                                .setTargetOffsetMs(25000) // 25 Seconds behind Live
                                 .setMaxPlaybackSpeed(1.1f) 
                                 .setMinPlaybackSpeed(0.9f) 
                                 .build()
@@ -246,8 +248,18 @@ fun PlayerScreen(
                     prepare()
                 }
         } catch (e: Exception) {
-            // Safe fallback for any initialization errors
             ExoPlayer.Builder(context).build()
+        }
+    }
+
+    // 🔥 FEATURE: The Secret Background Refresher
+    LaunchedEffect(isPlaying, currentVideoUrl) {
+        while (isPlaying && episodes.isEmpty()) {
+            delay(45000) // Wait 45 seconds before refreshing the token
+            if (exoPlayer.isPlaying) {
+                // Silently refresh the connection without interrupting the video
+                exoPlayer.prepare()
+            }
         }
     }
 
@@ -347,10 +359,12 @@ fun PlayerScreen(
             override fun onPlayerError(error: PlaybackException) {
                 super.onPlayerError(error)
                 
-                if (retryCount < 5 && episodes.isEmpty()) {
+                // 🔥 THE INFINITE SILENT LOOP
+                if (episodes.isEmpty()) {
+                    // For Live TV, keep retrying infinitely in the background
                     retryCount += 1 
                     isBuffering = true
-                    hasError = false
+                    hasError = false // Keep the error screen hidden
                     
                     coroutineScope.launch {
                         delay(2000)
@@ -358,9 +372,22 @@ fun PlayerScreen(
                         exoPlayer.playWhenReady = true
                     }
                 } else {
-                    hasError = true
-                    isBuffering = false
-                    errorMessage = "Connection lost after multiple attempts."
+                    // For Movies, only retry 5 times
+                    if (retryCount < 5) {
+                        retryCount += 1 
+                        isBuffering = true
+                        hasError = false
+                        
+                        coroutineScope.launch {
+                            delay(2000)
+                            exoPlayer.prepare()
+                            exoPlayer.playWhenReady = true
+                        }
+                    } else {
+                        hasError = true
+                        isBuffering = false
+                        errorMessage = "Connection lost after multiple attempts."
+                    }
                 }
             }
         }
@@ -598,7 +625,7 @@ fun PlayerScreen(
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     CircularProgressIndicator(color = Color(0xFFE50914), strokeWidth = 3.dp, modifier = Modifier.size(46.dp))
                     Spacer(modifier = Modifier.height(16.dp))
-                    Text(text = if (retryCount > 0) "Reconnecting... (Attempt $retryCount/5)" else "Buffering...", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                    Text(text = if (retryCount > 0) "Reconnecting... (Attempt $retryCount)" else "Buffering...", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
                 }
             }
         }
@@ -782,7 +809,7 @@ fun PlayerScreen(
                                 val mediaItemBuilder = MediaItem.Builder().setUri(channel.streamUrl)
                                 if (channel.streamUrl.contains("m3u8", ignoreCase = true)) {
                                     mediaItemBuilder.setMimeType(MimeTypes.APPLICATION_M3U8)
-                                    mediaItemBuilder.setLiveConfiguration(MediaItem.LiveConfiguration.Builder().setTargetOffsetMs(8000).setMaxPlaybackSpeed(1.1f).setMinPlaybackSpeed(0.9f).build())
+                                    mediaItemBuilder.setLiveConfiguration(MediaItem.LiveConfiguration.Builder().setTargetOffsetMs(25000).setMaxPlaybackSpeed(1.1f).setMinPlaybackSpeed(0.9f).build())
                                 }
                                 exoPlayer.setMediaItem(mediaItemBuilder.build())
                                 exoPlayer.prepare()
