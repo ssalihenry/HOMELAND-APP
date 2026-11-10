@@ -13,7 +13,6 @@ import android.os.Build
 import android.util.Rational
 import android.view.ViewGroup
 import android.widget.FrameLayout
-import androidx.annotation.OptIn
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
@@ -86,7 +85,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 
-@OptIn(UnstableApi::class, ExperimentalMaterial3Api::class) // 🔥 FIXED: Added ExperimentalMaterial3Api
+@OptIn(UnstableApi::class, ExperimentalMaterial3Api::class) // 🔥 FIXED: Removed the bad import
 @Composable
 fun PlayerScreen(
     title: String,
