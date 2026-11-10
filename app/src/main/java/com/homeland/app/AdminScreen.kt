@@ -16,6 +16,7 @@ import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Cancel
+import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -31,6 +32,23 @@ import java.util.Date
 import java.util.Locale
 import kotlin.random.Random
 
+// 🔥 ADDED IMPORTS FOR YOCINEMA SYNC
+import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.util.Base64
+import androidx.compose.ui.platform.LocalContext
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import org.json.JSONArray
+import org.json.JSONObject
+import java.io.ByteArrayOutputStream
+import java.net.HttpURLConnection
+import java.net.URL
+import java.net.URLEncoder
+
 val vjList = listOf("VJ Akaana", "VJ Arafa", "VJ Aron", "VJ Ashim", "VJ Ashim J", "VJ Banks", "VJ Baros", "VJ Bonny", "VJ Cabs", "VJ CB", "VJ Dan De", "VJ Eddy", "VJ Emmy", "VJ Fredy", "VJ Geofry", "VJ Ghost King", "VJ Ham", "VJ Harderway", "VJ HD", "VJ Heavy Q", "VJ Henrico", "VJ Isma", "VJ Isma K", "VJ Ivo", "VJ Jimmy", "VJ Jingo", "VJ Jovan", "VJ Jumpers", "VJ Junior", "VJ Kam", "VJ Kamran", "VJ Kevo", "VJ Kevin", "VJ Khan Lee", "VJ Kimuli", "VJ Kin", "VJ Kriss", "VJ Kriss S", "VJ Kriss Sweet", "VJ KS", "VJ Lance", "VJ Lash", "VJ Light", "VJ Little T", "VJ Mark", "VJ Martin K", "VJ MK", "VJ Monks", "VJ Mosco", "VJ Mox", "VJ Muba", "VJ Mukibi", "VJ Mun", "VJ Musa", "VJ Neil", "VJ Nelly", "VJ Nelson", "VJ Omutaka Ice P", "VJ Pauleta", "VJ Pax Woo", "VJ Phoenix", "VJ Raji", "VJ Roddy", "VJ Ronage", "VJ Ronnie", "VJ Ryan", "VJ Sammy", "VJ Shao Khan", "VJ Sharz", "VJ Shield", "VJ Silver", "VJ SMK", "VJ Son", "VJ Soul", "VJ Tom", "VJ Tonny", "VJ Ulio", "VJ Uncle T", "VJ Waza", "VJ Yat", "VJ Zaidi")
 val categories = listOf("Action", "Sci-Fi", "Comedy", "Animation", "Romantic", "Horror", "Adventure")
 
@@ -41,7 +59,6 @@ data class AdminUser(
     val isBanned: Boolean = false
 )
 
-// 🔥 NEW: VIP Plan Data Class
 data class VipPlan(
     val id: String = "",
     val name: String = "",
@@ -63,10 +80,20 @@ data class PaymentRequest(
 @Composable
 fun AdminScreen(onBack: () -> Unit) {
     val db = FirebaseFirestore.getInstance()
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val prefs = context.getSharedPreferences("homeland_prefs", Context.MODE_PRIVATE)
+    
     var selectedTab by remember { mutableIntStateOf(0) } 
     
     var isLoading by remember { mutableStateOf(false) }
     var statusMessage by remember { mutableStateOf<String?>(null) }
+
+    // 🔥 YOCINEMA SYNC STATE
+    var yocApiKey by remember { mutableStateOf(prefs.getString("yoc_api_key", "") ?: "") }
+    var isSyncing by remember { mutableStateOf(false) }
+    var syncProgressMsg by remember { mutableStateOf("") }
+    var lastSyncTime by remember { mutableLongStateOf(prefs.getLong("yoc_last_sync", 0L)) }
 
     var editingMovieId by remember { mutableStateOf<String?>(null) }
     var editingTvId by remember { mutableStateOf<String?>(null) }
@@ -126,7 +153,7 @@ fun AdminScreen(onBack: () -> Unit) {
     var twitterLink by remember { mutableStateOf("") }
     var instagramLink by remember { mutableStateOf("") }
 
-    // 🔥 NEW: Plans & Payments State
+    // Plans & Payments State
     var vipPlans by remember { mutableStateOf<List<VipPlan>>(emptyList()) }
     var newPlanName by remember { mutableStateOf("") }
     var newPlanPrice by remember { mutableStateOf("") }
@@ -167,7 +194,6 @@ fun AdminScreen(onBack: () -> Unit) {
                     }
                 }
             }
-            // 🔥 Listen for VIP Plans
             db.collection("homeland_vip_plans").addSnapshotListener { snap, _ ->
                 if (snap != null) {
                     vipPlans = snap.documents.map { doc ->
@@ -198,7 +224,6 @@ fun AdminScreen(onBack: () -> Unit) {
                 }
             }
         } else if (selectedTab == 6) {
-            // 🔥 Listen for pending payments
             db.collection("payment_requests")
                 .whereEqualTo("status", "pending")
                 .addSnapshotListener { snap, _ ->
@@ -243,7 +268,7 @@ fun AdminScreen(onBack: () -> Unit) {
                     Tab(selected = selectedTab == 6, onClick = { selectedTab = 6 }, text = { Text("Payments") }) 
                     Tab(selected = selectedTab == 3, onClick = { selectedTab = 3 }, text = { Text("Theme") })
                     Tab(selected = selectedTab == 4, onClick = { selectedTab = 4 }, text = { Text("Push") })
-                    Tab(selected = selectedTab == 5, onClick = { selectedTab = 5 }, text = { Text("Socials") }) 
+                    Tab(selected = selectedTab == 5, onClick = { selectedTab == 5 }, text = { Text("Socials") }) 
                 }
             }
         }
@@ -259,7 +284,95 @@ fun AdminScreen(onBack: () -> Unit) {
             }
 
             if (selectedTab == 0) {
-                // ... (Existing Movie Logic - Unchanged) ...
+                
+                // 🔥 YOCINEMA AUTO-SYNC CARD
+                item {
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFF15171E).copy(alpha = 0.7f)), 
+                        shape = RoundedCornerShape(24.dp),
+                        border = BorderStroke(1.dp, Color(0xFFE50914).copy(alpha = 0.5f))
+                    ) {
+                        Column(modifier = Modifier.padding(20.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.CloudDownload, contentDescription = "Sync", tint = Color(0xFFE50914))
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("YOCINEMA Auto-Sync", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                            }
+                            Text("Import latest movies automatically using the API.", color = Color.Gray, fontSize = 12.sp, modifier = Modifier.padding(bottom = 12.dp, top = 4.dp))
+
+                            OutlinedTextField(
+                                value = yocApiKey, 
+                                onValueChange = { yocApiKey = it }, 
+                                label = { Text("YOCINEMA API Key (YOCD_...)") }, 
+                                modifier = Modifier.fillMaxWidth(), 
+                                shape = RoundedCornerShape(12.dp), 
+                                colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White, focusedBorderColor = Color(0xFFE50914), unfocusedBorderColor = Color.DarkGray, focusedContainerColor = Color.Black.copy(alpha = 0.2f), unfocusedContainerColor = Color.Black.copy(alpha = 0.2f))
+                            )
+                            
+                            Spacer(modifier = Modifier.height(12.dp))
+                            
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Button(
+                                    onClick = {
+                                        val key = yocApiKey.trim()
+                                        if (!key.startsWith("YOCD_")) {
+                                            statusMessage = "Error: Key must start with YOCD_"
+                                            return@Button
+                                        }
+                                        prefs.edit().putString("yoc_api_key", key).apply()
+                                        statusMessage = "Success! API Key saved on device."
+                                    }, 
+                                    modifier = Modifier.weight(1f),
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color.White.copy(alpha = 0.1f)),
+                                    shape = RoundedCornerShape(12.dp)
+                                ) { Text("Save Key", color = Color.White) }
+                                
+                                Button(
+                                    onClick = {
+                                        if (yocApiKey.isBlank() || !yocApiKey.startsWith("YOCD_")) {
+                                            statusMessage = "Error: Please enter a valid API Key first."
+                                            return@Button
+                                        }
+                                        isSyncing = true
+                                        syncProgressMsg = "Starting sync..."
+                                        scope.launch {
+                                            try {
+                                                val result = executeYocSync(context, yocApiKey, db) { msg ->
+                                                    syncProgressMsg = msg
+                                                }
+                                                statusMessage = "Success! Added ${result.first} movies. Failed: ${result.second}."
+                                                lastSyncTime = System.currentTimeMillis()
+                                                prefs.edit().putLong("yoc_last_sync", lastSyncTime).apply()
+                                            } catch (e: Exception) {
+                                                statusMessage = "Sync Error: ${e.message}"
+                                            } finally {
+                                                isSyncing = false
+                                                syncProgressMsg = ""
+                                            }
+                                        }
+                                    },
+                                    modifier = Modifier.weight(1f),
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE50914)),
+                                    shape = RoundedCornerShape(12.dp),
+                                    enabled = !isSyncing
+                                ) { 
+                                    if (isSyncing) CircularProgressIndicator(color = Color.White, modifier = Modifier.size(20.dp))
+                                    else Text("Sync Now", fontWeight = FontWeight.Bold) 
+                                }
+                            }
+                            
+                            if (isSyncing) {
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text(syncProgressMsg, color = Color(0xFFFCDC04), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            } else if (lastSyncTime > 0) {
+                                val sdf = SimpleDateFormat("MMM dd, HH:mm", Locale.getDefault())
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text("Last synced: ${sdf.format(Date(lastSyncTime))}", color = Color.Gray, fontSize = 11.sp)
+                            }
+                        }
+                    }
+                }
+
                 item {
                     Card(
                         colors = CardDefaults.cardColors(containerColor = Color(0xFF15171E).copy(alpha = 0.7f)), 
@@ -417,7 +530,6 @@ fun AdminScreen(onBack: () -> Unit) {
                     }
                 }
             } else if (selectedTab == 1) {
-                // ... (Existing TV Logic - Unchanged) ...
                 item {
                     Card(
                         colors = CardDefaults.cardColors(containerColor = Color(0xFF15171E).copy(alpha = 0.7f)), 
@@ -497,7 +609,6 @@ fun AdminScreen(onBack: () -> Unit) {
                     }
                 }
             } else if (selectedTab == 2) {
-                // 🔥 NEW: VIP PLANS MANAGEMENT
                 item {
                     Card(
                         colors = CardDefaults.cardColors(containerColor = Color(0xFF15171E).copy(alpha = 0.7f)), 
@@ -699,7 +810,6 @@ fun AdminScreen(onBack: () -> Unit) {
                     }
                 }
             } else if (selectedTab == 6) {
-                // 🔥 NEW: PAYMENTS TAB (AUTOMATIC DURATION)
                 item {
                     Card(
                         colors = CardDefaults.cardColors(containerColor = Color(0xFF15171E).copy(alpha = 0.7f)), 
@@ -740,7 +850,6 @@ fun AdminScreen(onBack: () -> Unit) {
                                         Spacer(modifier = Modifier.height(12.dp))
                                         
                                         Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth()) {
-                                            // Reject Button
                                             Button(
                                                 onClick = {
                                                     db.collection("payment_requests").document(req.id).update("status", "rejected")
@@ -757,23 +866,18 @@ fun AdminScreen(onBack: () -> Unit) {
                                             
                                             Spacer(modifier = Modifier.width(8.dp))
                                             
-                                            // Approve Button (Uses req.days automatically)
                                             Button(
                                                 onClick = {
                                                     val msToAdd = req.days.toLong() * 24 * 60 * 60 * 1000L
                                                     
-                                                    // 1. Find user by email
                                                     db.collection("users").whereEqualTo("email", req.email).get().addOnSuccessListener { userSnap ->
                                                         if (!userSnap.isEmpty) {
                                                             val userDoc = userSnap.documents[0]
                                                             val currentExpiry = userDoc.getLong("homelandVipExpiry") ?: 0L
-                                                            // Add to current expiry if active, otherwise start from today
                                                             val newExpiry = if (currentExpiry > System.currentTimeMillis()) currentExpiry + msToAdd else System.currentTimeMillis() + msToAdd
                                                             
-                                                            // 2. Update user VIP
                                                             userDoc.reference.update("homelandVipExpiry", newExpiry)
                                                             
-                                                            // 3. Mark request as approved
                                                             db.collection("payment_requests").document(req.id).update("status", "approved")
                                                                 .addOnSuccessListener { statusMessage = "Approved! ${req.days} days granted to ${req.email}" }
                                                         } else {
@@ -798,7 +902,6 @@ fun AdminScreen(onBack: () -> Unit) {
                     }
                 }
             } else if (selectedTab == 3) {
-                // ... (Existing Theme Logic) ...
                 item {
                     Card(
                         colors = CardDefaults.cardColors(containerColor = Color(0xFF15171E).copy(alpha = 0.7f)), 
@@ -886,7 +989,6 @@ fun AdminScreen(onBack: () -> Unit) {
                     }
                 }
             } else if (selectedTab == 4) {
-                // ... (Existing Push Notification Logic) ...
                 item {
                     Card(
                         colors = CardDefaults.cardColors(containerColor = Color(0xFF15171E).copy(alpha = 0.7f)), 
@@ -972,7 +1074,6 @@ fun AdminScreen(onBack: () -> Unit) {
                     }
                 }
             } else if (selectedTab == 5) {
-                // ... (Existing Socials Logic) ...
                 item {
                     Card(
                         colors = CardDefaults.cardColors(containerColor = Color(0xFF15171E).copy(alpha = 0.7f)), 
@@ -1012,4 +1113,198 @@ fun AdminScreen(onBack: () -> Unit) {
             }
         }
     }
+}
+
+// 🔥 ADDED: YOCINEMA SYNC NETWORK LOGIC
+
+suspend fun executeYocSync(context: Context, apiKey: String, db: FirebaseFirestore, onProgress: (String) -> Unit): Pair<Int, Int> = withContext(Dispatchers.IO) {
+    val snapCheck = db.collection("homeland_movies").get().await()
+    val haveIds = snapCheck.documents.mapNotNull { it.getString("yocId") }.toSet()
+
+    val all = mutableListOf<JSONObject>()
+    var page = 1
+    var fetchedCount = 0
+
+    onProgress("Fetching newest movies from Yocinema...")
+    
+    while (fetchedCount < 30) {
+        try {
+            val url = URL("https://muno-yoc-proxy.henryssali219.workers.dev/movies?page=$page&limit=30&sort=latest")
+            val conn = url.openConnection() as HttpURLConnection
+            conn.setRequestProperty("Accept", "application/json")
+            conn.setRequestProperty("Authorization", "Bearer $apiKey")
+            
+            val responseCode = conn.responseCode
+            if (responseCode != 200) {
+                val err = conn.errorStream?.bufferedReader()?.readText() ?: ""
+                throw Exception("YOC $responseCode: ${err.take(100)}")
+            }
+            
+            val response = conn.inputStream.bufferedReader().readText()
+            val json = JSONObject(response)
+            if (!json.optBoolean("success", false)) throw Exception("Request failed")
+            
+            val moviesArray = json.getJSONObject("data").getJSONArray("movies")
+            if (moviesArray.length() == 0) break
+
+            for (i in 0 until moviesArray.length()) {
+                val m = moviesArray.getJSONObject(i)
+                val id = m.getString("_id")
+                if (!haveIds.contains(id)) {
+                    all.add(m)
+                    fetchedCount++
+                    if (fetchedCount >= 30) break
+                }
+            }
+            page++
+            if (page > 15) break
+        } catch (e: Exception) {
+            if (all.isEmpty()) throw e else break
+        }
+    }
+
+    if (all.isEmpty()) {
+        return@withContext Pair(0, 0)
+    }
+
+    var added = 0
+    var failed = 0
+
+    for (i in all.indices) {
+        val m = all[i]
+        val yocId = m.getString("_id")
+        val movieTitle = m.optString("title", "Unknown")
+        
+        onProgress("Saving ${i + 1}/${all.size}: $movieTitle")
+
+        try {
+            // 1. Fetch detail
+            val detUrl = URL("https://muno-yoc-proxy.henryssali219.workers.dev/movies/$yocId")
+            val detConn = detUrl.openConnection() as HttpURLConnection
+            detConn.setRequestProperty("Accept", "application/json")
+            detConn.setRequestProperty("Authorization", "Bearer $apiKey")
+            val detResponse = detConn.inputStream.bufferedReader().readText()
+            val detail = JSONObject(detResponse).getJSONObject("data")
+
+            // 2. Fetch Cover Base64
+            var posterBase64 = ""
+            try {
+                val covUrl = URL("https://muno-yoc-proxy.henryssali219.workers.dev/movies/$yocId/cover")
+                val covConn = covUrl.openConnection() as HttpURLConnection
+                val inputStream = covConn.inputStream
+                val originalBitmap = BitmapFactory.decodeStream(inputStream)
+                
+                if (originalBitmap != null) {
+                    val maxWidth = 400
+                    val ratio = originalBitmap.height.toFloat() / originalBitmap.width.toFloat()
+                    val newHeight = (maxWidth * ratio).toInt()
+                    val resized = Bitmap.createScaledBitmap(originalBitmap, maxWidth, newHeight, true)
+                    
+                    val outputStream = ByteArrayOutputStream()
+                    resized.compress(Bitmap.CompressFormat.JPEG, 70, outputStream)
+                    val bytes = outputStream.toByteArray()
+                    posterBase64 = "data:image/jpeg;base64," + Base64.encodeToString(bytes, Base64.NO_WRAP)
+                }
+            } catch (e: Exception) {
+                posterBase64 = "https://images.unsplash.com/photo-1536440136628-849c177e76a1?auto=format&fit=crop&w=400&q=80"
+            }
+
+            // 3. Map logic
+            val isSeries = detail.optString("type") == "series"
+            
+            // Yoc VJ Map (translated to match your exact list)
+            val yocVjMap = mapOf(
+                "Banks" to "VJ Banks", "Emmy" to "VJ Emmy", "Ice P" to "VJ Omutaka Ice P", "Junior" to "VJ Junior", 
+                "Kevin" to "VJ Kevin", "Kevo" to "VJ Kevo", "Muba" to "VJ Muba", "Ulio" to "VJ Ulio"
+            )
+            val rawVj = detail.optString("vjName", m.optString("vjName", "")).trim()
+            var mappedVj = "VJ HD"
+            for ((k, v) in yocVjMap) { if (k.equals(rawVj, true)) { mappedVj = v; break } }
+
+            // Yoc Genre Map (translated to match your exact list)
+            val yocGenreMap = mapOf(
+                "Action" to "Action", "Adventure" to "Adventure", "Animation" to "Animation", "Comedy" to "Comedy", 
+                "Crime" to "Action", "Drama" to "Action", "Fantasy" to "Adventure", "History" to "Action", 
+                "Horror" to "Horror", "Romance" to "Romantic", "Thriller" to "Action", "War" to "Action", "Sci-Fi" to "Sci-Fi"
+            )
+            val rawGenre = detail.optString("genre", m.optString("genre", "")).split(",")[0].trim()
+            var mappedCat = "Action"
+            for ((k, v) in yocGenreMap) { if (k.equals(rawGenre, true)) { mappedCat = v; break } }
+
+            // Year
+            val rawDate = detail.optString("releaseDate", m.optString("releaseDate", ""))
+            val mappedYear = if (rawDate.length >= 4) rawDate.take(4) else "2026"
+
+            // 4. Build Document
+            val doc = hashMapOf<String, Any>(
+                "yocId" to yocId,
+                "title" to detail.optString("title", movieTitle),
+                "description" to detail.optString("description", ""),
+                "category" to mappedCat,
+                "videoTag" to mappedVj,
+                "year" to mappedYear,
+                "poster" to posterBase64,
+                "type" to if (isSeries) "TV Show" else "Movie",
+                "rating" to detail.optDouble("imdbRating", 8.0).toString(),
+                "videoUrl" to detail.optString("streamUrl", ""),
+                "downloadUrl" to detail.optString("downloadUrl", ""),
+                "subtitleUrl" to "",
+                "timestamp" to System.currentTimeMillis(),
+                "isVip" to false,
+                "isFeatured" to false,
+                "isAdult" to false
+            )
+
+            if (isSeries && detail.has("episodes")) {
+                val epsArr = detail.getJSONArray("episodes")
+                val epsList = mutableListOf<HashMap<String, String>>()
+                for (j in 0 until epsArr.length()) {
+                    val ep = epsArr.getJSONObject(j)
+                    epsList.add(hashMapOf(
+                        "id" to ep.optString("_id", ep.optString("id", "")),
+                        "season" to "S${ep.optInt("season")}",
+                        "episode" to "Ep ${ep.optInt("episode")}",
+                        "url" to ep.optString("streamUrl", ""),
+                        "downloadUrl" to ep.optString("downloadUrl", "")
+                    ))
+                }
+                doc["episodes"] = epsList
+            }
+
+            // 5. Mint stream token
+            try {
+                val tokUrl = URL("https://muno-yoc-proxy.henryssali219.workers.dev/movies/$yocId/stream-token")
+                val tokConn = tokUrl.openConnection() as HttpURLConnection
+                tokConn.requestMethod = "POST"
+                tokConn.setRequestProperty("Content-Type", "application/json")
+                tokConn.doOutput = true
+                tokConn.outputStream.use { it.write("{}".toByteArray()) }
+                
+                val tokResponse = tokConn.inputStream.bufferedReader().readText()
+                val tokJson = JSONObject(tokResponse)
+                if (tokJson.optBoolean("success", false) && tokJson.has("data")) {
+                    val data = tokJson.getJSONObject("data")
+                    if (data.has("streamToken")) {
+                        doc["streamToken"] = data.getString("streamToken")
+                        doc["streamTokenExpires"] = System.currentTimeMillis() + (data.optLong("expiresIn", 7200) * 1000)
+                    }
+                } else if (tokJson.has("streamToken")) {
+                    doc["streamToken"] = tokJson.getString("streamToken")
+                    doc["streamTokenExpires"] = System.currentTimeMillis() + (7200 * 1000)
+                }
+            } catch (e: Exception) { /* Ignore token failure */ }
+
+            // 6. Save to Firebase
+            db.collection("homeland_movies").add(doc).await()
+            added++
+
+            // 🚨 CRITICAL: 150ms delay to prevent Firebase spam block
+            delay(150)
+
+        } catch (e: Exception) {
+            failed++
+        }
+    }
+
+    return@withContext Pair(added, failed)
 }
