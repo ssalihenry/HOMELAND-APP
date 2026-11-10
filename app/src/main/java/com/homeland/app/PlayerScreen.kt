@@ -69,6 +69,7 @@ import androidx.media3.common.PlaybackException
 import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.datasource.cache.CacheDataSource
@@ -89,16 +90,24 @@ import kotlinx.coroutines.launch
 import java.io.File
 import kotlin.math.abs
 
-// 🔥 Global Cache Provider
+// 🛡️ SAFE Global Cache Provider
+// If the cache dir is locked or corrupt, returns null so the player
+// instantly falls back to plain network playback. Never crashes.
 object CacheProvider {
     private var simpleCache: SimpleCache? = null
 
-    fun getCache(context: Context): SimpleCache {
-        if (simpleCache == null) {
+    fun getCache(context: Context): SimpleCache? {
+        if (simpleCache != null) return simpleCache
+        return try {
             val cacheDir = File(context.cacheDir, "homeland_media_cache")
-            simpleCache = SimpleCache(cacheDir, LeastRecentlyUsedCacheEvictor(500L * 1024 * 1024)) // 500MB Limit
+            SimpleCache(cacheDir, LeastRecentlyUsedCacheEvictor(500L * 1024 * 1024)).also {
+                simpleCache = it
+            }
+        } catch (e: Exception) {
+            // Cache dir locked / corrupt — do NOT crash. Return null.
+            // Next call will retry, so a temporary lock doesn't permanently disable caching.
+            null
         }
-        return simpleCache!!
     }
 }
 
@@ -172,34 +181,46 @@ fun PlayerScreen(
     var seekPreviewTime by remember { mutableLongStateOf(0L) }
 
     val exoPlayer = remember {
+        val httpDataSourceFactory = DefaultHttpDataSource.Factory()
+            .setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+            .setAllowCrossProtocolRedirects(true)
+            .setConnectTimeoutMs(15000)
+            .setReadTimeoutMs(15000)
+
+        val upstreamFactory = DefaultDataSource.Factory(context, httpDataSourceFactory)
+
+        // 🛡️ SAFE CACHE: try cache, fall back to plain network on ANY failure
+        val dataSourceFactory: DataSource.Factory = try {
+            val cache = CacheProvider.getCache(context)
+            if (cache != null) {
+                CacheDataSource.Factory()
+                    .setCache(cache)
+                    .setUpstreamDataSourceFactory(upstreamFactory)
+                    .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
+            } else {
+                upstreamFactory
+            }
+        } catch (e: Exception) {
+            upstreamFactory
+        }
+
+        // Stream type detection
+        val urlLower = currentVideoUrl.lowercase()
+        val isM3u8 = urlLower.contains("m3u8")
+        val isTs = !isM3u8 && urlLower.contains(".ts")
+
+        // 🔥 Buffers tuned for 8s DVR delay (m3u8) and standard live (ts/mp4)
+        val minBuffer = if (isM3u8) 15000 else 10000
+        val maxBuffer = if (isM3u8) 30000 else 20000
+
+        val loadControl = DefaultLoadControl.Builder()
+            .setBufferDurationsMs(minBuffer, maxBuffer, 2500, 5000)
+            .build()
+
+        val mediaSourceFactory = DefaultMediaSourceFactory(dataSourceFactory)
+            .setLoadErrorHandlingPolicy(DefaultLoadErrorHandlingPolicy(5))
+
         try {
-            val simpleCache = CacheProvider.getCache(context)
-
-            val httpDataSourceFactory = DefaultHttpDataSource.Factory()
-                .setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-                .setAllowCrossProtocolRedirects(true)
-                .setConnectTimeoutMs(15000)
-                .setReadTimeoutMs(15000)
-
-            val upstreamFactory = DefaultDataSource.Factory(context, httpDataSourceFactory)
-            
-            val cacheDataSourceFactory = CacheDataSource.Factory()
-                .setCache(simpleCache)
-                .setUpstreamDataSourceFactory(upstreamFactory)
-                .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
-
-            val isM3u8 = currentVideoUrl.contains("m3u8", ignoreCase = true)
-            // 🔥 FIXED: Increased m3u8 buffer to 45s to hold the 25s delay safely
-            val minBuffer = if (isM3u8) 15000 else 10000
-            val maxBuffer = if (isM3u8) 45000 else 20000 
-            
-            val loadControl = DefaultLoadControl.Builder()
-                .setBufferDurationsMs(minBuffer, maxBuffer, 2500, 5000)
-                .build()
-
-            val mediaSourceFactory = DefaultMediaSourceFactory(cacheDataSourceFactory)
-                .setLoadErrorHandlingPolicy(DefaultLoadErrorHandlingPolicy(5))
-
             ExoPlayer.Builder(context)
                 .setTrackSelector(trackSelector)
                 .setMediaSourceFactory(mediaSourceFactory)
@@ -222,19 +243,22 @@ fun PlayerScreen(
                         setMediaItems(mediaItems)
                     } else {
                         val mediaItemBuilder = MediaItem.Builder().setUri(currentVideoUrl)
-                        
-                        if (isM3u8) {
-                            mediaItemBuilder.setMimeType(MimeTypes.APPLICATION_M3U8)
-                            
-                            // 🔥 THE 25-SECOND DVR MAGIC
-                            val liveConfig = MediaItem.LiveConfiguration.Builder()
-                                .setTargetOffsetMs(25000) // 25 Seconds behind Live
-                                .setMaxPlaybackSpeed(1.1f) 
-                                .setMinPlaybackSpeed(0.9f) 
-                                .build()
-                            mediaItemBuilder.setLiveConfiguration(liveConfig)
+                        when {
+                            isM3u8 -> {
+                                mediaItemBuilder.setMimeType(MimeTypes.APPLICATION_M3U8)
+                                // 🔥 8-SECOND DVR (was 25s — too aggressive for cheap IPTV servers)
+                                val liveConfig = MediaItem.LiveConfiguration.Builder()
+                                    .setTargetOffsetMs(8000)
+                                    .setMaxPlaybackSpeed(1.1f) 
+                                    .setMinPlaybackSpeed(0.9f) 
+                                    .build()
+                                mediaItemBuilder.setLiveConfiguration(liveConfig)
+                            }
+                            isTs -> {
+                                // ⚡ .ts → instant live play. No LiveConfiguration = targetOffset 0 = live edge.
+                            }
+                            // mp4 / unknown → default behavior
                         }
-                        
                         setMediaItem(mediaItemBuilder.build())
                     }
                     
@@ -248,20 +272,22 @@ fun PlayerScreen(
                     prepare()
                 }
         } catch (e: Exception) {
-            ExoPlayer.Builder(context).build()
-        }
-    }
-
-    // 🔥 FEATURE: The Secret Background Refresher
-    LaunchedEffect(isPlaying, currentVideoUrl) {
-        while (isPlaying && episodes.isEmpty()) {
-            delay(45000) // Wait 45 seconds before refreshing the token
-            if (exoPlayer.isPlaying) {
-                // Silently refresh the connection without interrupting the video
-                exoPlayer.prepare()
+            // 🛡️ Last-resort fallback: bare player, but still loads & plays the stream
+            ExoPlayer.Builder(context).build().apply {
+                if (episodes.isNotEmpty()) {
+                    val mediaItems = episodes.map { ep -> MediaItem.Builder().setUri(ep.url).build() }
+                    setMediaItems(mediaItems)
+                } else {
+                    setMediaItem(MediaItem.Builder().setUri(currentVideoUrl).build())
+                }
+                seekTo(startPosition.coerceAtLeast(0L))
+                playWhenReady = true
+                prepare()
             }
         }
     }
+
+    // 🛑 REMOVED: Secret Background Refresher (was angering cheap IPTV servers)
 
     // 🔥 FEATURE: Auto-Resume on Network Switch
     DisposableEffect(Unit) {
@@ -359,12 +385,12 @@ fun PlayerScreen(
             override fun onPlayerError(error: PlaybackException) {
                 super.onPlayerError(error)
                 
-                // 🔥 THE INFINITE SILENT LOOP
+                // 🔥 Error-based retry (NOT the periodic refresher — that's gone)
                 if (episodes.isEmpty()) {
-                    // For Live TV, keep retrying infinitely in the background
+                    // Live TV: keep retrying in the background
                     retryCount += 1 
                     isBuffering = true
-                    hasError = false // Keep the error screen hidden
+                    hasError = false
                     
                     coroutineScope.launch {
                         delay(2000)
@@ -372,7 +398,7 @@ fun PlayerScreen(
                         exoPlayer.playWhenReady = true
                     }
                 } else {
-                    // For Movies, only retry 5 times
+                    // Movies: retry up to 5 times
                     if (retryCount < 5) {
                         retryCount += 1 
                         isBuffering = true
@@ -805,12 +831,32 @@ fun PlayerScreen(
                                 showChannelSwitcher = false
                                 hasStartedPlaying = false
                                 isBuffering = true
-                                
+                                retryCount = 0
+                                hasError = false
+
+                                // 🔥 Same stream-type rules on channel switch
+                                val chUrlLower = channel.streamUrl.lowercase()
+                                val chIsM3u8 = chUrlLower.contains("m3u8")
+                                val chIsTs = !chIsM3u8 && chUrlLower.contains(".ts")
+
                                 val mediaItemBuilder = MediaItem.Builder().setUri(channel.streamUrl)
-                                if (channel.streamUrl.contains("m3u8", ignoreCase = true)) {
-                                    mediaItemBuilder.setMimeType(MimeTypes.APPLICATION_M3U8)
-                                    mediaItemBuilder.setLiveConfiguration(MediaItem.LiveConfiguration.Builder().setTargetOffsetMs(25000).setMaxPlaybackSpeed(1.1f).setMinPlaybackSpeed(0.9f).build())
+                                when {
+                                    chIsM3u8 -> {
+                                        mediaItemBuilder.setMimeType(MimeTypes.APPLICATION_M3U8)
+                                        mediaItemBuilder.setLiveConfiguration(
+                                            MediaItem.LiveConfiguration.Builder()
+                                                .setTargetOffsetMs(8000) // 🔥 8s DVR (was 25s)
+                                                .setMaxPlaybackSpeed(1.1f)
+                                                .setMinPlaybackSpeed(0.9f)
+                                                .build()
+                                        )
+                                    }
+                                    chIsTs -> {
+                                        // ⚡ .ts → instant live play, no delay
+                                    }
+                                    // mp4 / unknown → default
                                 }
+
                                 exoPlayer.setMediaItem(mediaItemBuilder.build())
                                 exoPlayer.prepare()
                                 exoPlayer.playWhenReady = true
