@@ -4,7 +4,8 @@ data class Episode(
     val season: String = "",
     val episode: String = "",
     val url: String = "",
-    val subtitleUrl: String = ""
+    val subtitleUrl: String = "",
+    val streamToken: String = ""
 )
 
 data class Movie(
@@ -21,7 +22,9 @@ data class Movie(
     val subtitleUrl: String = "",
     val timestamp: Long = System.currentTimeMillis(),
     val episodes: List<Episode> = emptyList(),
-    val isAdult: Boolean = false
+    val isAdult: Boolean = false,
+    val yocId: String = "",
+    val streamToken: String = ""
 )
 
 data class TvChannel(
