@@ -68,6 +68,9 @@ import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
+import androidx.media3.common.TrackGroup
+import androidx.media3.common.TrackSelectionOverride
+import androidx.media3.common.Tracks
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
@@ -85,7 +88,17 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 
-@OptIn(UnstableApi::class, ExperimentalMaterial3Api::class) // 🔥 FIXED: Removed the bad import
+// 🔥 ADDED: Data class to hold actual video qualities from the manifest
+data class VideoQuality(
+    val label: String,
+    val width: Int,
+    val height: Int,
+    val bitrate: Int,
+    val trackGroup: TrackGroup,
+    val trackIndex: Int
+)
+
+@OptIn(UnstableApi::class, ExperimentalMaterial3Api::class)
 @Composable
 fun PlayerScreen(
     title: String,
@@ -142,6 +155,9 @@ fun PlayerScreen(
 
     val trackSelector = remember { DefaultTrackSelector(context) }
     var currentQuality by remember { mutableStateOf("Auto") }
+    
+    // 🔥 ADDED: State to hold the dynamically fetched qualities
+    var availableQualities by remember { mutableStateOf<List<VideoQuality>>(emptyList()) }
 
     val focusRequester = remember { FocusRequester() }
 
@@ -312,6 +328,38 @@ fun PlayerScreen(
                     }
                     Player.STATE_IDLE -> isBuffering = false
                 }
+            }
+            
+            // 🔥 ADDED: Read actual manifest qualities dynamically
+            override fun onTracksChanged(tracks: Tracks) {
+                super.onTracksChanged(tracks)
+                val videoQualities = mutableListOf<VideoQuality>()
+                tracks.groups.forEach { group ->
+                    if (group.type == C.TRACK_TYPE_VIDEO) {
+                        for (i in 0 until group.length) {
+                            if (group.isTrackSupported(i)) {
+                                val format = group.getTrackFormat(i)
+                                if (format.width > 0 && format.height > 0) {
+                                    videoQualities.add(
+                                        VideoQuality(
+                                            label = "${format.height}p",
+                                            width = format.width,
+                                            height = format.height,
+                                            bitrate = format.bitrate,
+                                            trackGroup = group.mediaTrackGroup,
+                                            trackIndex = i
+                                        )
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+                // Group by height to avoid duplicates, keep highest bitrate for that resolution, sort highest to lowest
+                availableQualities = videoQualities
+                    .groupBy { it.height }
+                    .map { (_, qualities) -> qualities.maxByOrNull { it.bitrate }!! }
+                    .sortedByDescending { it.height }
             }
             
             override fun onPlayerError(error: PlaybackException) {
@@ -649,17 +697,36 @@ fun PlayerScreen(
                         if (!isAudioOnly) {
                             Box {
                                 Box(modifier = Modifier.size(44.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.1f)).border(1.dp, Color.White.copy(alpha = 0.15f), CircleShape).clickable { showQualityMenu = !showQualityMenu; showSpeedMenu = false; showAspectMenu = false; showSleepMenu = false }, contentAlignment = Alignment.Center) { Icon(Icons.Default.HighQuality, "Quality", tint = Color.White, modifier = Modifier.size(22.dp)) }
+                                
+                                // 🔥 ADDED: Dynamic Quality Menu
                                 DropdownMenu(expanded = showQualityMenu, onDismissRequest = { showQualityMenu = false }, modifier = Modifier.background(Color(0xFF15171E))) {
-                                    listOf("Auto", "1080p", "720p", "480p").forEach { quality ->
-                                        DropdownMenuItem(text = { Text(quality, color = if(currentQuality == quality) Color(0xFFE50914) else Color.White) }, onClick = { 
-                                            currentQuality = quality; showQualityMenu = false
-                                            val params = trackSelector.buildUponParameters()
-                                            if (quality == "Auto") params.clearVideoSizeConstraints() 
-                                            else if (quality == "1080p") params.setMaxVideoSize(1920, 1080).setMaxVideoBitrate(5000000)
-                                            else if (quality == "720p") params.setMaxVideoSize(1280, 720).setMaxVideoBitrate(2500000)
-                                            else if (quality == "480p") params.setMaxVideoSize(854, 480).setMaxVideoBitrate(1000000)
-                                            trackSelector.parameters = params.build()
-                                        })
+                                    DropdownMenuItem(
+                                        text = { Text("Auto", color = if(currentQuality == "Auto") Color(0xFFE50914) else Color.White) },
+                                        onClick = { 
+                                            currentQuality = "Auto"
+                                            trackSelector.parameters = trackSelector.buildUponParameters()
+                                                .clearOverridesOfType(C.TRACK_TYPE_VIDEO)
+                                                .setMaxVideoSize(Int.MAX_VALUE, Int.MAX_VALUE)
+                                                .setMaxVideoBitrate(Int.MAX_VALUE)
+                                                .build()
+                                            showQualityMenu = false
+                                        }
+                                    )
+                                    availableQualities.forEach { quality ->
+                                        DropdownMenuItem(
+                                            text = { Text(quality.label, color = if(currentQuality == quality.label) Color(0xFFE50914) else Color.White) },
+                                            onClick = { 
+                                                currentQuality = quality.label
+                                                val override = TrackSelectionOverride(quality.trackGroup, quality.trackIndex)
+                                                trackSelector.parameters = trackSelector.buildUponParameters()
+                                                    .clearOverridesOfType(C.TRACK_TYPE_VIDEO)
+                                                    .setMaxVideoSize(Int.MAX_VALUE, Int.MAX_VALUE)
+                                                    .setMaxVideoBitrate(Int.MAX_VALUE)
+                                                    .addOverride(override)
+                                                    .build()
+                                                showQualityMenu = false
+                                            }
+                                        )
                                     }
                                 }
                             }
