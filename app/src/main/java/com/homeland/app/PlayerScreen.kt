@@ -71,6 +71,9 @@ import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.datasource.cache.CacheDataSource // 🔥 NEW IMPORT
+import androidx.media3.datasource.cache.LeastRecentlyUsedCacheEvictor // 🔥 NEW IMPORT
+import androidx.media3.datasource.cache.SimpleCache // 🔥 NEW IMPORT
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
@@ -83,9 +86,10 @@ import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.firestore.Query
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import java.io.File // 🔥 NEW IMPORT
 import kotlin.math.abs
 
-@OptIn(UnstableApi::class, ExperimentalMaterial3Api::class) // 🔥 FIXED: Removed the bad import
+@OptIn(UnstableApi::class, ExperimentalMaterial3Api::class)
 @Composable
 fun PlayerScreen(
     title: String,
@@ -155,13 +159,23 @@ fun PlayerScreen(
     var seekPreviewTime by remember { mutableLongStateOf(0L) }
 
     val exoPlayer = remember {
+        // 1. Setup the Disk Cache (DVR Mode)
+        val cacheDir = File(context.cacheDir, "homeland_media_cache")
+        val simpleCache = SimpleCache(cacheDir, LeastRecentlyUsedCacheEvictor(500L * 1024 * 1024)) // 500MB Limit
+
         val httpDataSourceFactory = DefaultHttpDataSource.Factory()
             .setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
             .setAllowCrossProtocolRedirects(true)
             .setConnectTimeoutMs(15000)
             .setReadTimeoutMs(15000)
 
-        val dataSourceFactory = DefaultDataSource.Factory(context, httpDataSourceFactory)
+        val upstreamFactory = DefaultDataSource.Factory(context, httpDataSourceFactory)
+        
+        // 2. Wrap the Data Source with the Cache
+        val cacheDataSourceFactory = CacheDataSource.Factory()
+            .setCache(simpleCache)
+            .setUpstreamDataSourceFactory(upstreamFactory)
+            .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
 
         val minBuffer = if (currentVideoUrl.contains("m3u8", ignoreCase = true)) 5000 else 15000
         val maxBuffer = if (currentVideoUrl.contains("m3u8", ignoreCase = true)) 15000 else 50000 
@@ -170,7 +184,7 @@ fun PlayerScreen(
             .setBufferDurationsMs(minBuffer, maxBuffer, 2500, 5000)
             .build()
 
-        val mediaSourceFactory = DefaultMediaSourceFactory(dataSourceFactory)
+        val mediaSourceFactory = DefaultMediaSourceFactory(cacheDataSourceFactory)
             .setLoadErrorHandlingPolicy(DefaultLoadErrorHandlingPolicy(5))
 
         ExoPlayer.Builder(context)
@@ -199,8 +213,9 @@ fun PlayerScreen(
                     if (currentVideoUrl.contains("m3u8", ignoreCase = true)) {
                         mediaItemBuilder.setMimeType(MimeTypes.APPLICATION_M3U8)
                         
+                        // 🔥 THE DVR MAGIC: 40 Seconds behind Live
                         val liveConfig = MediaItem.LiveConfiguration.Builder()
-                            .setTargetOffsetMs(5000) 
+                            .setTargetOffsetMs(40000) // 40 Seconds delay
                             .setMaxPlaybackSpeed(1.1f) 
                             .setMinPlaybackSpeed(0.9f) 
                             .build()
@@ -752,7 +767,7 @@ fun PlayerScreen(
                                 val mediaItemBuilder = MediaItem.Builder().setUri(channel.streamUrl)
                                 if (channel.streamUrl.contains("m3u8", ignoreCase = true)) {
                                     mediaItemBuilder.setMimeType(MimeTypes.APPLICATION_M3U8)
-                                    mediaItemBuilder.setLiveConfiguration(MediaItem.LiveConfiguration.Builder().setTargetOffsetMs(5000).setMaxPlaybackSpeed(1.1f).setMinPlaybackSpeed(0.9f).build())
+                                    mediaItemBuilder.setLiveConfiguration(MediaItem.LiveConfiguration.Builder().setTargetOffsetMs(40000).setMaxPlaybackSpeed(1.1f).setMinPlaybackSpeed(0.9f).build())
                                 }
                                 exoPlayer.setMediaItem(mediaItemBuilder.build())
                                 exoPlayer.prepare()
