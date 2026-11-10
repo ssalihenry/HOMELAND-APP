@@ -36,7 +36,10 @@ import kotlin.random.Random
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.os.Handler
+import android.os.Looper
 import android.util.Base64
+import android.util.Log
 import androidx.compose.ui.platform.LocalContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -50,6 +53,7 @@ import java.io.ByteArrayOutputStream
 import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
+import java.util.concurrent.TimeUnit
 import com.google.android.gms.tasks.Tasks 
 
 // 🔥 GLOBAL BACKGROUND SYNC SCOPE & STATE
@@ -90,6 +94,7 @@ fun AdminScreen(onBack: () -> Unit) {
     val db = FirebaseFirestore.getInstance()
     val context = LocalContext.current
     val prefs = context.getSharedPreferences("homeland_prefs", Context.MODE_PRIVATE)
+    val mainHandler = remember { Handler(Looper.getMainLooper()) }
     
     var selectedTab by remember { mutableIntStateOf(0) } 
     
@@ -340,19 +345,27 @@ fun AdminScreen(onBack: () -> Unit) {
                                         globalIsSyncing = true
                                         globalSyncProgressMsg = "Starting sync..."
                                         
-                                        // 🔥 Use AppSyncScope to survive navigation
                                         AppSyncScope.launch {
                                             try {
                                                 val result = executeYocSync(context, yocApiKey, db) { msg ->
-                                                    globalSyncProgressMsg = msg
+                                                    // 🔥 Force update on Main thread so UI actually refreshes
+                                                    mainHandler.post { globalSyncProgressMsg = msg }
                                                 }
-                                                globalSyncProgressMsg = "Success! Added ${result.first} movies. Failed: ${result.second}."
-                                                lastSyncTime = System.currentTimeMillis()
-                                                prefs.edit().putLong("yoc_last_sync", lastSyncTime).apply()
+                                                mainHandler.post {
+                                                    globalSyncProgressMsg = if (result.first > 0) 
+                                                        "Success! Added ${result.first} movies. Failed: ${result.second}."
+                                                    else 
+                                                        "No new movies found. Already up to date!"
+                                                    globalIsSyncing = false
+                                                    lastSyncTime = System.currentTimeMillis()
+                                                    prefs.edit().putLong("yoc_last_sync", lastSyncTime).apply()
+                                                }
                                             } catch (e: Exception) {
-                                                globalSyncProgressMsg = "Sync Error: ${e.message}"
-                                            } finally {
-                                                globalIsSyncing = false
+                                                Log.e("YOC_SYNC", "Sync failed", e)
+                                                mainHandler.post {
+                                                    globalSyncProgressMsg = "Sync Error: ${e.message ?: "Network failure"}"
+                                                    globalIsSyncing = false
+                                                }
                                             }
                                         }
                                     },
@@ -369,6 +382,9 @@ fun AdminScreen(onBack: () -> Unit) {
                             if (globalIsSyncing) {
                                 Spacer(modifier = Modifier.height(8.dp))
                                 Text(globalSyncProgressMsg, color = Color(0xFFFCDC04), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            } else if (globalSyncProgressMsg.isNotEmpty() && globalSyncProgressMsg.contains("Error", true)) {
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text(globalSyncProgressMsg, color = Color.Red, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                             } else if (lastSyncTime > 0) {
                                 val sdf = SimpleDateFormat("MMM dd, HH:mm", Locale.getDefault())
                                 Spacer(modifier = Modifier.height(8.dp))
@@ -1120,50 +1136,80 @@ fun AdminScreen(onBack: () -> Unit) {
     }
 }
 
-// 🔥 ADDED: YOCINEMA SYNC NETWORK LOGIC
+// 🔥 ADDED: YOCINEMA SYNC NETWORK LOGIC (Fully rewritten with timeouts and safe error handling)
 
 suspend fun executeYocSync(context: Context, apiKey: String, db: FirebaseFirestore, onProgress: (String) -> Unit): Pair<Int, Int> = withContext(Dispatchers.IO) {
-    val snapCheck = Tasks.await(db.collection("homeland_movies").get())
-    val haveIds = snapCheck.documents.mapNotNull { it.getString("yocId") }.toSet()
+    
+    // STEP 1: Fetch existing movie IDs with timeout
+    onProgress("Checking database...")
+    val haveIds: Set<String> = try {
+        val snapCheck = Tasks.await(db.collection("homeland_movies").get(), 20, TimeUnit.SECONDS)
+        snapCheck.documents.mapNotNull { it.getString("yocId") }.toSet()
+    } catch (e: Exception) {
+        Log.w("YOC_SYNC", "Could not load existing IDs, proceeding anyway", e)
+        emptySet()
+    }
+    onProgress("Database checked. ${haveIds.size} already synced.")
 
+    // STEP 2: Fetch new movies with full timeouts
     val all = mutableListOf<JSONObject>()
     var page = 1
     var fetchedCount = 0
-
-    onProgress("Fetching newest movies from Yocinema...")
     
-    while (fetchedCount < 30) {
+    while (fetchedCount < 30 && page <= 15) {
+        onProgress("Fetching page $page...")
         try {
             val url = URL("https://muno-yoc-proxy.henryssali219.workers.dev/movies?page=$page&limit=30&sort=latest")
             val conn = url.openConnection() as HttpURLConnection
+            conn.connectTimeout = 20000
+            conn.readTimeout = 30000
+            conn.requestMethod = "GET"
             conn.setRequestProperty("Accept", "application/json")
             conn.setRequestProperty("Authorization", "Bearer $apiKey")
+            conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36")
+            conn.setRequestProperty("Origin", "https://munowatch-2c399.web.app")
+            conn.setRequestProperty("Referer", "https://munowatch-2c399.web.app/")
             
             val responseCode = conn.responseCode
             if (responseCode != 200) {
-                val err = conn.errorStream?.bufferedReader()?.readText() ?: ""
-                throw Exception("YOC $responseCode: ${err.take(100)}")
+                val err = conn.errorStream?.bufferedReader()?.readText() ?: "HTTP $responseCode"
+                conn.disconnect()
+                throw Exception("Server returned $responseCode: ${err.take(100)}")
             }
             
             val response = conn.inputStream.bufferedReader().readText()
-            val json = JSONObject(response)
-            if (!json.optBoolean("success", false)) throw Exception("Request failed")
+            conn.disconnect()
             
-            val moviesArray = json.getJSONObject("data").getJSONArray("movies")
+            val json = JSONObject(response)
+            val successField = json.opt("success")
+            val isSuccess = when (successField) {
+                is Boolean -> successField
+                is String -> successField.equals("true", ignoreCase = true)
+                else -> false
+            }
+            if (!isSuccess) throw Exception("API returned failure: ${json.optString("error", "Unknown")}")
+            
+            val dataObj = json.optJSONObject("data")
+            val moviesArray = dataObj?.optJSONArray("movies") ?: break
             if (moviesArray.length() == 0) break
 
             for (i in 0 until moviesArray.length()) {
                 val m = moviesArray.getJSONObject(i)
-                val id = m.getString("_id")
-                if (!haveIds.contains(id)) {
+                val id = m.optString("_id", "")
+                if (id.isNotEmpty() && !haveIds.contains(id)) {
                     all.add(m)
                     fetchedCount++
                     if (fetchedCount >= 30) break
                 }
             }
             page++
-            if (page > 15) break
+            if (all.size > 0) onProgress("Found ${all.size} new movies...")
+        } catch (e: java.net.SocketTimeoutException) {
+            throw Exception("Connection timed out. The proxy server did not respond in time.")
+        } catch (e: java.net.UnknownHostException) {
+            throw Exception("No internet connection. Check your network.")
         } catch (e: Exception) {
+            Log.e("YOC_SYNC", "Fetch page $page failed", e)
             if (all.isEmpty()) throw e else break
         }
     }
@@ -1172,6 +1218,7 @@ suspend fun executeYocSync(context: Context, apiKey: String, db: FirebaseFiresto
         return@withContext Pair(0, 0)
     }
 
+    // STEP 3: Save each movie with full timeouts
     var added = 0
     var failed = 0
 
@@ -1183,42 +1230,48 @@ suspend fun executeYocSync(context: Context, apiKey: String, db: FirebaseFiresto
         onProgress("Saving ${i + 1}/${all.size}: $movieTitle")
 
         try {
-            // 1. Fetch detail
+            // Detail fetch
             val detUrl = URL("https://muno-yoc-proxy.henryssali219.workers.dev/movies/$yocId")
             val detConn = detUrl.openConnection() as HttpURLConnection
+            detConn.connectTimeout = 15000
+            detConn.readTimeout = 30000
             detConn.setRequestProperty("Accept", "application/json")
             detConn.setRequestProperty("Authorization", "Bearer $apiKey")
+            detConn.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 13)")
             val detResponse = detConn.inputStream.bufferedReader().readText()
+            detConn.disconnect()
             val detail = JSONObject(detResponse).getJSONObject("data")
 
-            // 2. Fetch Cover Base64
+            // Cover fetch
             var posterBase64 = ""
             try {
                 val covUrl = URL("https://muno-yoc-proxy.henryssali219.workers.dev/movies/$yocId/cover")
                 val covConn = covUrl.openConnection() as HttpURLConnection
+                covConn.connectTimeout = 10000
+                covConn.readTimeout = 20000
                 covConn.setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
                 val inputStream = covConn.inputStream
                 val originalBitmap = BitmapFactory.decodeStream(inputStream)
+                covConn.disconnect()
                 
                 if (originalBitmap != null) {
                     val maxWidth = 400
                     val ratio = originalBitmap.height.toFloat() / originalBitmap.width.toFloat()
                     val newHeight = (maxWidth * ratio).toInt()
                     val resized = Bitmap.createScaledBitmap(originalBitmap, maxWidth, newHeight, true)
-                    
                     val outputStream = ByteArrayOutputStream()
                     resized.compress(Bitmap.CompressFormat.JPEG, 70, outputStream)
                     val bytes = outputStream.toByteArray()
                     posterBase64 = "data:image/jpeg;base64," + Base64.encodeToString(bytes, Base64.NO_WRAP)
                 }
             } catch (e: Exception) {
+                Log.w("YOC_SYNC", "Cover fetch failed for $yocId", e)
                 posterBase64 = "https://images.unsplash.com/photo-1536440136628-849c177e76a1?auto=format&fit=crop&w=400&q=80"
             }
 
-            // 3. Map logic
+            // Map logic
             val isSeries = detail.optString("type") == "series"
             
-            // Yoc VJ Map (translated to match your exact list)
             val yocVjMap = mapOf(
                 "Banks" to "VJ Banks", "Emmy" to "VJ Emmy", "Ice P" to "VJ Omutaka Ice P", "Junior" to "VJ Junior", 
                 "Kevin" to "VJ Kevin", "Kevo" to "VJ Kevo", "Muba" to "VJ Muba", "Ulio" to "VJ Ulio"
@@ -1227,7 +1280,6 @@ suspend fun executeYocSync(context: Context, apiKey: String, db: FirebaseFiresto
             var mappedVj = "VJ HD"
             for ((k, v) in yocVjMap) { if (k.equals(rawVj, true)) { mappedVj = v; break } }
 
-            // Yoc Genre Map (translated to match your exact list)
             val yocGenreMap = mapOf(
                 "Action" to "Action", "Adventure" to "Adventure", "Animation" to "Animation", "Comedy" to "Comedy", 
                 "Crime" to "Action", "Drama" to "Action", "Fantasy" to "Adventure", "History" to "Action", 
@@ -1237,11 +1289,9 @@ suspend fun executeYocSync(context: Context, apiKey: String, db: FirebaseFiresto
             var mappedCat = "Action"
             for ((k, v) in yocGenreMap) { if (k.equals(rawGenre, true)) { mappedCat = v; break } }
 
-            // Year
             val rawDate = detail.optString("releaseDate", m.optString("releaseDate", ""))
             val mappedYear = if (rawDate.length >= 4) rawDate.take(4) else "2026"
 
-            // 4. Build Document
             val doc = hashMapOf<String, Any>(
                 "yocId" to yocId,
                 "title" to detail.optString("title", movieTitle),
@@ -1277,16 +1327,19 @@ suspend fun executeYocSync(context: Context, apiKey: String, db: FirebaseFiresto
                 doc["episodes"] = epsList
             }
 
-            // 5. Mint stream token
+            // Token mint
             try {
                 val tokUrl = URL("https://muno-yoc-proxy.henryssali219.workers.dev/movies/$yocId/stream-token")
                 val tokConn = tokUrl.openConnection() as HttpURLConnection
+                tokConn.connectTimeout = 15000
+                tokConn.readTimeout = 20000
                 tokConn.requestMethod = "POST"
                 tokConn.setRequestProperty("Content-Type", "application/json")
                 tokConn.doOutput = true
                 tokConn.outputStream.use { it.write("{}".toByteArray()) }
                 
                 val tokResponse = tokConn.inputStream.bufferedReader().readText()
+                tokConn.disconnect()
                 val tokJson = JSONObject(tokResponse)
                 if (tokJson.optBoolean("success", false) && tokJson.has("data")) {
                     val data = tokJson.getJSONObject("data")
@@ -1298,16 +1351,17 @@ suspend fun executeYocSync(context: Context, apiKey: String, db: FirebaseFiresto
                     doc["streamToken"] = tokJson.getString("streamToken")
                     doc["streamTokenExpires"] = System.currentTimeMillis() + (7200 * 1000)
                 }
-            } catch (e: Exception) { /* Ignore token failure */ }
+            } catch (e: Exception) { 
+                Log.w("YOC_SYNC", "Token mint failed for $yocId", e)
+            }
 
-            // 6. Save to Firebase
-            Tasks.await(db.collection("homeland_movies").add(doc))
+            // Save to Firebase with timeout
+            Tasks.await(db.collection("homeland_movies").add(doc), 15, TimeUnit.SECONDS)
             added++
-
-            // 🚨 CRITICAL: 150ms delay to prevent Firebase spam block
             delay(150)
 
         } catch (e: Exception) {
+            Log.e("YOC_SYNC", "Failed to save $movieTitle", e)
             failed++
         }
     }
