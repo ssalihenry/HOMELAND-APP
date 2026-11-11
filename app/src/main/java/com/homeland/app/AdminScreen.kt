@@ -35,7 +35,7 @@ import kotlin.random.Random
 // 🔥 ADDED IMPORTS FOR YOCINEMA SYNC & BACKGROUND SCOPE
 import android.content.Context
 import android.graphics.Bitmap
-import android.graphics.drawable.BitmapDrawable
+import android.graphics.BitmapFactory
 import android.os.Handler
 import android.os.Looper
 import android.util.Base64
@@ -50,16 +50,12 @@ import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
+import java.io.InputStream
 import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
 import java.util.concurrent.TimeUnit
 import com.google.android.gms.tasks.Tasks 
-
-// 🔥 COIL IMPORTS FOR DOWNLOADING COVER IMAGES (browser-like handling of redirects, WebP, headers)
-import coil.imageLoader
-import coil.request.ImageRequest
-import coil.request.SuccessResult
 
 // 🔥 GLOBAL BACKGROUND SYNC SCOPE & STATE
 val AppSyncScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
@@ -353,7 +349,6 @@ fun AdminScreen(onBack: () -> Unit) {
                                         AppSyncScope.launch {
                                             try {
                                                 val result = executeYocSync(context, yocApiKey, db) { msg ->
-                                                    // 🔥 Force update on Main thread so UI actually refreshes
                                                     mainHandler.post { globalSyncProgressMsg = msg }
                                                 }
                                                 mainHandler.post {
@@ -1141,7 +1136,7 @@ fun AdminScreen(onBack: () -> Unit) {
     }
 }
 
-// 🔥 ADDED: YOCINEMA SYNC NETWORK LOGIC (Fully rewritten with timeouts and safe error handling)
+// 🔥 ADDED: YOCINEMA SYNC NETWORK LOGIC (Bulletproof byte-array image download)
 
 suspend fun executeYocSync(context: Context, apiKey: String, db: FirebaseFirestore, onProgress: (String) -> Unit): Pair<Int, Int> = withContext(Dispatchers.IO) {
     
@@ -1247,19 +1242,42 @@ suspend fun executeYocSync(context: Context, apiKey: String, db: FirebaseFiresto
             detConn.disconnect()
             val detail = JSONObject(detResponse).getJSONObject("data")
 
-            // 🔥 FIX: Using Coil to fetch the cover image (handles WebP, redirects, headers natively like a browser)
+            // 🔥 FIX: Download image as raw bytes (like browser's res.blob()), then decode.
+            // This is bulletproof - works with WebP, redirects, chunked transfers.
             var posterBase64 = ""
             try {
-                val imageRequest = ImageRequest.Builder(context)
-                    .data("https://muno-yoc-proxy.henryssali219.workers.dev/movies/$yocId/cover")
-                    .allowHardware(false) // Important for Bitmap operations
-                    .build()
-                    
-                val result = context.imageLoader.execute(imageRequest)
+                val coverUrl = URL("https://muno-yoc-proxy.henryssali219.workers.dev/movies/$yocId/cover")
+                val coverConn = coverUrl.openConnection() as HttpURLConnection
+                coverConn.instanceFollowRedirects = true
+                coverConn.connectTimeout = 15000
+                coverConn.readTimeout = 30000
+                coverConn.requestMethod = "GET"
+                coverConn.setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+                coverConn.setRequestProperty("Accept", "image/avif,image/webp,image/apng,image/*,*/*;q=0.8")
+                coverConn.setRequestProperty("Origin", "https://munowatch-2c399.web.app")
+                coverConn.setRequestProperty("Referer", "https://munowatch-2c399.web.app/")
                 
-                if (result is SuccessResult) {
-                    val drawable = result.drawable
-                    val bitmap = if (drawable is BitmapDrawable) drawable.bitmap else null
+                val coverResponseCode = coverConn.responseCode
+                val contentType = coverConn.contentType ?: ""
+                Log.d("YOC_SYNC", "Cover response: $coverResponseCode, type: $contentType for $yocId")
+                
+                if (coverResponseCode == 200) {
+                    // Read the whole image into a ByteArray first (like res.blob())
+                    val inputStream: InputStream = coverConn.inputStream
+                    val buffer = ByteArrayOutputStream()
+                    val chunk = ByteArray(8192)
+                    var bytesRead: Int
+                    while (inputStream.read(chunk).also { bytesRead = it } != -1) {
+                        buffer.write(chunk, 0, bytesRead)
+                    }
+                    inputStream.close()
+                    coverConn.disconnect()
+                    
+                    val imageBytes = buffer.toByteArray()
+                    Log.d("YOC_SYNC", "Downloaded ${imageBytes.size} bytes for $yocId")
+                    
+                    // Now decode the bytes
+                    val bitmap = BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.size)
                     
                     if (bitmap != null) {
                         val maxWidth = 400
@@ -1269,16 +1287,24 @@ suspend fun executeYocSync(context: Context, apiKey: String, db: FirebaseFiresto
                         
                         val outputStream = ByteArrayOutputStream()
                         resized.compress(Bitmap.CompressFormat.JPEG, 70, outputStream)
-                        val bytes = outputStream.toByteArray()
-                        posterBase64 = "data:image/jpeg;base64," + Base64.encodeToString(bytes, Base64.NO_WRAP)
+                        val finalBytes = outputStream.toByteArray()
+                        posterBase64 = "data:image/jpeg;base64," + Base64.encodeToString(finalBytes, Base64.NO_WRAP)
+                        Log.d("YOC_SYNC", "✅ Poster encoded successfully for $yocId (${posterBase64.length} chars)")
+                    } else {
+                        Log.e("YOC_SYNC", "❌ BitmapFactory returned null for $yocId. Content-Type was: $contentType")
                     }
+                } else {
+                    val err = coverConn.errorStream?.bufferedReader()?.readText() ?: ""
+                    Log.e("YOC_SYNC", "❌ Cover HTTP $coverResponseCode for $yocId: ${err.take(200)}")
+                    coverConn.disconnect()
                 }
             } catch (e: Exception) {
-                Log.w("YOC_SYNC", "Cover fetch failed for $yocId", e)
+                Log.e("YOC_SYNC", "❌ Cover exception for $yocId: ${e.message}", e)
             }
 
             // Fallback if cover failed
             if (posterBase64.isEmpty()) {
+                Log.w("YOC_SYNC", "Using fallback poster for $yocId")
                 posterBase64 = "https://images.unsplash.com/photo-1536440136628-849c177e76a1?auto=format&fit=crop&w=400&q=80"
             }
 
