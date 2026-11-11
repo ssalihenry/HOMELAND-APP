@@ -422,7 +422,38 @@ fun AdminScreen(onBack: () -> Unit) {
                             
                             OutlinedTextField(value = title, onValueChange = { title = it }, label = { Text("Title") }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White, focusedBorderColor = Color(0xFFE50914), unfocusedBorderColor = Color.DarkGray, focusedContainerColor = Color.Black.copy(alpha = 0.2f), unfocusedContainerColor = Color.Black.copy(alpha = 0.2f)))
                             Spacer(modifier = Modifier.height(12.dp))
-                            OutlinedTextField(value = posterUrl, onValueChange = { posterUrl = it }, label = { Text("Poster URL") }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White, focusedBorderColor = Color(0xFFE50914), unfocusedBorderColor = Color.DarkGray, focusedContainerColor = Color.Black.copy(alpha = 0.2f), unfocusedContainerColor = Color.Black.copy(alpha = 0.2f)))
+                            // 1. Image Preview (So you can see the poster works)
+if (posterUrl.isNotBlank()) {
+    PosterImage(
+        posterData = posterUrl,
+        contentDescription = "Preview",
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(200.dp)
+            .padding(bottom = 8.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .border(1.dp, Color.White.copy(alpha = 0.2f), RoundedCornerShape(12.dp)),
+        contentScale = ContentScale.Crop
+    )
+}
+
+// 2. The Text Field (Set to maxLines = 3 so it doesn't expand infinitely)
+OutlinedTextField(
+    value = posterUrl, 
+    onValueChange = { posterUrl = it }, 
+    label = { Text("Poster URL or Base64") }, 
+    modifier = Modifier.fillMaxWidth(), 
+    shape = RoundedCornerShape(12.dp), 
+    maxLines = 3, 
+    colors = OutlinedTextFieldDefaults.colors(
+        focusedTextColor = Color.White, 
+        unfocusedTextColor = Color.White, 
+        focusedBorderColor = Color(0xFFE50914), 
+        unfocusedBorderColor = Color.DarkGray, 
+        focusedContainerColor = Color.Black.copy(alpha = 0.2f), 
+        unfocusedContainerColor = Color.Black.copy(alpha = 0.2f)
+    )
+)
                             Spacer(modifier = Modifier.height(12.dp))
                             OutlinedTextField(value = year, onValueChange = { year = it }, label = { Text("Year") }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White, focusedBorderColor = Color(0xFFE50914), unfocusedBorderColor = Color.DarkGray, focusedContainerColor = Color.Black.copy(alpha = 0.2f), unfocusedContainerColor = Color.Black.copy(alpha = 0.2f)))
                             Spacer(modifier = Modifier.height(12.dp))
