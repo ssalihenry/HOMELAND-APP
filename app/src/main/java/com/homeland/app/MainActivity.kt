@@ -1,5 +1,9 @@
 package com.homeland.app
 
+import androidx.compose.foundation.Image
+import androidx.compose.ui.graphics.asImageBitmap
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import android.Manifest
 import android.app.Activity
 import android.app.DownloadManager
@@ -201,6 +205,112 @@ fun vibrate(context: Context, isStrong: Boolean = false) {
             vibrator.vibrate(if (isStrong) 35L else 12L)
         }
     } catch (e: Exception) {}
+}
+
+@Composable
+fun PosterImage(
+    posterData: String,
+    contentDescription: String?,
+    modifier: Modifier = Modifier,
+    contentScale: ContentScale = ContentScale.Crop
+) {
+    val context = LocalContext.current
+    var bitmap by remember(posterData) { mutableStateOf<Bitmap?>(null) }
+    var isLoading by remember(posterData) { mutableStateOf(true) }
+    var hasError by remember(posterData) { mutableStateOf(false) }
+
+    LaunchedEffect(posterData) {
+        if (posterData.isBlank()) {
+            isLoading = false
+            hasError = true
+            return@LaunchedEffect
+        }
+
+        if (posterData.startsWith("http://") || posterData.startsWith("https://")) {
+            isLoading = false
+            return@LaunchedEffect // Let Coil handle normal URLs
+        }
+
+        // It's a Base64 string: Decode it manually in the background
+        withContext(Dispatchers.IO) {
+            try {
+                val base64String = if (posterData.contains("base64,")) {
+                    posterData.substringAfter("base64,")
+                } else {
+                    posterData
+                }
+                
+                // Remove any hidden newlines/spaces that crash the decoder
+                val cleanBase64 = base64String.replace("\\s".toRegex(), "")
+                val decodedBytes = android.util.Base64.decode(cleanBase64, android.util.Base64.DEFAULT)
+
+                // Check dimensions first to prevent OutOfMemory errors
+                val bOptions = android.graphics.BitmapFactory.Options()
+                bOptions.inJustDecodeBounds = true
+                android.graphics.BitmapFactory.decodeByteArray(decodedBytes, 0, decodedBytes.size, bOptions)
+
+                // Downsample if the image is massive
+                val reqSize = 1000 // Max 1000px width/height
+                var inSampleSize = 1
+                if (bOptions.outHeight > reqSize || bOptions.outWidth > reqSize) {
+                    val halfHeight = bOptions.outHeight / 2
+                    val halfWidth = bOptions.outWidth / 2
+                    while ((halfHeight / inSampleSize) >= reqSize && (halfWidth / inSampleSize) >= reqSize) {
+                        inSampleSize *= 2
+                    }
+                }
+
+                // Decode the actual bitmap with the calculated sample size
+                bOptions.inJustDecodeBounds = false
+                bOptions.inSampleSize = inSampleSize
+                
+                val bmp = android.graphics.BitmapFactory.decodeByteArray(decodedBytes, 0, decodedBytes.size, bOptions)
+                
+                withContext(Dispatchers.Main) {
+                    if (bmp != null) {
+                        bitmap = bmp
+                    } else {
+                        hasError = true
+                    }
+                    isLoading = false
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+                withContext(Dispatchers.Main) {
+                    hasError = true
+                    isLoading = false
+                }
+            }
+        }
+    }
+
+    if (posterData.startsWith("http://") || posterData.startsWith("https://")) {
+        SubcomposeAsyncImage(
+            model = ImageRequest.Builder(context).data(posterData).crossfade(true).build(),
+            contentDescription = contentDescription,
+            contentScale = contentScale,
+            modifier = modifier,
+            loading = { ShimmerBox(modifier = Modifier.fillMaxSize()) },
+            error = { Box(modifier = Modifier.fillMaxSize().background(Color(0xFF15171E)), contentAlignment = Alignment.Center) { Icon(Icons.Default.Movie, null, tint = Color.Gray) } }
+        )
+    } else {
+        Box(modifier = modifier) {
+            if (isLoading) {
+                ShimmerBox(modifier = Modifier.fillMaxSize())
+            } else if (hasError || bitmap == null) {
+                Box(modifier = Modifier.fillMaxSize().background(Color(0xFF15171E)), contentAlignment = Alignment.Center) {
+                    Icon(Icons.Default.Movie, null, tint = Color.Gray)
+                }
+            } else {
+                Image(
+                    bitmap = bitmap!!.asImageBitmap(),
+                    contentDescription = contentDescription,
+                    contentScale = contentScale,
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
+        }
+    }
 }
 
 @Composable
