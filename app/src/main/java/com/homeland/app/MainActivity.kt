@@ -413,7 +413,11 @@ class MainActivity : ComponentActivity(), ImageLoaderFactory {
             requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
         }
 
+        // FULLSCREEN IMMERSIVE MODE (Hides Status bar and Phone Navigation buttons)
         WindowCompat.setDecorFitsSystemWindows(window, false)
+        val windowInsetsController = WindowInsetsControllerCompat(window, window.decorView)
+        windowInsetsController.hide(WindowInsetsCompat.Type.systemBars())
+        windowInsetsController.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
 
         setContent {
             val permissionLauncher = rememberLauncherForActivityResult(
@@ -673,7 +677,7 @@ fun OnboardingScreen(theme: ThemeConfig, onComplete: () -> Unit) {
     Box(modifier = Modifier.fillMaxSize().background(Color(0xFF0B0C10))) {
         HorizontalPager(state = pagerState, modifier = Modifier.fillMaxSize()) { page ->
             Column(
-                modifier = Modifier.fillMaxSize().padding(32.dp).systemBarsPadding(),
+                modifier = Modifier.fillMaxSize().padding(32.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center
             ) {
@@ -691,11 +695,11 @@ fun OnboardingScreen(theme: ThemeConfig, onComplete: () -> Unit) {
             }
         }
         
-        TextButton(onClick = onComplete, modifier = Modifier.align(Alignment.TopEnd).padding(16.dp).systemBarsPadding()) {
+        TextButton(onClick = onComplete, modifier = Modifier.align(Alignment.TopEnd).padding(16.dp)) {
             Text("Skip", color = Color.Gray, fontSize = 16.sp, fontWeight = FontWeight.Bold)
         }
         
-        Column(modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(32.dp).systemBarsPadding(), horizontalAlignment = Alignment.CenterHorizontally) {
+        Column(modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 repeat(3) { index ->
                     Box(modifier = Modifier.size(if (pagerState.currentPage == index) 24.dp else 8.dp, 8.dp).clip(CircleShape).background(if (pagerState.currentPage == index) theme.primary else Color.DarkGray))
@@ -1208,18 +1212,26 @@ fun HomelandApp(
             }
         }
     } else {
-        // Mobile Layout - Top Header + Bottom Navigation (No floating pills)
+        // Mobile Layout - Top Header + Bottom Navigation (Floating Pill)
         Scaffold(
             containerColor = Color.Transparent,
+            contentWindowInsets = WindowInsets(0, 0, 0, 0),
             bottomBar = {
-                NavigationBar(
-                    containerColor = Color(0xFF0B0C10).copy(alpha = 0.95f),
-                    tonalElevation = 8.dp
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .navigationBarsPadding()
+                        .padding(horizontal = 16.dp, vertical = 12.dp)
+                        .clip(RoundedCornerShape(32.dp))
+                        .background(Color(0xFF15171E).copy(alpha = 0.85f))
+                        .border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(32.dp))
                 ) {
-                    NavigationBarItem(selected = selectedTab == 0, onClick = { vibrate(context); selectedTab = 0 }, icon = { Icon(Icons.Default.Home, "Home") }, label = { Text("Home") }, colors = NavigationBarItemDefaults.colors(selectedIconColor = theme.primary, selectedTextColor = theme.primary, unselectedIconColor = Color.Gray, unselectedTextColor = Color.Gray, indicatorColor = theme.primary.copy(alpha = 0.15f)))
-                    NavigationBarItem(selected = selectedTab == 1, onClick = { vibrate(context); selectedTab = 1 }, icon = { Icon(Icons.Default.Movie, "Movies") }, label = { Text("Movies") }, colors = NavigationBarItemDefaults.colors(selectedIconColor = theme.primary, selectedTextColor = theme.primary, unselectedIconColor = Color.Gray, unselectedTextColor = Color.Gray, indicatorColor = theme.primary.copy(alpha = 0.15f)))
-                    NavigationBarItem(selected = selectedTab == 2, onClick = { vibrate(context); selectedTab = 2 }, icon = { Icon(Icons.Default.VideoLibrary, "Series") }, label = { Text("Series") }, colors = NavigationBarItemDefaults.colors(selectedIconColor = theme.primary, selectedTextColor = theme.primary, unselectedIconColor = Color.Gray, unselectedTextColor = Color.Gray, indicatorColor = theme.primary.copy(alpha = 0.15f)))
-                    NavigationBarItem(selected = selectedTab == 3, onClick = { vibrate(context); selectedTab = 3 }, icon = { Icon(Icons.Default.Tv, "TV Live") }, label = { Text("TV Live") }, colors = NavigationBarItemDefaults.colors(selectedIconColor = theme.primary, selectedTextColor = theme.primary, unselectedIconColor = Color.Gray, unselectedTextColor = Color.Gray, indicatorColor = theme.primary.copy(alpha = 0.15f)))
+                    NavigationBar(containerColor = Color.Transparent, tonalElevation = 0.dp) {
+                        NavigationBarItem(selected = selectedTab == 0, onClick = { vibrate(context); selectedTab = 0 }, icon = { Icon(Icons.Default.Home, "Home") }, label = { Text("Home") }, colors = NavigationBarItemDefaults.colors(selectedIconColor = theme.primary, selectedTextColor = theme.primary, unselectedIconColor = Color.Gray, unselectedTextColor = Color.Gray, indicatorColor = theme.primary.copy(alpha = 0.15f)))
+                        NavigationBarItem(selected = selectedTab == 1, onClick = { vibrate(context); selectedTab = 1 }, icon = { Icon(Icons.Default.Movie, "Movies") }, label = { Text("Movies") }, colors = NavigationBarItemDefaults.colors(selectedIconColor = theme.primary, selectedTextColor = theme.primary, unselectedIconColor = Color.Gray, unselectedTextColor = Color.Gray, indicatorColor = theme.primary.copy(alpha = 0.15f)))
+                        NavigationBarItem(selected = selectedTab == 2, onClick = { vibrate(context); selectedTab = 2 }, icon = { Icon(Icons.Default.VideoLibrary, "Series") }, label = { Text("Series") }, colors = NavigationBarItemDefaults.colors(selectedIconColor = theme.primary, selectedTextColor = theme.primary, unselectedIconColor = Color.Gray, unselectedTextColor = Color.Gray, indicatorColor = theme.primary.copy(alpha = 0.15f)))
+                        NavigationBarItem(selected = selectedTab == 3, onClick = { vibrate(context); selectedTab = 3 }, icon = { Icon(Icons.Default.Tv, "TV Live") }, label = { Text("TV Live") }, colors = NavigationBarItemDefaults.colors(selectedIconColor = theme.primary, selectedTextColor = theme.primary, unselectedIconColor = Color.Gray, unselectedTextColor = Color.Gray, indicatorColor = theme.primary.copy(alpha = 0.15f)))
+                    }
                 }
             }
         ) { paddingValues ->
@@ -1232,9 +1244,12 @@ fun HomelandApp(
                 }
 
                 Column(modifier = Modifier.fillMaxSize()) {
-                    // Top Header with Logo and Profile
+                    // Top Header with Logo and Profile (Using displayCutoutPadding to avoid camera notch)
                     Row(
-                        modifier = Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 16.dp, vertical = 12.dp), 
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .displayCutoutPadding()
+                            .padding(horizontal = 16.dp, vertical = 16.dp), 
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -1284,7 +1299,7 @@ fun ProfileSelectorScreen(theme: ThemeConfig, onProfileSelected: (String) -> Uni
         }
         
         Column(
-            modifier = Modifier.fillMaxSize().systemBarsPadding(),
+            modifier = Modifier.fillMaxSize().displayCutoutPadding(),
             verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Text("Who's Watching?", color = Color.White, fontSize = 32.sp, fontWeight = FontWeight.Black, modifier = Modifier.padding(bottom = 40.dp))
@@ -1336,7 +1351,7 @@ fun DownloadsScreen(theme: ThemeConfig, onBack: () -> Unit, onPlay: (Movie) -> U
     Box(
         modifier = Modifier.fillMaxSize().background(Brush.radialGradient(colors = listOf(Color(0xFF1A0002), Color(0xFF0B0C10)), radius = 1200f))
     ) {
-        Column(modifier = Modifier.fillMaxSize().padding(16.dp).systemBarsPadding()) {
+        Column(modifier = Modifier.fillMaxSize().padding(16.dp).displayCutoutPadding()) {
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 16.dp)) {
                 IconButton(onClick = onBack, modifier = Modifier.background(Color.White.copy(alpha = 0.1f), CircleShape)) { Icon(Icons.Default.ArrowBack, "Back", tint = Color.White) }
                 Spacer(modifier = Modifier.width(12.dp))
@@ -1580,7 +1595,7 @@ fun ProfileScreen(
                 Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.6f)))
             } else { Box(modifier = Modifier.fillMaxSize().background(theme.background)) }
 
-            Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp).systemBarsPadding(), horizontalAlignment = Alignment.CenterHorizontally) {
+            Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp).displayCutoutPadding(), horizontalAlignment = Alignment.CenterHorizontally) {
                 Row(modifier = Modifier.fillMaxWidth().padding(top = 16.dp), horizontalArrangement = Arrangement.Start) {
                     IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, "Back", tint = Color.White) }
                 }
@@ -2200,7 +2215,7 @@ fun MovieDetailsScreen(movie: Movie, userVipExpiry: Long, onShowVipModal: () -> 
         Box(modifier = Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.6f), Color.Black.copy(alpha = 0.95f)))))
 
         LazyColumn(
-            modifier = Modifier.fillMaxSize().systemBarsPadding(),
+            modifier = Modifier.fillMaxSize().displayCutoutPadding(),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             item {
@@ -2691,7 +2706,7 @@ fun SeriesScreen(theme: ThemeConfig, profileName: String, userVipExpiry: Long, k
         }
     }
 
-    Column(modifier = Modifier.fillMaxSize().padding(16.dp).systemBarsPadding()) {
+    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
         Row(modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(modifier = Modifier.size(32.dp).background(theme.primary, RoundedCornerShape(8.dp)), contentAlignment = Alignment.Center) { Icon(Icons.Default.VideoLibrary, null, tint = Color.White, modifier = Modifier.size(20.dp)) }
             Spacer(modifier = Modifier.width(12.dp))
@@ -2734,7 +2749,7 @@ fun TvLiveScreen(theme: ThemeConfig, userVipExpiry: Long, kidsMode: Boolean, onP
         onDispose { listener.remove() }
     }
 
-    Column(modifier = Modifier.fillMaxSize().systemBarsPadding()) {
+    Column(modifier = Modifier.fillMaxSize()) {
         val filteredChannels = if (kidsMode) channels.filter { it.category == "Kids" || it.category == "Animation" } else channels
         val featuredChannels = filteredChannels.filter { it.isFeatured }.take(4)
         val displayFeatured = if (featuredChannels.isNotEmpty()) featuredChannels else filteredChannels.take(4)
