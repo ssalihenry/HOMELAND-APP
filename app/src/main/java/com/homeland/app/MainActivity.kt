@@ -1050,6 +1050,14 @@ fun HomelandApp(
     var showWifiWarning by remember { mutableStateOf(false) }
     var pendingPlayMovie by remember { mutableStateOf<Movie?>(null) }
 
+// FIX: Forces the TV to stay in Landscape when exiting the player
+LaunchedEffect(currentlyPlaying, isTv) {
+    val activity = context as? Activity
+    if (activity != null && isTv && currentlyPlaying == null) {
+        activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+    }
+}
+    
     fun isOnWifi(): Boolean {
         val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
         val nc = cm.getNetworkCapabilities(cm.activeNetwork) ?: return false
