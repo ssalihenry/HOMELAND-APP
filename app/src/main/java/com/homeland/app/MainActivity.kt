@@ -1200,7 +1200,7 @@ fun HomelandApp(
                 Box(modifier = Modifier.fillMaxSize()) {
                     when (selectedTab) {
                         0 -> HomeScreen(theme = theme, profileName = profileName, userVipExpiry = userVipExpiry, kidsMode = kidsMode, searchQuery = globalSearchQuery, onSearchQueryChange = { globalSearchQuery = it }, onDetails = { viewingDetails = it }, isMoviesTab = false)
-                        1 -> HomeScreen(theme = theme, profileName = profileName, userVipExpiry = userVipExpiry, kidsMode = kidsMode, searchQuery = globalSearchQuery, onSearchQueryChange = { globalSearchQuery = it }, onDetails = { viewingDetails = it }, isMoviesTab = true)
+                        1 -> MoviesScreen(theme = theme, profileName = profileName, userVipExpiry = userVipExpiry, kidsMode = kidsMode, onDetails = { viewingDetails = it })
                         2 -> SeriesScreen(theme = theme, profileName = profileName, userVipExpiry = userVipExpiry, kidsMode = kidsMode, onDetails = { viewingDetails = it })
                         3 -> TvLiveScreen(theme = theme, userVipExpiry = userVipExpiry, kidsMode = kidsMode, onPlayMedia = { tryPlay(it) })
                     }
@@ -1208,29 +1208,22 @@ fun HomelandApp(
             }
         }
     } else {
-        // Mobile Layout - Top Header + Bottom Navigation
+        // Mobile Layout - Top Header + Bottom Navigation (No floating pills)
         Scaffold(
             containerColor = Color.Transparent,
             bottomBar = {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .navigationBarsPadding()
-                        .padding(horizontal = 16.dp, vertical = 12.dp)
-                        .clip(RoundedCornerShape(32.dp))
-                        .background(Color(0xFF15171E).copy(alpha = 0.85f))
-                        .border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(32.dp))
+                NavigationBar(
+                    containerColor = Color(0xFF0B0C10).copy(alpha = 0.95f),
+                    tonalElevation = 8.dp
                 ) {
-                    NavigationBar(containerColor = Color.Transparent, tonalElevation = 0.dp) {
-                        NavigationBarItem(selected = selectedTab == 0, onClick = { vibrate(context); selectedTab = 0 }, icon = { Icon(Icons.Default.Home, "Home") }, label = { Text("Home") }, colors = NavigationBarItemDefaults.colors(selectedIconColor = theme.primary, selectedTextColor = theme.primary, unselectedIconColor = Color.Gray, unselectedTextColor = Color.Gray, indicatorColor = theme.primary.copy(alpha = 0.15f)))
-                        NavigationBarItem(selected = selectedTab == 1, onClick = { vibrate(context); selectedTab = 1 }, icon = { Icon(Icons.Default.Movie, "Movies") }, label = { Text("Movies") }, colors = NavigationBarItemDefaults.colors(selectedIconColor = theme.primary, selectedTextColor = theme.primary, unselectedIconColor = Color.Gray, unselectedTextColor = Color.Gray, indicatorColor = theme.primary.copy(alpha = 0.15f)))
-                        NavigationBarItem(selected = selectedTab == 2, onClick = { vibrate(context); selectedTab = 2 }, icon = { Icon(Icons.Default.VideoLibrary, "Series") }, label = { Text("Series") }, colors = NavigationBarItemDefaults.colors(selectedIconColor = theme.primary, selectedTextColor = theme.primary, unselectedIconColor = Color.Gray, unselectedTextColor = Color.Gray, indicatorColor = theme.primary.copy(alpha = 0.15f)))
-                        NavigationBarItem(selected = selectedTab == 3, onClick = { vibrate(context); selectedTab = 3 }, icon = { Icon(Icons.Default.Tv, "TV Live") }, label = { Text("TV Live") }, colors = NavigationBarItemDefaults.colors(selectedIconColor = theme.primary, selectedTextColor = theme.primary, unselectedIconColor = Color.Gray, unselectedTextColor = Color.Gray, indicatorColor = theme.primary.copy(alpha = 0.15f)))
-                    }
+                    NavigationBarItem(selected = selectedTab == 0, onClick = { vibrate(context); selectedTab = 0 }, icon = { Icon(Icons.Default.Home, "Home") }, label = { Text("Home") }, colors = NavigationBarItemDefaults.colors(selectedIconColor = theme.primary, selectedTextColor = theme.primary, unselectedIconColor = Color.Gray, unselectedTextColor = Color.Gray, indicatorColor = theme.primary.copy(alpha = 0.15f)))
+                    NavigationBarItem(selected = selectedTab == 1, onClick = { vibrate(context); selectedTab = 1 }, icon = { Icon(Icons.Default.Movie, "Movies") }, label = { Text("Movies") }, colors = NavigationBarItemDefaults.colors(selectedIconColor = theme.primary, selectedTextColor = theme.primary, unselectedIconColor = Color.Gray, unselectedTextColor = Color.Gray, indicatorColor = theme.primary.copy(alpha = 0.15f)))
+                    NavigationBarItem(selected = selectedTab == 2, onClick = { vibrate(context); selectedTab = 2 }, icon = { Icon(Icons.Default.VideoLibrary, "Series") }, label = { Text("Series") }, colors = NavigationBarItemDefaults.colors(selectedIconColor = theme.primary, selectedTextColor = theme.primary, unselectedIconColor = Color.Gray, unselectedTextColor = Color.Gray, indicatorColor = theme.primary.copy(alpha = 0.15f)))
+                    NavigationBarItem(selected = selectedTab == 3, onClick = { vibrate(context); selectedTab = 3 }, icon = { Icon(Icons.Default.Tv, "TV Live") }, label = { Text("TV Live") }, colors = NavigationBarItemDefaults.colors(selectedIconColor = theme.primary, selectedTextColor = theme.primary, unselectedIconColor = Color.Gray, unselectedTextColor = Color.Gray, indicatorColor = theme.primary.copy(alpha = 0.15f)))
                 }
             }
         ) { paddingValues ->
-            Box(modifier = Modifier.fillMaxSize()) {
+            Box(modifier = Modifier.fillMaxSize().padding(paddingValues)) {
                 // Background
                 if (theme.bgImageUrl.isNotEmpty()) {
                     AsyncImage(model = theme.bgImageUrl, contentDescription = "App Background", contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
@@ -1238,7 +1231,7 @@ fun HomelandApp(
                     Box(modifier = Modifier.fillMaxSize().background(theme.background))
                 }
 
-                Column(modifier = Modifier.fillMaxSize().padding(paddingValues)) {
+                Column(modifier = Modifier.fillMaxSize()) {
                     // Top Header with Logo and Profile
                     Row(
                         modifier = Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 16.dp, vertical = 12.dp), 
@@ -1266,7 +1259,7 @@ fun HomelandApp(
                     Box(modifier = Modifier.weight(1f)) {
                         when (selectedTab) {
                             0 -> HomeScreen(theme = theme, profileName = profileName, userVipExpiry = userVipExpiry, kidsMode = kidsMode, searchQuery = globalSearchQuery, onSearchQueryChange = { globalSearchQuery = it }, onDetails = { viewingDetails = it }, isMoviesTab = false)
-                            1 -> HomeScreen(theme = theme, profileName = profileName, userVipExpiry = userVipExpiry, kidsMode = kidsMode, searchQuery = globalSearchQuery, onSearchQueryChange = { globalSearchQuery = it }, onDetails = { viewingDetails = it }, isMoviesTab = true)
+                            1 -> MoviesScreen(theme = theme, profileName = profileName, userVipExpiry = userVipExpiry, kidsMode = kidsMode, onDetails = { viewingDetails = it })
                             2 -> SeriesScreen(theme = theme, profileName = profileName, userVipExpiry = userVipExpiry, kidsMode = kidsMode, onDetails = { viewingDetails = it })
                             3 -> TvLiveScreen(theme = theme, userVipExpiry = userVipExpiry, kidsMode = kidsMode, onPlayMedia = { tryPlay(it) })
                         }
@@ -2351,7 +2344,7 @@ fun HomeScreen(
     searchQuery: String,
     onSearchQueryChange: (String) -> Unit,
     onDetails: (Movie) -> Unit,
-    isMoviesTab: Boolean = false
+    isMoviesTab: Boolean = false 
 ) {
     val db = FirebaseFirestore.getInstance()
     var movies by remember { mutableStateOf<List<Movie>>(emptyList()) }
@@ -2547,6 +2540,71 @@ fun HomeScreen(
                 }
                 items(filtered) { movie -> MovieCard(movie, theme, profileName, userVipExpiry, onDetails) }
                 if (isFetchingMore) { item(span = { GridItemSpan(maxLineSpan) }) { Box(modifier = Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = theme.primary, modifier = Modifier.size(24.dp)) } } }
+            }
+        }
+    }
+}
+
+@Composable
+fun MoviesScreen(theme: ThemeConfig, profileName: String, userVipExpiry: Long, kidsMode: Boolean, onDetails: (Movie) -> Unit) {
+    val db = FirebaseFirestore.getInstance()
+    var movies by remember { mutableStateOf<List<Movie>>(emptyList()) }
+    var isLoading by remember { mutableStateOf(true) }
+
+    LaunchedEffect(Unit) {
+        db.collection("homeland_movies").addSnapshotListener { snap, _ ->
+            if (snap != null) {
+                movies = snap.documents.mapNotNull { doc -> 
+                    val type = doc.getString("type") ?: ""
+                    if (type == "TV Show") return@mapNotNull null // Only get movies
+                    
+                    val episodes = (doc.get("episodes") as? List<Map<String, Any>>)?.map { ep ->
+                        Episode(
+                            season = ep["season"] as? String ?: "",
+                            episode = ep["episode"] as? String ?: "",
+                            url = ep["url"] as? String ?: "",
+                            subtitleUrl = ep["subtitleUrl"] as? String ?: ""
+                        )
+                    } ?: emptyList()
+
+                    Movie(
+                        id = doc.id, 
+                        title = doc.getString("title") ?: "", 
+                        poster = doc.getString("poster") ?: "", 
+                        videoUrl = doc.getString("videoUrl") ?: "", 
+                        videoTag = doc.getString("videoTag") ?: "", 
+                        year = doc.getString("year") ?: "", 
+                        isVip = doc.getBoolean("isVip") ?: false, 
+                        isAdult = doc.getBoolean("isAdult") ?: false,
+                        episodes = episodes,
+                        yocId = doc.getString("yocId") ?: ""
+                    ) 
+                }.filter { !kidsMode || !it.isAdult }
+                isLoading = false
+            }
+        }
+    }
+
+    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+        Row(modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(modifier = Modifier.size(32.dp).background(theme.primary, RoundedCornerShape(8.dp)), contentAlignment = Alignment.Center) { Icon(Icons.Default.Movie, null, tint = Color.White, modifier = Modifier.size(20.dp)) }
+            Spacer(modifier = Modifier.width(12.dp))
+            Text("All Movies", color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Bold)
+        }
+        
+        if (isLoading && movies.isEmpty()) {
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = theme.primary) }
+        } else if (movies.isEmpty()) {
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(Icons.Default.Movie, null, tint = Color.DarkGray, modifier = Modifier.size(64.dp))
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text("No movies available yet.", color = Color.Gray)
+                }
+            }
+        } else {
+            LazyVerticalGrid(columns = GridCells.Adaptive(110.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                items(movies) { movie -> MovieCard(movie, theme, profileName, userVipExpiry, onDetails) }
             }
         }
     }
