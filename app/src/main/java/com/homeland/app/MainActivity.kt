@@ -130,14 +130,25 @@ data class ClientVipPlan(
 
 class Base64ImageMapper : Mapper<String, Bitmap> {
     override fun map(data: String, options: Options): Bitmap? {
-        if (!data.startsWith("data:image/") || !data.contains(";base64,")) return null
-        return try {
-            val base64 = data.substringAfter("base64,")
-            val bytes = Base64.decode(base64, Base64.DEFAULT)
-            BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-        } catch (e: Exception) {
-            null
+        if (data.startsWith("http://") || data.startsWith("https://")) {
+            return null
         }
+
+        if (data.length > 100) { 
+            return try {
+                val base64String = if (data.contains("base64,")) {
+                    data.substringAfter("base64,")
+                } else {
+                    data
+                }
+                
+                val decodedBytes = Base64.decode(base64String, Base64.DEFAULT)
+                BitmapFactory.decodeByteArray(decodedBytes, 0, decodedBytes.size)
+            } catch (e: Exception) {
+                null
+            }
+        }
+        return null
     }
 }
 
