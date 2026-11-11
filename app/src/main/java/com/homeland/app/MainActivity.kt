@@ -1194,7 +1194,8 @@ fun HomelandApp(
                 NavigationRailItem(selected = showProfile, onClick = { showProfile = true }, icon = { Icon(Icons.Default.Person, "Profile") }, label = { Text("Profile") }, colors = NavigationRailItemDefaults.colors(selectedIconColor = theme.primary, selectedTextColor = theme.primary, unselectedIconColor = Color.Gray))
             }
 
-            Box(modifier = Modifier.fillMaxSize()) {
+            // FIXED TV LAYOUT: Weight(1f) ensures it fills the remaining space next to the Rail
+            Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
                 if (theme.bgImageUrl.isNotEmpty()) AsyncImage(model = theme.bgImageUrl, contentDescription = "App Background", contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
                 else Box(modifier = Modifier.fillMaxSize().background(theme.background))
                 
@@ -1242,12 +1243,11 @@ fun HomelandApp(
                 // 2. UI Content
                 Column(modifier = Modifier.fillMaxSize().padding(paddingValues)) {
                     
-                    // Top Header (Logo + Profile)
+                    // FIXED MOBILE HEADER: Exact 2.dp padding to push to edges
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .displayCutoutPadding()
-                            .padding(horizontal = 16.dp, vertical = 8.dp), 
+                            .padding(horizontal = 2.dp, vertical = 2.dp), 
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
