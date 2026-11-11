@@ -109,7 +109,7 @@ import java.io.File
 import kotlin.random.Random
 
 const val ADMIN_EMAIL = "ssalihenry136@gmail.com"
-const val WHATSAPP_NUMBER = "256742199254" 
+const val WHATSAPP_NUMBER = "256742199254"
 val movieCategories = listOf("All", "Action", "Sci-Fi", "Comedy", "Animation", "Romantic", "Horror", "Adventure")
 val tvCategories = listOf("All", "News", "Sports", "Movies", "Entertainment", "Music", "Kids")
 
@@ -118,7 +118,6 @@ data class ClientVipPlan(val id: String = "", val name: String = "", val price: 
 
 /**
  * Custom Coil Mapper that converts Base64 data-URIs (data:image/jpeg;base64,...) into Bitmaps.
- * This allows AsyncImage / SubcomposeAsyncImage to render both normal http URLs AND Base64 strings.
  */
 class Base64ImageMapper : Mapper<String, Bitmap> {
     override fun map(data: String, options: Options): Bitmap? {
@@ -231,9 +230,7 @@ class MainActivity : ComponentActivity(), ImageLoaderFactory {
 
     override fun newImageLoader(): ImageLoader {
         return ImageLoader.Builder(this)
-            .components {
-                add(Base64ImageMapper())
-            }
+            .components { add(Base64ImageMapper()) }
             .crossfade(true)
             .build()
     }
@@ -255,7 +252,7 @@ class MainActivity : ComponentActivity(), ImageLoaderFactory {
             var appTheme by remember { mutableStateOf(ThemeConfig()) }
             var isMaintenanceMode by remember { mutableStateOf(false) }
             var maintenanceMessage by remember { mutableStateOf("We'll be back soon!") }
-            
+
             LaunchedEffect(Unit) {
                 db.collection("config").document("theme").addSnapshotListener { doc, _ ->
                     if (doc != null && doc.exists()) appTheme = ThemeConfig(Color(android.graphics.Color.parseColor(doc.getString("primary") ?: "#E50914")), Color(android.graphics.Color.parseColor(doc.getString("background") ?: "#0B0C10")), doc.getLong("fontSize")?.toInt() ?: 14, doc.getString("fontUrl") ?: "", doc.getString("bgImageUrl") ?: "")
@@ -279,7 +276,7 @@ class MainActivity : ComponentActivity(), ImageLoaderFactory {
                 var appLanguage by remember { mutableStateOf(prefs.getString("app_language", "English") ?: "English") }
                 var kidsMode by remember { mutableStateOf(prefs.getBoolean("kids_mode", false)) }
                 var isBanned by remember { mutableStateOf(false) }
-                
+
                 LaunchedEffect(currentUser) {
                     if (currentUser != null) db.collection("users").document(currentUser.uid).addSnapshotListener { doc, _ -> if (doc != null && doc.exists()) isBanned = doc.getBoolean("isBanned") ?: false } else isBanned = false
                 }
@@ -302,7 +299,7 @@ class MainActivity : ComponentActivity(), ImageLoaderFactory {
                             if (activeDevices.containsKey(deviceId)) { db.collection("users").document(currentUser.uid).update("activeDevices.$deviceId", now); isDeviceAllowed = true }
                             else if (activeDevices.size < maxAllowed) { db.collection("users").document(currentUser.uid).update("activeDevices.$deviceId", now); isDeviceAllowed = true }
                             else { isDeviceAllowed = false; deviceLimitError = "Your account is already active on $maxAllowed devices." }
-                        } else isDeviceAllowed = true 
+                        } else isDeviceAllowed = true
                     }.addOnFailureListener { isDeviceAllowed = true }
                 }
 
@@ -344,7 +341,12 @@ fun OnboardingScreen(theme: ThemeConfig, onComplete: () -> Unit) {
     val scope = rememberCoroutineScope()
     Box(Modifier.fillMaxSize().background(Color(0xFF0B0C10))) {
         HorizontalPager(pager, Modifier.fillMaxSize()) { page ->
-            Column(Modifier.fillMaxSize().padding(32.dp).systemBarsPadding(), Alignment.CenterHorizontally, Arrangement.Center) {
+            // FIX #1: Arrangement / Alignment order
+            Column(
+                modifier = Modifier.fillMaxSize().padding(32.dp).systemBarsPadding(),
+                verticalArrangement = Arrangement.Center,
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
                 val icon = when(page) { 0 -> Icons.Default.Movie; 1 -> Icons.Default.Tv; else -> Icons.Default.Star }
                 val title = when(page) { 0 -> "Unlimited Movies"; 1 -> "Live TV Channels"; else -> "VIP Exclusive Content" }
                 val desc = when(page) { 0 -> "Stream the latest VJ movies, blockbusters, and exclusive homeland content in HD."; 1 -> "Watch live news, sports, music, and entertainment channels from around the world."; else -> "Subscribe to VIP for unlimited access on up to 5 devices, downloads, and zero ads." }
@@ -521,30 +523,59 @@ fun HomelandApp(
                     val eps = (doc.get("episodes") as? List<Map<String, Any>>)?.map { Episode(it["season"] as? String ?: "", it["episode"] as? String ?: "", it["url"] as? String ?: "", it["subtitleUrl"] as? String ?: "") } ?: emptyList()
                     viewingDetails = Movie(doc.id, doc.getString("title") ?: "", doc.getString("poster") ?: "", doc.getString("videoUrl") ?: "", doc.getString("category") ?: "", doc.getString("videoTag") ?: "", doc.getString("year") ?: "", isVip = doc.getBoolean("isVip") ?: false, isFeatured = doc.getBoolean("isFeatured") ?: false, isAdult = doc.getBoolean("isAdult") ?: false, subtitleUrl = doc.getString("subtitleUrl") ?: "", episodes = eps, yocId = doc.getString("yocId") ?: "")
                 }
-                onDeepLinkHandled() 
+                onDeepLinkHandled()
             }
         }
     }
 
     BackHandler(enabled = true) {
         if (showProfile) showProfile = false
-        else if (currentlyPlaying != null) currentlyPlaying = null 
-        else if (viewingDetails != null) viewingDetails = null 
-        else if (showVipModal) showVipModal = false 
-        else if (showPaymentDialog) showPaymentDialog = false 
+        else if (currentlyPlaying != null) currentlyPlaying = null
+        else if (viewingDetails != null) viewingDetails = null
+        else if (showVipModal) showVipModal = false
+        else if (showPaymentDialog) showPaymentDialog = false
         else if (showAdultPinPrompt) { showAdultPinPrompt = false; pendingAdultMovie = null }
-        else if (selectedTab != 0) selectedTab = 0 
-        else showExitDialog = true 
+        else if (selectedTab != 0) selectedTab = 0
+        else showExitDialog = true
     }
 
-    if (showExitDialog) AlertDialog({ showExitDialog = false }, { Text("Exit Homeland?", color = Color.White) }, { Text("We always welcome you back!", color = Color.Gray) }, { Button({ (context as? Activity)?.finish() }, colors = ButtonDefaults.buttonColors(containerColor = theme.primary), shape = RoundedCornerShape(50)) { Text("Yes") } }, { TextButton({ showExitDialog = false }) { Text("No", color = Color.Gray) } }, containerColor = Color(0xFF15171E))
+    // FIX #4: AlertDialog with named M3 params
+    if (showExitDialog) AlertDialog(
+        onDismissRequest = { showExitDialog = false },
+        title = { Text("Exit Homeland?", color = Color.White) },
+        text = { Text("We always welcome you back!", color = Color.Gray) },
+        confirmButton = { Button({ (context as? Activity)?.finish() }, colors = ButtonDefaults.buttonColors(containerColor = theme.primary), shape = RoundedCornerShape(50)) { Text("Yes") } },
+        dismissButton = { TextButton({ showExitDialog = false }) { Text("No", color = Color.Gray) } },
+        containerColor = Color(0xFF15171E)
+    )
     if (showPaymentDialog) PaymentDialog(auth.currentUser?.email ?: "Unknown") { showPaymentDialog = false }
-    if (showAdultPinPrompt) AlertDialog({ showAdultPinPrompt = false; pendingAdultMovie = null }, { Text("18+ Content Locked", color = Color.White) }, { Column { Text("Enter your App PIN.", color = Color.Gray); Spacer(Modifier.height(8.dp)); OutlinedTextField(adultPinInput, { if (it.length <= 4) adultPinInput = it }, placeholder = { Text("4-digit PIN") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword), visualTransformation = PasswordVisualTransformation(), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White)) } }, { Button({ if (adultPinInput == savedPin) { val m = pendingAdultMovie; showAdultPinPrompt = false; pendingAdultMovie = null; adultPinInput = ""; if (m != null) tryPlay(m) } else { Toast.makeText(context, "Incorrect PIN", Toast.LENGTH_SHORT).show(); adultPinInput = "" } }, colors = ButtonDefaults.buttonColors(containerColor = Color.Red), shape = RoundedCornerShape(50)) { Text("Unlock") } }, { TextButton({ showAdultPinPrompt = false; pendingAdultMovie = null; adultPinInput = "" }) { Text("Cancel", color = Color.Gray) } }, containerColor = Color(0xFF15171E))
+    if (showAdultPinPrompt) AlertDialog(
+        onDismissRequest = { showAdultPinPrompt = false; pendingAdultMovie = null },
+        title = { Text("18+ Content Locked", color = Color.White) },
+        text = { Column { Text("Enter your App PIN.", color = Color.Gray); Spacer(Modifier.height(8.dp)); OutlinedTextField(adultPinInput, { if (it.length <= 4) adultPinInput = it }, placeholder = { Text("4-digit PIN") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword), visualTransformation = PasswordVisualTransformation(), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White)) } },
+        confirmButton = { Button({ if (adultPinInput == savedPin) { val m = pendingAdultMovie; showAdultPinPrompt = false; pendingAdultMovie = null; adultPinInput = ""; if (m != null) tryPlay(m) } else { Toast.makeText(context, "Incorrect PIN", Toast.LENGTH_SHORT).show(); adultPinInput = "" } }, colors = ButtonDefaults.buttonColors(containerColor = Color.Red), shape = RoundedCornerShape(50)) { Text("Unlock") } },
+        dismissButton = { TextButton({ showAdultPinPrompt = false; pendingAdultMovie = null; adultPinInput = "" }) { Text("Cancel", color = Color.Gray) } },
+        containerColor = Color(0xFF15171E)
+    )
 
     if (currentlyPlaying != null) { PlayerScreen(currentlyPlaying!!.title, currentlyPlaying!!.videoUrl, currentlyPlaying!!.episodes, 0L, currentlyPlaying!!.subtitleUrl.ifBlank { null }, tvSessionCode, currentlyPlaying!!.yocId, { currentlyPlaying = null }); return }
     if (viewingDetails != null) { MovieDetailsScreen(viewingDetails!!, userVipExpiry, { showVipModal = true }, { m -> if (m.isVip && userVipExpiry < System.currentTimeMillis()) showVipModal = true else if (m.isAdult && savedPin != null) { pendingAdultMovie = m; showAdultPinPrompt = true } else tryPlay(m) }, { viewingDetails = null }); return }
-    if (showVipModal) AlertDialog({ showVipModal = false }, { Text("VIP Content", color = Color.White) }, { Text("This content is for VIP members only.", color = Color.Gray) }, { Button({ showVipModal = false; showPaymentDialog = true }, colors = ButtonDefaults.buttonColors(containerColor = theme.primary), shape = RoundedCornerShape(50)) { Text("Subscribe Now") } }, { TextButton({ showVipModal = false }) { Text("Cancel", color = Color.Gray) } }, containerColor = Color(0xFF15171E))
-    if (showWifiWarning && pendingPlayMovie != null) AlertDialog({ showWifiWarning = false; pendingPlayMovie = null }, { Text("Wi-Fi Only Mode", color = Color.White) }, { Text("You are on Mobile Data. Continue anyway?", color = Color.Gray) }, { Button({ val m = pendingPlayMovie; showWifiWarning = false; pendingPlayMovie = null; if (m != null) currentlyPlaying = m }, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE50914)), shape = RoundedCornerShape(50)) { Text("Continue Anyway") } }, { TextButton({ showWifiWarning = false; pendingPlayMovie = null }) { Text("Cancel", color = Color.Gray) } }, containerColor = Color(0xFF15171E))
+    if (showVipModal) AlertDialog(
+        onDismissRequest = { showVipModal = false },
+        title = { Text("VIP Content", color = Color.White) },
+        text = { Text("This content is for VIP members only.", color = Color.Gray) },
+        confirmButton = { Button({ showVipModal = false; showPaymentDialog = true }, colors = ButtonDefaults.buttonColors(containerColor = theme.primary), shape = RoundedCornerShape(50)) { Text("Subscribe Now") } },
+        dismissButton = { TextButton({ showVipModal = false }) { Text("Cancel", color = Color.Gray) } },
+        containerColor = Color(0xFF15171E)
+    )
+    if (showWifiWarning && pendingPlayMovie != null) AlertDialog(
+        onDismissRequest = { showWifiWarning = false; pendingPlayMovie = null },
+        title = { Text("Wi-Fi Only Mode", color = Color.White) },
+        text = { Text("You are on Mobile Data. Continue anyway?", color = Color.Gray) },
+        confirmButton = { Button({ val m = pendingPlayMovie; showWifiWarning = false; pendingPlayMovie = null; if (m != null) currentlyPlaying = m }, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE50914)), shape = RoundedCornerShape(50)) { Text("Continue Anyway") } },
+        dismissButton = { TextButton({ showWifiWarning = false; pendingPlayMovie = null }) { Text("Cancel", color = Color.Gray) } },
+        containerColor = Color(0xFF15171E)
+    )
 
     if (showProfile) {
         ProfileScreen(auth, profileName, userVipExpiry, theme, savedPin, wifiOnlyMode, { wifiOnlyMode = it; prefs.edit().putBoolean("wifi_only", it).apply() }, appLanguage, onLanguageChanged, kidsMode, onKidsModeChanged, isTv, tvSessionCode, onLogout, onSwitchProfile, { tryPlay(it) }, { showProfile = false })
@@ -555,11 +586,12 @@ fun HomelandApp(
         Row(Modifier.fillMaxSize().background(theme.background)) {
             NavigationRail(containerColor = Color(0xFF15171E), modifier = Modifier.fillMaxHeight()) {
                 Spacer(Modifier.height(32.dp))
-                NavigationRailItem(selectedTab == 0, { vibrate(context); selectedTab = 0 }, { Icon(Icons.Default.Home, "Home") }, { Text(translate("home", appLanguage)) }, colors = NavigationRailItemDefaults.colors(selectedIconColor = theme.primary, selectedTextColor = theme.primary, unselectedIconColor = Color.Gray))
-                NavigationRailItem(selectedTab == 1, { vibrate(context); selectedTab = 1 }, { Icon(Icons.Default.Movie, "Movies") }, { Text("Movies") }, colors = NavigationRailItemDefaults.colors(selectedIconColor = theme.primary, selectedTextColor = theme.primary, unselectedIconColor = Color.Gray))
-                NavigationRailItem(selectedTab == 2, { vibrate(context); selectedTab = 2 }, { Icon(Icons.Default.VideoLibrary, "Series") }, { Text(translate("list", appLanguage)) }, colors = NavigationRailItemDefaults.colors(selectedIconColor = theme.primary, selectedTextColor = theme.primary, unselectedIconColor = Color.Gray))
-                NavigationRailItem(selectedTab == 3, { vibrate(context); selectedTab = 3 }, { Icon(Icons.Default.Tv, "TV") }, { Text(translate("tv", appLanguage)) }, colors = NavigationRailItemDefaults.colors(selectedIconColor = theme.primary, selectedTextColor = theme.primary, unselectedIconColor = Color.Gray))
-                NavigationRailItem(selectedTab == 4, { showProfile = true }, { Icon(Icons.Default.Person, "Profile") }, { Text(translate("profile", appLanguage)) }, colors = NavigationRailItemDefaults.colors(selectedIconColor = theme.primary, selectedTextColor = theme.primary, unselectedIconColor = Color.Gray))
+                // FIX #2: named `label =`
+                NavigationRailItem(selected = selectedTab == 0, onClick = { vibrate(context); selectedTab = 0 }, icon = { Icon(Icons.Default.Home, "Home") }, label = { Text(translate("home", appLanguage)) }, colors = NavigationRailItemDefaults.colors(selectedIconColor = theme.primary, selectedTextColor = theme.primary, unselectedIconColor = Color.Gray))
+                NavigationRailItem(selected = selectedTab == 1, onClick = { vibrate(context); selectedTab = 1 }, icon = { Icon(Icons.Default.Movie, "Movies") }, label = { Text("Movies") }, colors = NavigationRailItemDefaults.colors(selectedIconColor = theme.primary, selectedTextColor = theme.primary, unselectedIconColor = Color.Gray))
+                NavigationRailItem(selected = selectedTab == 2, onClick = { vibrate(context); selectedTab = 2 }, icon = { Icon(Icons.Default.VideoLibrary, "Series") }, label = { Text(translate("list", appLanguage)) }, colors = NavigationRailItemDefaults.colors(selectedIconColor = theme.primary, selectedTextColor = theme.primary, unselectedIconColor = Color.Gray))
+                NavigationRailItem(selected = selectedTab == 3, onClick = { vibrate(context); selectedTab = 3 }, icon = { Icon(Icons.Default.Tv, "TV") }, label = { Text(translate("tv", appLanguage)) }, colors = NavigationRailItemDefaults.colors(selectedIconColor = theme.primary, selectedTextColor = theme.primary, unselectedIconColor = Color.Gray))
+                NavigationRailItem(selected = selectedTab == 4, onClick = { showProfile = true }, icon = { Icon(Icons.Default.Person, "Profile") }, label = { Text(translate("profile", appLanguage)) }, colors = NavigationRailItemDefaults.colors(selectedIconColor = theme.primary, selectedTextColor = theme.primary, unselectedIconColor = Color.Gray))
             }
             Box(Modifier.fillMaxSize()) {
                 if (theme.bgImageUrl.isNotEmpty()) AsyncImage(theme.bgImageUrl, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop) else Box(Modifier.fillMaxSize().background(theme.background))
@@ -578,10 +610,11 @@ fun HomelandApp(
             contentWindowInsets = WindowInsets(0, 0, 0, 0),
             containerColor = Color.Transparent,
             bottomBar = { Box(Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 16.dp, vertical = 12.dp).clip(RoundedCornerShape(32.dp)).background(Color(0xFF15171E).copy(alpha = 0.85f)).border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(32.dp))) { NavigationBar(containerColor = Color.Transparent, tonalElevation = 0.dp) {
-                NavigationBarItem(selectedTab == 0, { vibrate(context); selectedTab = 0 }, { Icon(Icons.Default.Home, "Home") }, { Text(translate("home", appLanguage)) }, colors = NavigationBarItemDefaults.colors(selectedIconColor = theme.primary, selectedTextColor = theme.primary, unselectedIconColor = Color.Gray, unselectedTextColor = Color.Gray, indicatorColor = theme.primary.copy(alpha = 0.15f)))
-                NavigationBarItem(selectedTab == 1, { vibrate(context); selectedTab = 1 }, { Icon(Icons.Default.Movie, "Movies") }, { Text("Movies") }, colors = NavigationBarItemDefaults.colors(selectedIconColor = theme.primary, selectedTextColor = theme.primary, unselectedIconColor = Color.Gray, unselectedTextColor = Color.Gray, indicatorColor = theme.primary.copy(alpha = 0.15f)))
-                NavigationBarItem(selectedTab == 2, { vibrate(context); selectedTab = 2 }, { Icon(Icons.Default.VideoLibrary, "Series") }, { Text(translate("list", appLanguage)) }, colors = NavigationBarItemDefaults.colors(selectedIconColor = theme.primary, selectedTextColor = theme.primary, unselectedIconColor = Color.Gray, unselectedTextColor = Color.Gray, indicatorColor = theme.primary.copy(alpha = 0.15f)))
-                NavigationBarItem(selectedTab == 3, { vibrate(context); selectedTab = 3 }, { Icon(Icons.Default.Tv, "TV Live") }, { Text(translate("tv", appLanguage)) }, colors = NavigationBarItemDefaults.colors(selectedIconColor = theme.primary, selectedTextColor = theme.primary, unselectedIconColor = Color.Gray, unselectedTextColor = Color.Gray, indicatorColor = theme.primary.copy(alpha = 0.15f)))
+                // FIX #2: named `label =`
+                NavigationBarItem(selected = selectedTab == 0, onClick = { vibrate(context); selectedTab = 0 }, icon = { Icon(Icons.Default.Home, "Home") }, label = { Text(translate("home", appLanguage)) }, colors = NavigationBarItemDefaults.colors(selectedIconColor = theme.primary, selectedTextColor = theme.primary, unselectedIconColor = Color.Gray, unselectedTextColor = Color.Gray, indicatorColor = theme.primary.copy(alpha = 0.15f)))
+                NavigationBarItem(selected = selectedTab == 1, onClick = { vibrate(context); selectedTab = 1 }, icon = { Icon(Icons.Default.Movie, "Movies") }, label = { Text("Movies") }, colors = NavigationBarItemDefaults.colors(selectedIconColor = theme.primary, selectedTextColor = theme.primary, unselectedIconColor = Color.Gray, unselectedTextColor = Color.Gray, indicatorColor = theme.primary.copy(alpha = 0.15f)))
+                NavigationBarItem(selected = selectedTab == 2, onClick = { vibrate(context); selectedTab = 2 }, icon = { Icon(Icons.Default.VideoLibrary, "Series") }, label = { Text(translate("list", appLanguage)) }, colors = NavigationBarItemDefaults.colors(selectedIconColor = theme.primary, selectedTextColor = theme.primary, unselectedIconColor = Color.Gray, unselectedTextColor = Color.Gray, indicatorColor = theme.primary.copy(alpha = 0.15f)))
+                NavigationBarItem(selected = selectedTab == 3, onClick = { vibrate(context); selectedTab = 3 }, icon = { Icon(Icons.Default.Tv, "TV Live") }, label = { Text(translate("tv", appLanguage)) }, colors = NavigationBarItemDefaults.colors(selectedIconColor = theme.primary, selectedTextColor = theme.primary, unselectedIconColor = Color.Gray, unselectedTextColor = Color.Gray, indicatorColor = theme.primary.copy(alpha = 0.15f)))
             } } }
         ) { paddingValues ->
             Box(Modifier.fillMaxSize().padding(paddingValues)) {
@@ -679,7 +712,7 @@ fun VipCountdownCard(userVipExpiry: Long, theme: ThemeConfig) {
     LaunchedEffect(userVipExpiry) {
         while (true) {
             val diff = userVipExpiry - System.currentTimeMillis()
-            if (diff <= 0) { dateText = "VIP Expired"; timeText = "00:00:00"; break } 
+            if (diff <= 0) { dateText = "VIP Expired"; timeText = "00:00:00"; break }
             else {
                 val t = diff / 1000; val d = t / 86400
                 dateText = String.format("%dY - %dM - %dW - %dD", d / 365, (d % 365) / 30, ((d % 365) % 30) / 7, ((d % 365) % 30) % 7)
@@ -731,7 +764,7 @@ fun ProfileScreen(
         db.collection("users").document(uid).collection("history").whereEqualTo("profile", profileName).get().addOnSuccessListener { snap ->
             val hMap = snap.documents.associate { it.id to ((it.getLong("progress") ?: 0L).toFloat() / (it.getLong("duration") ?: 1L).toFloat()) }
             db.collection("homeland_movies").limit(20).get().addOnSuccessListener { mSnap ->
-                profileHistory = mSnap.documents.mapNotNull { 
+                profileHistory = mSnap.documents.mapNotNull {
                     val eps = (it.get("episodes") as? List<Map<String, Any>>)?.map { e -> Episode(e["season"] as? String ?: "", e["episode"] as? String ?: "", e["url"] as? String ?: "", e["subtitleUrl"] as? String ?: "") } ?: emptyList()
                     val m = Movie(it.id, it.getString("title") ?: "", it.getString("poster") ?: "", it.getString("videoUrl") ?: "", isVip = it.getBoolean("isVip") ?: false, episodes = eps, yocId = it.getString("yocId") ?: "")
                     hMap[m.id]?.let { p -> Pair(m, p) }
@@ -749,13 +782,13 @@ fun ProfileScreen(
 
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp).systemBarsPadding(), horizontalAlignment = Alignment.CenterHorizontally) {
             Row(Modifier.fillMaxWidth().padding(top = 16.dp), horizontalArrangement = Arrangement.Start) { IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, "Back", tint = Color.White) } }
-            
+
             Box(Modifier.size(100.dp).clip(CircleShape).background(Color(0xFF15171E)).border(3.dp, theme.primary, CircleShape).shadow(16.dp, CircleShape, spotColor = theme.primary, ambientColor = theme.primary), Alignment.Center) { Icon(Icons.Default.Person, "Avatar", tint = theme.primary, modifier = Modifier.size(60.dp)) }
             Spacer(Modifier.height(16.dp))
-            
+
             Text(auth.currentUser?.email?.split("@")?.getOrNull(0) ?: "User", color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Black)
             Text("Watching as: $profileName", color = theme.primary, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-            
+
             if (userVipExpiry > System.currentTimeMillis()) VipCountdownCard(userVipExpiry, theme) else Text("Status: Free User", color = Color.Gray, fontWeight = FontWeight.Bold, fontSize = 14.sp, modifier = Modifier.padding(top = 4.dp))
 
             Spacer(Modifier.height(24.dp))
@@ -769,7 +802,8 @@ fun ProfileScreen(
             Spacer(Modifier.height(24.dp))
             Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = Color(0xFF15171E).copy(alpha = 0.7f)), shape = RoundedCornerShape(24.dp), border = BorderStroke(1.dp, Color.White.copy(alpha = 0.05f))) {
                 Column {
-                    SettingsRow(Icons.Default.Lock, if (savedPin != null) "App Lock (Enabled)" else "Setup App Lock") { showPinDialog = true }
+                    // FIX #3: named `onClick =`
+                    SettingsRow(Icons.Default.Lock, if (savedPin != null) "App Lock (Enabled)" else "Setup App Lock", onClick = { showPinDialog = true })
                     HorizontalDivider(color = Color.White.copy(alpha = 0.05f))
                     if (!isTv) { SettingsRow(Icons.Default.SettingsRemote, "TV Remote Control", { showTvRemoteDialog = true }, iconTint = theme.primary, titleColor = theme.primary); HorizontalDivider(color = Color.White.copy(alpha = 0.05f)) }
                     if (isTv && tvSessionCode != null) {
@@ -780,13 +814,13 @@ fun ProfileScreen(
                         }
                         HorizontalDivider(color = Color.White.copy(alpha = 0.05f))
                     }
-                    SettingsRow(Icons.Default.Language, "${translate("lang", appLanguage)}: $appLanguage") { showLanguageDialog = true }
+                    SettingsRow(Icons.Default.Language, "${translate("lang", appLanguage)}: $appLanguage", onClick = { showLanguageDialog = true })
                     HorizontalDivider(color = Color.White.copy(alpha = 0.05f))
                     SettingsRowWithSwitch(Icons.Default.ChildCare, translate("kids", appLanguage), kidsMode, onKidsModeChanged)
                     HorizontalDivider(color = Color.White.copy(alpha = 0.05f))
                     SettingsRowWithSwitch(Icons.Default.Wifi, "Wi-Fi Only Streaming", wifiOnlyMode, onWifiOnlyChanged)
                     HorizontalDivider(color = Color.White.copy(alpha = 0.05f))
-                    if (userVipExpiry < System.currentTimeMillis()) { SettingsRow(Icons.Default.ConfirmationNumber, "Redeem Coupon") { showCouponDialog = true }; HorizontalDivider(color = Color.White.copy(alpha = 0.05f)) }
+                    if (userVipExpiry < System.currentTimeMillis()) { SettingsRow(Icons.Default.ConfirmationNumber, "Redeem Coupon", onClick = { showCouponDialog = true }); HorizontalDivider(color = Color.White.copy(alpha = 0.05f)) }
                     if (auth.currentUser?.email == ADMIN_EMAIL) { SettingsRow(Icons.Default.AdminPanelSettings, "Admin Panel (2FA)", { showAdmin2faDialog = true }, iconTint = theme.primary, titleColor = theme.primary); HorizontalDivider(color = Color.White.copy(alpha = 0.05f)) }
                     SettingsRow(Icons.Default.Logout, "Log Out", { auth.signOut(); onLogout() }, iconTint = Color.Red, titleColor = Color.Red)
                 }
@@ -815,13 +849,53 @@ fun ProfileScreen(
     }
 
     if (showTvRemoteDialog) TVRemoteConnectDialog(theme) { showTvRemoteDialog = false }
-    if (showLanguageDialog) AlertDialog({ showLanguageDialog = false }, { Text("Select Language", color = Color.White) }, { Column { listOf("English", "Luganda", "Lunyankole", "Arabic", "Chinese", "Japanese").forEach { lang -> Row(Modifier.fillMaxWidth().clickable { vibrate(context); onLanguageChanged(lang); showLanguageDialog = false }.padding(vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) { RadioButton(appLanguage == lang, { onLanguageChanged(lang); showLanguageDialog = false }, colors = RadioButtonDefaults.colors(selectedColor = theme.primary)); Text(lang, color = Color.White, fontSize = 16.sp) } } } }, { TextButton({ showLanguageDialog = false }) { Text("Close", color = Color.Gray) } }, containerColor = Color(0xFF15171E))
-    if (showAdmin2faDialog) AlertDialog({ showAdmin2faDialog = false; admin2faInput = ""; admin2faError = null }, { Text("Admin 2FA Security", color = Color.White) }, { Column { Text("Enter your 6-digit Admin PIN.", color = Color.Gray); Spacer(Modifier.height(8.dp)); OutlinedTextField(admin2faInput, { if (it.length <= 6) admin2faInput = it }, placeholder = { Text("6-digit PIN") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword), visualTransformation = PasswordVisualTransformation(), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White)); if (admin2faError != null) { Spacer(Modifier.height(4.dp)); Text(admin2faError!!, color = Color.Red, fontSize = 12.sp) } } }, { Button({ if (admin2faInput == dbAdminPin) { showAdminPanel = true; showAdmin2faDialog = false; admin2faInput = ""; admin2faError = null } else { admin2faError = "Incorrect Admin PIN"; admin2faInput = "" } }, colors = ButtonDefaults.buttonColors(containerColor = theme.primary), shape = RoundedCornerShape(50)) { Text("Unlock") } }, { TextButton({ showAdmin2faDialog = false; admin2faInput = ""; admin2faError = null }) { Text("Cancel", color = Color.Gray) } }, containerColor = Color(0xFF15171E))
-    if (showCouponDialog) AlertDialog({ showCouponDialog = false }, { Text("Redeem Coupon", color = Color.White) }, { OutlinedTextField(couponCode, { couponCode = it }, placeholder = { Text("Enter Code") }, modifier = Modifier.fillMaxWidth(), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White)) }, { Button({ FirebaseFirestore.getInstance().collection("homeland_coupons").whereEqualTo("code", couponCode.trim()).whereEqualTo("isUsed", false).get().addOnSuccessListener { snap -> if (!snap.isEmpty) { val doc = snap.documents[0]; val days = doc.getLong("days") ?: 7L; val uid = auth.currentUser?.uid ?: return@addOnSuccessListener; FirebaseFirestore.getInstance().collection("users").document(uid).update("homelandVipExpiry", System.currentTimeMillis() + (days * 24 * 60 * 60 * 1000L)); FirebaseFirestore.getInstance().collection("homeland_coupons").document(doc.id).update("isUsed", true); Toast.makeText(context, "Success! You are now VIP.", Toast.LENGTH_LONG).show(); couponCode = ""; showCouponDialog = false; onSwitchProfile() } else Toast.makeText(context, "Invalid or used code.", Toast.LENGTH_SHORT).show() } }, colors = ButtonDefaults.buttonColors(containerColor = theme.primary), shape = RoundedCornerShape(50)) { Text("Redeem") } }, { TextButton({ showCouponDialog = false }) { Text("Cancel", color = Color.Gray) } }, containerColor = Color(0xFF15171E))
-    if (showPinDialog) AlertDialog({ showPinDialog = false }, { Text(if (savedPin != null) "Remove App Lock" else "Setup App Lock", color = Color.White) }, { if (savedPin != null) Text("Are you sure you want to remove the PIN?", color = Color.Gray) else Column { Text("Enter a 4-digit PIN.", color = Color.Gray, fontSize = 13.sp); Spacer(Modifier.height(8.dp)); OutlinedTextField(newPinInput, { if (it.length <= 4) newPinInput = it }, placeholder = { Text("Enter 4-digit PIN") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword), visualTransformation = PasswordVisualTransformation(), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White)) } }, { Button({ if (savedPin != null) { prefs.edit().remove("app_pin").apply(); Toast.makeText(context, "App Lock Removed", Toast.LENGTH_SHORT).show(); showPinDialog = false; onSwitchProfile() } else { if (newPinInput.length == 4) { prefs.edit().putString("app_pin", newPinInput).apply(); Toast.makeText(context, "App Lock Enabled!", Toast.LENGTH_SHORT).show(); showPinDialog = false; newPinInput = ""; onSwitchProfile() } else Toast.makeText(context, "PIN must be 4 digits", Toast.LENGTH_SHORT).show() } }, colors = ButtonDefaults.buttonColors(containerColor = if (savedPin != null) Color.Red else Color(0xFF25D366)), shape = RoundedCornerShape(50)) { Text(if (savedPin != null) "Remove" else "Save PIN") } }, { TextButton({ showPinDialog = false; newPinInput = "" }) { Text("Cancel", color = Color.Gray) } }, containerColor = Color(0xFF15171E))
+
+    // FIX #4: All ProfileScreen AlertDialogs use named M3 params
+    if (showLanguageDialog) AlertDialog(
+        onDismissRequest = { showLanguageDialog = false },
+        title = { Text("Select Language", color = Color.White) },
+        text = { Column { listOf("English", "Luganda", "Lunyankole", "Arabic", "Chinese", "Japanese").forEach { lang -> Row(Modifier.fillMaxWidth().clickable { vibrate(context); onLanguageChanged(lang); showLanguageDialog = false }.padding(vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) { RadioButton(appLanguage == lang, { onLanguageChanged(lang); showLanguageDialog = false }, colors = RadioButtonDefaults.colors(selectedColor = theme.primary)); Text(lang, color = Color.White, fontSize = 16.sp) } } } },
+        confirmButton = { TextButton({ showLanguageDialog = false }) { Text("Close", color = Color.Gray) } },
+        containerColor = Color(0xFF15171E)
+    )
+
+    if (showAdmin2faDialog) AlertDialog(
+        onDismissRequest = { showAdmin2faDialog = false; admin2faInput = ""; admin2faError = null },
+        title = { Text("Admin 2FA Security", color = Color.White) },
+        text = { Column { Text("Enter your 6-digit Admin PIN.", color = Color.Gray); Spacer(Modifier.height(8.dp)); OutlinedTextField(admin2faInput, { if (it.length <= 6) admin2faInput = it }, placeholder = { Text("6-digit PIN") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword), visualTransformation = PasswordVisualTransformation(), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White)); if (admin2faError != null) { Spacer(Modifier.height(4.dp)); Text(admin2faError!!, color = Color.Red, fontSize = 12.sp) } } },
+        confirmButton = { Button({ if (admin2faInput == dbAdminPin) { showAdminPanel = true; showAdmin2faDialog = false; admin2faInput = ""; admin2faError = null } else { admin2faError = "Incorrect Admin PIN"; admin2faInput = "" } }, colors = ButtonDefaults.buttonColors(containerColor = theme.primary), shape = RoundedCornerShape(50)) { Text("Unlock") } },
+        dismissButton = { TextButton({ showAdmin2faDialog = false; admin2faInput = ""; admin2faError = null }) { Text("Cancel", color = Color.Gray) } },
+        containerColor = Color(0xFF15171E)
+    )
+
+    if (showCouponDialog) AlertDialog(
+        onDismissRequest = { showCouponDialog = false },
+        title = { Text("Redeem Coupon", color = Color.White) },
+        text = { OutlinedTextField(couponCode, { couponCode = it }, placeholder = { Text("Enter Code") }, modifier = Modifier.fillMaxWidth(), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White)) },
+        confirmButton = { Button({ FirebaseFirestore.getInstance().collection("homeland_coupons").whereEqualTo("code", couponCode.trim()).whereEqualTo("isUsed", false).get().addOnSuccessListener { snap -> if (!snap.isEmpty) { val doc = snap.documents[0]; val days = doc.getLong("days") ?: 7L; val uid = auth.currentUser?.uid ?: return@addOnSuccessListener; FirebaseFirestore.getInstance().collection("users").document(uid).update("homelandVipExpiry", System.currentTimeMillis() + (days * 24 * 60 * 60 * 1000L)); FirebaseFirestore.getInstance().collection("homeland_coupons").document(doc.id).update("isUsed", true); Toast.makeText(context, "Success! You are now VIP.", Toast.LENGTH_LONG).show(); couponCode = ""; showCouponDialog = false; onSwitchProfile() } else Toast.makeText(context, "Invalid or used code.", Toast.LENGTH_SHORT).show() } }, colors = ButtonDefaults.buttonColors(containerColor = theme.primary), shape = RoundedCornerShape(50)) { Text("Redeem") } },
+        dismissButton = { TextButton({ showCouponDialog = false }) { Text("Cancel", color = Color.Gray) } },
+        containerColor = Color(0xFF15171E)
+    )
+
+    if (showPinDialog) AlertDialog(
+        onDismissRequest = { showPinDialog = false },
+        title = { Text(if (savedPin != null) "Remove App Lock" else "Setup App Lock", color = Color.White) },
+        text = { if (savedPin != null) Text("Are you sure you want to remove the PIN?", color = Color.Gray) else Column { Text("Enter a 4-digit PIN.", color = Color.Gray, fontSize = 13.sp); Spacer(Modifier.height(8.dp)); OutlinedTextField(newPinInput, { if (it.length <= 4) newPinInput = it }, placeholder = { Text("Enter 4-digit PIN") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword), visualTransformation = PasswordVisualTransformation(), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White)) } },
+        confirmButton = { Button({ if (savedPin != null) { prefs.edit().remove("app_pin").apply(); Toast.makeText(context, "App Lock Removed", Toast.LENGTH_SHORT).show(); showPinDialog = false; onSwitchProfile() } else { if (newPinInput.length == 4) { prefs.edit().putString("app_pin", newPinInput).apply(); Toast.makeText(context, "App Lock Enabled!", Toast.LENGTH_SHORT).show(); showPinDialog = false; newPinInput = ""; onSwitchProfile() } else Toast.makeText(context, "PIN must be 4 digits", Toast.LENGTH_SHORT).show() } }, colors = ButtonDefaults.buttonColors(containerColor = if (savedPin != null) Color.Red else Color(0xFF25D366)), shape = RoundedCornerShape(50)) { Text(if (savedPin != null) "Remove" else "Save PIN") } },
+        dismissButton = { TextButton({ showPinDialog = false; newPinInput = "" }) { Text("Cancel", color = Color.Gray) } },
+        containerColor = Color(0xFF15171E)
+    )
+
     if (showTvDialog) {
         var pwd by remember { mutableStateOf("") }
-        AlertDialog({ showTvDialog = false }, { Text("Login on TV", color = Color.White) }, { Column { Text("Enter the 6-digit code and password.", color = Color.Gray); Spacer(Modifier.height(8.dp)); OutlinedTextField(tvCodeInput, { tvCodeInput = it }, placeholder = { Text("e.g. 603061") }, colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White)); Spacer(Modifier.height(8.dp)); OutlinedTextField(pwd, { pwd = it }, placeholder = { Text("Password") }, visualTransformation = PasswordVisualTransformation(), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White)) } }, { Button({ if (tvCodeInput.length == 6 && pwd.isNotEmpty()) auth.currentUser?.email?.let { email -> auth.signInWithEmailAndPassword(email, pwd).addOnCompleteListener { if (it.isSuccessful) { FirebaseFirestore.getInstance().collection("tv_login_codes").document(tvCodeInput).update("status", "approved", "email", email, "password", pwd).addOnSuccessListener { Toast.makeText(context, "TV Authorized!", Toast.LENGTH_SHORT).show(); showTvDialog = false; tvCodeInput = ""; pwd = "" } } else Toast.makeText(context, "Incorrect password.", Toast.LENGTH_SHORT).show() } } }, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE50914)), shape = RoundedCornerShape(50)) { Text("Authorize") } }, { TextButton({ showTvDialog = false }) { Text("Cancel", color = Color.Gray) } }, containerColor = Color(0xFF15171E))
+        AlertDialog(
+            onDismissRequest = { showTvDialog = false },
+            title = { Text("Login on TV", color = Color.White) },
+            text = { Column { Text("Enter the 6-digit code and password.", color = Color.Gray); Spacer(Modifier.height(8.dp)); OutlinedTextField(tvCodeInput, { tvCodeInput = it }, placeholder = { Text("e.g. 603061") }, colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White)); Spacer(Modifier.height(8.dp)); OutlinedTextField(pwd, { pwd = it }, placeholder = { Text("Password") }, visualTransformation = PasswordVisualTransformation(), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White)) } },
+            confirmButton = { Button({ if (tvCodeInput.length == 6 && pwd.isNotEmpty()) auth.currentUser?.email?.let { email -> auth.signInWithEmailAndPassword(email, pwd).addOnCompleteListener { if (it.isSuccessful) { FirebaseFirestore.getInstance().collection("tv_login_codes").document(tvCodeInput).update("status", "approved", "email", email, "password", pwd).addOnSuccessListener { Toast.makeText(context, "TV Authorized!", Toast.LENGTH_SHORT).show(); showTvDialog = false; tvCodeInput = ""; pwd = "" } } else Toast.makeText(context, "Incorrect password.", Toast.LENGTH_SHORT).show() } } }, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE50914)), shape = RoundedCornerShape(50)) { Text("Authorize") } },
+            dismissButton = { TextButton({ showTvDialog = false }) { Text("Cancel", color = Color.Gray) } },
+            containerColor = Color(0xFF15171E)
+        )
     }
 }
 
@@ -914,7 +988,14 @@ fun MovieDetailsScreen(movie: Movie, userVipExpiry: Long, onShowVipModal: () -> 
     var downloadUrlToUse by remember { mutableStateOf("") }
     var downloadTitleToUse by remember { mutableStateOf("") }
 
-    if (showDownloadDialog) AlertDialog({ showDownloadDialog = false }, { Text("Download Options", color = Color.White) }, { Text("Where would you like to save this video?", color = Color.Gray) }, { Button({ downloadFile(context, downloadUrlToUse, "$downloadTitleToUse.mp4", saveToPublic = true); showDownloadDialog = false }, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE50914)), shape = RoundedCornerShape(50)) { Text("Direct to Phone") } }, { Button({ downloadFile(context, downloadUrlToUse, "$downloadTitleToUse.mp4", saveToPublic = false); showDownloadDialog = false }, colors = ButtonDefaults.buttonColors(containerColor = Color.DarkGray), shape = RoundedCornerShape(50)) { Text("In-App Download") } }, containerColor = Color(0xFF15171E))
+    if (showDownloadDialog) AlertDialog(
+        onDismissRequest = { showDownloadDialog = false },
+        title = { Text("Download Options", color = Color.White) },
+        text = { Text("Where would you like to save this video?", color = Color.Gray) },
+        confirmButton = { Button({ downloadFile(context, downloadUrlToUse, "$downloadTitleToUse.mp4", saveToPublic = true); showDownloadDialog = false }, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE50914)), shape = RoundedCornerShape(50)) { Text("Direct to Phone") } },
+        dismissButton = { Button({ downloadFile(context, downloadUrlToUse, "$downloadTitleToUse.mp4", saveToPublic = false); showDownloadDialog = false }, colors = ButtonDefaults.buttonColors(containerColor = Color.DarkGray), shape = RoundedCornerShape(50)) { Text("In-App Download") } },
+        containerColor = Color(0xFF15171E)
+    )
 
     Box(Modifier.fillMaxSize().background(Color(0xFF0B0C10))) {
         SubcomposeAsyncImage(ImageRequest.Builder(LocalContext.current).data(movie.poster).crossfade(true).build(), null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize().blur(40.dp), loading = { Box(Modifier.fillMaxSize().background(Color.Black)) }, error = { Box(Modifier.fillMaxSize().background(Color.Black)) })
@@ -979,7 +1060,7 @@ fun HomeScreen(theme: ThemeConfig, profileName: String, userVipExpiry: Long, kid
         lastVisibleMovie?.let { query = query.startAfter(it) }
         query.get().addOnSuccessListener { snap ->
             if (snap != null && !snap.isEmpty) {
-                movies = (movies + snap.documents.map { doc -> 
+                movies = (movies + snap.documents.map { doc ->
                     val eps = (doc.get("episodes") as? List<Map<String, Any>>)?.map { ep -> Episode(ep["season"] as? String ?: "", ep["episode"] as? String ?: "", ep["url"] as? String ?: "", ep["subtitleUrl"] as? String ?: "") } ?: emptyList()
                     Movie(doc.id, doc.getString("title") ?: "", doc.getString("poster") ?: "", doc.getString("videoUrl") ?: "", doc.getString("category") ?: "", doc.getString("videoTag") ?: "", doc.getString("year") ?: "", isVip = doc.getBoolean("isVip") ?: false, isFeatured = doc.getBoolean("isFeatured") ?: false, isAdult = doc.getBoolean("isAdult") ?: false, episodes = eps, yocId = doc.getString("yocId") ?: "")
                 }).distinctBy { it.id }
@@ -994,7 +1075,7 @@ fun HomeScreen(theme: ThemeConfig, profileName: String, userVipExpiry: Long, kid
     LaunchedEffect(Unit) {
         db.collection("homeland_movies").orderBy("timestamp", Query.Direction.DESCENDING).limit(100).get().addOnSuccessListener { snap ->
             if (snap != null) {
-                movies = snap.documents.map { doc -> 
+                movies = snap.documents.map { doc ->
                     val eps = (doc.get("episodes") as? List<Map<String, Any>>)?.map { ep -> Episode(ep["season"] as? String ?: "", ep["episode"] as? String ?: "", ep["url"] as? String ?: "", ep["subtitleUrl"] as? String ?: "") } ?: emptyList()
                     Movie(doc.id, doc.getString("title") ?: "", doc.getString("poster") ?: "", doc.getString("videoUrl") ?: "", doc.getString("category") ?: "", doc.getString("videoTag") ?: "", doc.getString("year") ?: "", isVip = doc.getBoolean("isVip") ?: false, isFeatured = doc.getBoolean("isFeatured") ?: false, isAdult = doc.getBoolean("isAdult") ?: false, episodes = eps, yocId = doc.getString("yocId") ?: "")
                 }
@@ -1006,7 +1087,7 @@ fun HomeScreen(theme: ThemeConfig, profileName: String, userVipExpiry: Long, kid
         }
     }
 
-    if (isLoading && movies.isEmpty()) Box(Modifier.fillMaxSize(), Alignment.Center) { CircularProgressIndicator(color = theme.primary) } 
+    if (isLoading && movies.isEmpty()) Box(Modifier.fillMaxSize(), Alignment.Center) { CircularProgressIndicator(color = theme.primary) }
     else {
         Column(Modifier.fillMaxSize()) {
             OutlinedTextField(searchQuery, { onSearchQueryChange(it) }, placeholder = { Text("Search titles...", color = Color.Gray, fontSize = 14.sp) }, leadingIcon = { Icon(Icons.Default.Search, "Search", tint = Color.Gray) }, modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp).clip(RoundedCornerShape(50)).border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(50)), colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Color.Transparent, unfocusedBorderColor = Color.Transparent, focusedContainerColor = Color(0xFF15171E).copy(alpha = 0.6f), unfocusedContainerColor = Color(0xFF15171E).copy(alpha = 0.6f), focusedTextColor = Color.White, unfocusedTextColor = Color.White), shape = RoundedCornerShape(50))
@@ -1079,7 +1160,7 @@ fun SeriesScreen(theme: ThemeConfig, profileName: String, userVipExpiry: Long, k
     LaunchedEffect(Unit) {
         db.collection("homeland_movies").whereEqualTo("type", "TV Show").addSnapshotListener { snap, _ ->
             if (snap != null) {
-                series = snap.documents.map { doc -> 
+                series = snap.documents.map { doc ->
                     val eps = (doc.get("episodes") as? List<Map<String, Any>>)?.map { ep -> Episode(ep["season"] as? String ?: "", ep["episode"] as? String ?: "", ep["url"] as? String ?: "", ep["subtitleUrl"] as? String ?: "") } ?: emptyList()
                     Movie(doc.id, doc.getString("title") ?: "", doc.getString("poster") ?: "", doc.getString("videoUrl") ?: "", doc.getString("videoTag") ?: "", doc.getString("year") ?: "", isVip = doc.getBoolean("isVip") ?: false, isAdult = doc.getBoolean("isAdult") ?: false, episodes = eps, yocId = doc.getString("yocId") ?: "")
                 }.filter { !kidsMode || !it.isAdult }
@@ -1126,7 +1207,7 @@ fun TvLiveScreen(theme: ThemeConfig, userVipExpiry: Long, kidsMode: Boolean, onP
         LazyRow(contentPadding = PaddingValues(16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             items(tvCategories) { category -> FilterChip(selectedCategory == category, { vibrate(context); selectedCategory = category }, { Text(category) }, colors = FilterChipDefaults.filterChipColors(selectedContainerColor = theme.primary, selectedLabelColor = Color.White, containerColor = Color(0xFF15171E).copy(alpha = 0.6f), labelColor = Color.Gray), border = FilterChipDefaults.filterChipBorder(enabled = true, selected = selectedCategory == category, borderColor = Color.White.copy(alpha = 0.1f), selectedBorderColor = Color.Transparent)) }
         }
-        
+
         val filtered = filteredChannels.filter { selectedCategory == "All" || it.category == selectedCategory }
         LazyVerticalGrid(columns = GridCells.Adaptive(160.dp), contentPadding = PaddingValues(16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             items(filtered) { channel ->
