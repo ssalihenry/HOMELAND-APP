@@ -142,10 +142,31 @@ class Base64ImageMapper : Mapper<String, Bitmap> {
                     data
                 }
                 
-                val decodedBytes = Base64.decode(base64String, Base64.DEFAULT)
-                BitmapFactory.decodeByteArray(decodedBytes, 0, decodedBytes.size)
+                val cleanBase64 = base64String.replace("\\s".toRegex(), "")
+                val decodedBytes = Base64.decode(cleanBase64, Base64.NO_WRAP)
+
+                val bOptions = BitmapFactory.Options()
+                bOptions.inJustDecodeBounds = true
+                BitmapFactory.decodeByteArray(decodedBytes, 0, decodedBytes.size, bOptions)
+
+                val reqSize = 1000 
+                var inSampleSize = 1
+                if (bOptions.outHeight > reqSize || bOptions.outWidth > reqSize) {
+                    val halfHeight = bOptions.outHeight / 2
+                    val halfWidth = bOptions.outWidth / 2
+                    while ((halfHeight / inSampleSize) >= reqSize && (halfWidth / inSampleSize) >= reqSize) {
+                        inSampleSize *= 2
+                    }
+                }
+
+                bOptions.inJustDecodeBounds = false
+                bOptions.inSampleSize = inSampleSize
+                
+                BitmapFactory.decodeByteArray(decodedBytes, 0, decodedBytes.size, bOptions)
+                
             } catch (e: Exception) {
-                null
+                e.printStackTrace()
+                null 
             }
         }
         return null
