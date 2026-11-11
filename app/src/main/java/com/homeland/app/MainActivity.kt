@@ -1243,19 +1243,19 @@ fun HomelandApp(
                 // 2. UI Content
                 Column(modifier = Modifier.fillMaxSize().padding(paddingValues)) {
                     
-                    // FIXED MOBILE HEADER: Exact 2.dp padding to push to edges
+                    // FIXED HEADER: Removed displayCutoutPadding() so it goes all the way to the top edge
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 2.dp, vertical = 2.dp), 
-                        horizontalArrangement = Arrangement.SpaceBetween,
+                            .padding(horizontal = 16.dp, vertical = 8.dp), 
+                        horizontalArrangement = Arrangement.SpaceBetween, 
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Box(modifier = Modifier.size(32.dp).background(theme.primary, RoundedCornerShape(8.dp)), contentAlignment = Alignment.Center) { 
                                 Text("H", color = Color.White, fontWeight = FontWeight.Black, fontSize = 20.sp) 
                             }
-                            Spacer(modifier = Modifier.width(12.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
                             Text("HOMELAND", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Black, letterSpacing = 1.sp)
                             Text(" TV", color = theme.primary, fontSize = 18.sp, fontWeight = FontWeight.Black, letterSpacing = 1.sp)
                         }
