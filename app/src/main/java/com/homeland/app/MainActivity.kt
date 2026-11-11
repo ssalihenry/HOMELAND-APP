@@ -661,12 +661,8 @@ class MainActivity : ComponentActivity(), ImageLoaderFactory {
     }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
-        if (keyCode == KeyEvent.KEYCODE_BACK) {
-            return true
-        }
-        return super.onKeyDown(keyCode, event)
+    return super.onKeyDown(keyCode, event)
     }
-}
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
