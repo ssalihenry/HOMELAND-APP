@@ -661,8 +661,9 @@ class MainActivity : ComponentActivity(), ImageLoaderFactory {
     }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
-    return super.onKeyDown(keyCode, event)
+        return super.onKeyDown(keyCode, event)
     }
+}
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -1231,7 +1232,9 @@ fun HomelandApp(
                 }
             }
         ) { paddingValues ->
-            Box(modifier = Modifier.fillMaxSize().padding(paddingValues)) {
+            // Box with NO padding to allow the background to stretch edge-to-edge (behind the top camera and bottom pill)
+            Box(modifier = Modifier.fillMaxSize()) {
+                
                 // Background
                 if (theme.bgImageUrl.isNotEmpty()) {
                     AsyncImage(model = theme.bgImageUrl, contentDescription = "App Background", contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
@@ -1239,13 +1242,15 @@ fun HomelandApp(
                     Box(modifier = Modifier.fillMaxSize().background(theme.background))
                 }
 
-                Column(modifier = Modifier.fillMaxSize()) {
-                    // Top Header with Logo and Profile (Using displayCutoutPadding to avoid camera notch)
+                // Column with padding so the actual UI content respects the floating pill
+                Column(modifier = Modifier.fillMaxSize().padding(paddingValues)) {
+                    
+                    // Top Header with Logo and Profile
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .displayCutoutPadding()
-                            .padding(horizontal = 16.dp, vertical = 16.dp), 
+                            .displayCutoutPadding() // Keeps safe distance from camera hole
+                            .padding(horizontal = 16.dp, vertical = 8.dp), // Reduced vertical padding to push it to the top edge
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
