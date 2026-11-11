@@ -1200,16 +1200,16 @@ fun HomelandApp(
                 
                 Box(modifier = Modifier.fillMaxSize()) {
                     when (selectedTab) {
-                        0 -> HomeScreen(theme = theme, profileName = profileName, userVipExpiry = userVipExpiry, kidsMode = kidsMode, searchQuery = globalSearchQuery, onSearchQueryChange = { globalSearchQuery = it }, onDetails = { viewingDetails = it }, isMoviesTab = false)
-                        1 -> MoviesScreen(theme = theme, profileName = profileName, userVipExpiry = userVipExpiry, kidsMode = kidsMode, onDetails = { viewingDetails = it })
-                        2 -> SeriesScreen(theme = theme, profileName = profileName, userVipExpiry = userVipExpiry, kidsMode = kidsMode, onDetails = { viewingDetails = it })
-                        3 -> TvLiveScreen(theme = theme, userVipExpiry = userVipExpiry, kidsMode = kidsMode, onPlayMedia = { tryPlay(it) })
+                        0 -> HomeScreen(theme = theme, profileName = profileName, userVipExpiry = userVipExpiry, kidsMode = kidsMode, searchQuery = globalSearchQuery, onDetails = { viewingDetails = it }, isMoviesTab = false)
+                        1 -> MoviesScreen(theme = theme, profileName = profileName, userVipExpiry = userVipExpiry, kidsMode = kidsMode, searchQuery = globalSearchQuery, onDetails = { viewingDetails = it })
+                        2 -> SeriesScreen(theme = theme, profileName = profileName, userVipExpiry = userVipExpiry, kidsMode = kidsMode, searchQuery = globalSearchQuery, onDetails = { viewingDetails = it })
+                        3 -> TvLiveScreen(theme = theme, userVipExpiry = userVipExpiry, kidsMode = kidsMode, searchQuery = globalSearchQuery, onPlayMedia = { tryPlay(it) })
                     }
                 }
             }
         }
     } else {
-        // Mobile Layout - Top Header + Bottom Navigation (Floating Pill)
+        // Mobile Layout - Top Header + Search + Floating Bottom Nav
         Scaffold(
             containerColor = Color.Transparent,
             contentWindowInsets = WindowInsets(0, 0, 0, 0),
@@ -1217,7 +1217,6 @@ fun HomelandApp(
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .navigationBarsPadding()
                         .padding(horizontal = 16.dp, vertical = 12.dp)
                         .clip(RoundedCornerShape(32.dp))
                         .background(Color(0xFF15171E).copy(alpha = 0.85f))
@@ -1232,25 +1231,23 @@ fun HomelandApp(
                 }
             }
         ) { paddingValues ->
-            // Box with NO padding to allow the background to stretch edge-to-edge (behind the top camera and bottom pill)
             Box(modifier = Modifier.fillMaxSize()) {
-                
-                // Background
+                // 1. Background covers the entire screen
                 if (theme.bgImageUrl.isNotEmpty()) {
                     AsyncImage(model = theme.bgImageUrl, contentDescription = "App Background", contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
                 } else {
                     Box(modifier = Modifier.fillMaxSize().background(theme.background))
                 }
 
-                // Column with padding so the actual UI content respects the floating pill
+                // 2. UI Content
                 Column(modifier = Modifier.fillMaxSize().padding(paddingValues)) {
                     
-                    // Top Header with Logo and Profile
+                    // Top Header (Logo + Profile)
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .displayCutoutPadding() // Keeps safe distance from camera hole
-                            .padding(horizontal = 16.dp, vertical = 8.dp), // Reduced vertical padding to push it to the top edge
+                            .displayCutoutPadding()
+                            .padding(horizontal = 16.dp, vertical = 8.dp), 
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -1271,13 +1268,35 @@ fun HomelandApp(
                         }
                     }
 
-                    // Content Area
+                    // Global Search Bar
+                    OutlinedTextField(
+                        value = globalSearchQuery, 
+                        onValueChange = { globalSearchQuery = it }, 
+                        placeholder = { Text("Search titles...", color = Color.Gray, fontSize = 14.sp) }, 
+                        leadingIcon = { Icon(Icons.Default.Search, "Search", tint = Color.Gray) }, 
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 8.dp)
+                            .clip(RoundedCornerShape(50))
+                            .border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(50)), 
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = Color.Transparent, 
+                            unfocusedBorderColor = Color.Transparent, 
+                            focusedContainerColor = Color(0xFF15171E).copy(alpha = 0.6f), 
+                            unfocusedContainerColor = Color(0xFF15171E).copy(alpha = 0.6f), 
+                            focusedTextColor = Color.White, 
+                            unfocusedTextColor = Color.White
+                        ), 
+                        shape = RoundedCornerShape(50)
+                    )
+
+                    // Tab Content Area
                     Box(modifier = Modifier.weight(1f)) {
                         when (selectedTab) {
-                            0 -> HomeScreen(theme = theme, profileName = profileName, userVipExpiry = userVipExpiry, kidsMode = kidsMode, searchQuery = globalSearchQuery, onSearchQueryChange = { globalSearchQuery = it }, onDetails = { viewingDetails = it }, isMoviesTab = false)
-                            1 -> MoviesScreen(theme = theme, profileName = profileName, userVipExpiry = userVipExpiry, kidsMode = kidsMode, onDetails = { viewingDetails = it })
-                            2 -> SeriesScreen(theme = theme, profileName = profileName, userVipExpiry = userVipExpiry, kidsMode = kidsMode, onDetails = { viewingDetails = it })
-                            3 -> TvLiveScreen(theme = theme, userVipExpiry = userVipExpiry, kidsMode = kidsMode, onPlayMedia = { tryPlay(it) })
+                            0 -> HomeScreen(theme = theme, profileName = profileName, userVipExpiry = userVipExpiry, kidsMode = kidsMode, searchQuery = globalSearchQuery, onDetails = { viewingDetails = it }, isMoviesTab = false)
+                            1 -> MoviesScreen(theme = theme, profileName = profileName, userVipExpiry = userVipExpiry, kidsMode = kidsMode, searchQuery = globalSearchQuery, onDetails = { viewingDetails = it })
+                            2 -> SeriesScreen(theme = theme, profileName = profileName, userVipExpiry = userVipExpiry, kidsMode = kidsMode, searchQuery = globalSearchQuery, onDetails = { viewingDetails = it })
+                            3 -> TvLiveScreen(theme = theme, userVipExpiry = userVipExpiry, kidsMode = kidsMode, searchQuery = globalSearchQuery, onPlayMedia = { tryPlay(it) })
                         }
                     }
                 }
@@ -2358,7 +2377,6 @@ fun HomeScreen(
     userVipExpiry: Long, 
     kidsMode: Boolean, 
     searchQuery: String,
-    onSearchQueryChange: (String) -> Unit,
     onDetails: (Movie) -> Unit,
     isMoviesTab: Boolean = false 
 ) {
@@ -2457,27 +2475,6 @@ fun HomeScreen(
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = theme.primary) } 
     } else {
         Column(modifier = Modifier.fillMaxSize()) {
-            OutlinedTextField(
-                value = searchQuery, 
-                onValueChange = { onSearchQueryChange(it) }, 
-                placeholder = { Text("Search titles...", color = Color.Gray, fontSize = 14.sp) }, 
-                leadingIcon = { Icon(Icons.Default.Search, "Search", tint = Color.Gray) }, 
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp)
-                    .clip(RoundedCornerShape(50))
-                    .border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(50)), 
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = Color.Transparent, 
-                    unfocusedBorderColor = Color.Transparent, 
-                    focusedContainerColor = Color(0xFF15171E).copy(alpha = 0.6f), 
-                    unfocusedContainerColor = Color(0xFF15171E).copy(alpha = 0.6f), 
-                    focusedTextColor = Color.White, 
-                    unfocusedTextColor = Color.White
-                ), 
-                shape = RoundedCornerShape(50)
-            )
-
             if (featuredMovies.isNotEmpty() && searchQuery.isEmpty() && selectedCategory == "All") {
                 val pagerState = rememberPagerState(pageCount = { featuredMovies.size })
                 Box(modifier = Modifier.fillMaxWidth().height(260.dp).padding(bottom = 16.dp)) {
@@ -2562,7 +2559,7 @@ fun HomeScreen(
 }
 
 @Composable
-fun MoviesScreen(theme: ThemeConfig, profileName: String, userVipExpiry: Long, kidsMode: Boolean, onDetails: (Movie) -> Unit) {
+fun MoviesScreen(theme: ThemeConfig, profileName: String, userVipExpiry: Long, kidsMode: Boolean, searchQuery: String, onDetails: (Movie) -> Unit) {
     val db = FirebaseFirestore.getInstance()
     var movies by remember { mutableStateOf<List<Movie>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
@@ -2595,7 +2592,7 @@ fun MoviesScreen(theme: ThemeConfig, profileName: String, userVipExpiry: Long, k
                         episodes = episodes,
                         yocId = doc.getString("yocId") ?: ""
                     ) 
-                }.filter { !kidsMode || !it.isAdult }
+                }.filter { (!kidsMode || !it.isAdult) && it.title.contains(searchQuery, true) }
                 isLoading = false
             }
         }
@@ -2615,7 +2612,7 @@ fun MoviesScreen(theme: ThemeConfig, profileName: String, userVipExpiry: Long, k
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Icon(Icons.Default.Movie, null, tint = Color.DarkGray, modifier = Modifier.size(64.dp))
                     Spacer(modifier = Modifier.height(16.dp))
-                    Text("No movies available yet.", color = Color.Gray)
+                    Text("No movies found.", color = Color.Gray)
                 }
             }
         } else {
@@ -2671,7 +2668,7 @@ fun MovieCard(movie: Movie, theme: ThemeConfig, profileName: String, userVipExpi
 }
 
 @Composable
-fun SeriesScreen(theme: ThemeConfig, profileName: String, userVipExpiry: Long, kidsMode: Boolean, onDetails: (Movie) -> Unit) {
+fun SeriesScreen(theme: ThemeConfig, profileName: String, userVipExpiry: Long, kidsMode: Boolean, searchQuery: String, onDetails: (Movie) -> Unit) {
     val db = FirebaseFirestore.getInstance()
     var series by remember { mutableStateOf<List<Movie>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
@@ -2701,7 +2698,7 @@ fun SeriesScreen(theme: ThemeConfig, profileName: String, userVipExpiry: Long, k
                         episodes = episodes,
                         yocId = doc.getString("yocId") ?: ""
                     ) 
-                }.filter { !kidsMode || !it.isAdult }
+                }.filter { (!kidsMode || !it.isAdult) && it.title.contains(searchQuery, true) }
                 isLoading = false
             }
         }
@@ -2721,7 +2718,7 @@ fun SeriesScreen(theme: ThemeConfig, profileName: String, userVipExpiry: Long, k
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Icon(Icons.Default.VideoLibrary, null, tint = Color.DarkGray, modifier = Modifier.size(64.dp))
                     Spacer(modifier = Modifier.height(16.dp))
-                    Text("No series available yet.", color = Color.Gray)
+                    Text("No series found.", color = Color.Gray)
                 }
             }
         } else {
@@ -2733,7 +2730,7 @@ fun SeriesScreen(theme: ThemeConfig, profileName: String, userVipExpiry: Long, k
 }
 
 @Composable
-fun TvLiveScreen(theme: ThemeConfig, userVipExpiry: Long, kidsMode: Boolean, onPlayMedia: (Movie) -> Unit) {
+fun TvLiveScreen(theme: ThemeConfig, userVipExpiry: Long, kidsMode: Boolean, searchQuery: String, onPlayMedia: (Movie) -> Unit) {
     val db = FirebaseFirestore.getInstance()
     var channels by remember { mutableStateOf<List<TvChannel>>(emptyList()) }
     var selectedCategory by remember { mutableStateOf("All") }
@@ -2752,10 +2749,14 @@ fun TvLiveScreen(theme: ThemeConfig, userVipExpiry: Long, kidsMode: Boolean, onP
 
     Column(modifier = Modifier.fillMaxSize()) {
         val filteredChannels = if (kidsMode) channels.filter { it.category == "Kids" || it.category == "Animation" } else channels
-        val featuredChannels = filteredChannels.filter { it.isFeatured }.take(4)
-        val displayFeatured = if (featuredChannels.isNotEmpty()) featuredChannels else filteredChannels.take(4)
+        
+        // Apply search filter
+        val searchedChannels = filteredChannels.filter { it.name.contains(searchQuery, true) }
+        
+        val featuredChannels = searchedChannels.filter { it.isFeatured }.take(4)
+        val displayFeatured = if (featuredChannels.isNotEmpty()) featuredChannels else searchedChannels.take(4)
 
-        if (displayFeatured.isNotEmpty()) {
+        if (displayFeatured.isNotEmpty() && searchQuery.isEmpty()) {
             Text("Featured Channels", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(start = 16.dp, top = 16.dp, bottom = 8.dp))
             LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 items(displayFeatured) { channel ->
@@ -2820,7 +2821,7 @@ fun TvLiveScreen(theme: ThemeConfig, userVipExpiry: Long, kidsMode: Boolean, onP
             }
         }
         
-        val filtered = filteredChannels.filter { selectedCategory == "All" || it.category == selectedCategory }
+        val filtered = searchedChannels.filter { selectedCategory == "All" || it.category == selectedCategory }
         LazyVerticalGrid(columns = GridCells.Adaptive(160.dp), contentPadding = PaddingValues(16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             items(filtered) { channel ->
                 val isLocked = channel.isVip && userVipExpiry < System.currentTimeMillis()
