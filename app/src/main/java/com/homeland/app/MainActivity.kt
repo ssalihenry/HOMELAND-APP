@@ -128,9 +128,6 @@ data class ClientVipPlan(
     val days: Int = 0
 )
 
-/**
- * Custom Coil Mapper that converts Base64 data-URIs (data:image/jpeg;base64,...) into Bitmaps.
- */
 class Base64ImageMapper : Mapper<String, Bitmap> {
     override fun map(data: String, options: Options): Bitmap? {
         if (!data.startsWith("data:image/") || !data.contains(";base64,")) return null
@@ -417,8 +414,6 @@ class MainActivity : ComponentActivity(), ImageLoaderFactory {
         }
 
         WindowCompat.setDecorFitsSystemWindows(window, false)
-        // Notice we removed the .hide(SystemBars) here so the time/battery show up, 
-        // but the background will still draw behind it.
 
         setContent {
             val permissionLauncher = rememberLauncherForActivityResult(
@@ -1181,7 +1176,7 @@ fun HomelandApp(
             kidsMode = kidsMode, onKidsModeChanged = onKidsModeChanged, 
             isTv = isTv, tvSessionCode = tvSessionCode, 
             onLogout = onLogout, onSwitchProfile = onSwitchProfile, onPlay = { tryPlay(it) },
-            onBack = { showProfile = false } // Added onBack to profile
+            onBack = { showProfile = false }
         )
         return
     }
@@ -1213,73 +1208,68 @@ fun HomelandApp(
             }
         }
     } else {
-        // Mobile Layout - Top Navigation
-        Box(modifier = Modifier.fillMaxSize()) {
-            // Edge-to-edge Background Image
-            if (theme.bgImageUrl.isNotEmpty()) {
-                AsyncImage(model = theme.bgImageUrl, contentDescription = "App Background", contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
-            } else {
-                Box(modifier = Modifier.fillMaxSize().background(theme.background))
+        // Mobile Layout - Top Header + Bottom Navigation
+        Scaffold(
+            containerColor = Color.Transparent,
+            bottomBar = {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .navigationBarsPadding()
+                        .padding(horizontal = 16.dp, vertical = 12.dp)
+                        .clip(RoundedCornerShape(32.dp))
+                        .background(Color(0xFF15171E).copy(alpha = 0.85f))
+                        .border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(32.dp))
+                ) {
+                    NavigationBar(containerColor = Color.Transparent, tonalElevation = 0.dp) {
+                        NavigationBarItem(selected = selectedTab == 0, onClick = { vibrate(context); selectedTab = 0 }, icon = { Icon(Icons.Default.Home, "Home") }, label = { Text("Home") }, colors = NavigationBarItemDefaults.colors(selectedIconColor = theme.primary, selectedTextColor = theme.primary, unselectedIconColor = Color.Gray, unselectedTextColor = Color.Gray, indicatorColor = theme.primary.copy(alpha = 0.15f)))
+                        NavigationBarItem(selected = selectedTab == 1, onClick = { vibrate(context); selectedTab = 1 }, icon = { Icon(Icons.Default.Movie, "Movies") }, label = { Text("Movies") }, colors = NavigationBarItemDefaults.colors(selectedIconColor = theme.primary, selectedTextColor = theme.primary, unselectedIconColor = Color.Gray, unselectedTextColor = Color.Gray, indicatorColor = theme.primary.copy(alpha = 0.15f)))
+                        NavigationBarItem(selected = selectedTab == 2, onClick = { vibrate(context); selectedTab = 2 }, icon = { Icon(Icons.Default.VideoLibrary, "Series") }, label = { Text("Series") }, colors = NavigationBarItemDefaults.colors(selectedIconColor = theme.primary, selectedTextColor = theme.primary, unselectedIconColor = Color.Gray, unselectedTextColor = Color.Gray, indicatorColor = theme.primary.copy(alpha = 0.15f)))
+                        NavigationBarItem(selected = selectedTab == 3, onClick = { vibrate(context); selectedTab = 3 }, icon = { Icon(Icons.Default.Tv, "TV Live") }, label = { Text("TV Live") }, colors = NavigationBarItemDefaults.colors(selectedIconColor = theme.primary, selectedTextColor = theme.primary, unselectedIconColor = Color.Gray, unselectedTextColor = Color.Gray, indicatorColor = theme.primary.copy(alpha = 0.15f)))
+                    }
+                }
             }
-            
-            Column(modifier = Modifier.fillMaxSize()) {
-                // Top Header with Logo and Profile
-                Row(
-                    modifier = Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 16.dp, vertical = 12.dp), 
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(modifier = Modifier.size(32.dp).background(theme.primary, RoundedCornerShape(8.dp)), contentAlignment = Alignment.Center) { 
-                            Text("H", color = Color.White, fontWeight = FontWeight.Black, fontSize = 20.sp) 
-                        }
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Text("HOMELAND", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Black, letterSpacing = 1.sp)
-                        Text(" TV", color = theme.primary, fontSize = 18.sp, fontWeight = FontWeight.Black, letterSpacing = 1.sp)
-                    }
-                    
-                    IconButton(
-                        onClick = { showProfile = true }, 
-                        modifier = Modifier.size(40.dp).background(Color(0xFF15171E), CircleShape).border(1.dp, theme.primary, CircleShape)
-                    ) { 
-                        Icon(Icons.Default.Person, contentDescription = "Profile", tint = theme.primary) 
-                    }
+        ) { paddingValues ->
+            Box(modifier = Modifier.fillMaxSize()) {
+                // Background
+                if (theme.bgImageUrl.isNotEmpty()) {
+                    AsyncImage(model = theme.bgImageUrl, contentDescription = "App Background", contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+                } else {
+                    Box(modifier = Modifier.fillMaxSize().background(theme.background))
                 }
 
-                // Tabs
-                val tabs = listOf("Home", "Movies", "Series", "TV Live")
-                ScrollableTabRow(
-                    selectedTabIndex = selectedTab,
-                    containerColor = Color.Transparent,
-                    edgePadding = 16.dp,
-                    divider = {},
-                    indicator = { tabPositions ->
-                        if (selectedTab < tabPositions.size) {
-                            TabRowDefaults.SecondaryIndicator(
-                                Modifier.tabIndicatorOffset(tabPositions[selectedTab]),
-                                color = theme.primary
-                            )
+                Column(modifier = Modifier.fillMaxSize().padding(paddingValues)) {
+                    // Top Header with Logo and Profile
+                    Row(
+                        modifier = Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 16.dp, vertical = 12.dp), 
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(modifier = Modifier.size(32.dp).background(theme.primary, RoundedCornerShape(8.dp)), contentAlignment = Alignment.Center) { 
+                                Text("H", color = Color.White, fontWeight = FontWeight.Black, fontSize = 20.sp) 
+                            }
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Text("HOMELAND", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Black, letterSpacing = 1.sp)
+                            Text(" TV", color = theme.primary, fontSize = 18.sp, fontWeight = FontWeight.Black, letterSpacing = 1.sp)
+                        }
+                        
+                        IconButton(
+                            onClick = { showProfile = true }, 
+                            modifier = Modifier.size(40.dp).background(Color(0xFF15171E), CircleShape).border(1.dp, theme.primary, CircleShape)
+                        ) { 
+                            Icon(Icons.Default.Person, contentDescription = "Profile", tint = theme.primary) 
                         }
                     }
-                ) {
-                    tabs.forEachIndexed { index, title ->
-                        Tab(
-                            selected = selectedTab == index,
-                            onClick = { vibrate(context); selectedTab = index },
-                            text = { Text(title, fontWeight = FontWeight.Bold, fontSize = 15.sp) },
-                            selectedContentColor = Color.White,
-                            unselectedContentColor = Color.Gray
-                        )
-                    }
-                }
 
-                // Content Area
-                Box(modifier = Modifier.weight(1f).navigationBarsPadding()) {
-                    when (selectedTab) {
-                        0 -> HomeScreen(theme = theme, profileName = profileName, userVipExpiry = userVipExpiry, kidsMode = kidsMode, searchQuery = globalSearchQuery, onSearchQueryChange = { globalSearchQuery = it }, onDetails = { viewingDetails = it }, isMoviesTab = false)
-                        1 -> HomeScreen(theme = theme, profileName = profileName, userVipExpiry = userVipExpiry, kidsMode = kidsMode, searchQuery = globalSearchQuery, onSearchQueryChange = { globalSearchQuery = it }, onDetails = { viewingDetails = it }, isMoviesTab = true)
-                        2 -> SeriesScreen(theme = theme, profileName = profileName, userVipExpiry = userVipExpiry, kidsMode = kidsMode, onDetails = { viewingDetails = it })
-                        3 -> TvLiveScreen(theme = theme, userVipExpiry = userVipExpiry, kidsMode = kidsMode, onPlayMedia = { tryPlay(it) })
+                    // Content Area
+                    Box(modifier = Modifier.weight(1f)) {
+                        when (selectedTab) {
+                            0 -> HomeScreen(theme = theme, profileName = profileName, userVipExpiry = userVipExpiry, kidsMode = kidsMode, searchQuery = globalSearchQuery, onSearchQueryChange = { globalSearchQuery = it }, onDetails = { viewingDetails = it }, isMoviesTab = false)
+                            1 -> HomeScreen(theme = theme, profileName = profileName, userVipExpiry = userVipExpiry, kidsMode = kidsMode, searchQuery = globalSearchQuery, onSearchQueryChange = { globalSearchQuery = it }, onDetails = { viewingDetails = it }, isMoviesTab = true)
+                            2 -> SeriesScreen(theme = theme, profileName = profileName, userVipExpiry = userVipExpiry, kidsMode = kidsMode, onDetails = { viewingDetails = it })
+                            3 -> TvLiveScreen(theme = theme, userVipExpiry = userVipExpiry, kidsMode = kidsMode, onPlayMedia = { tryPlay(it) })
+                        }
                     }
                 }
             }
@@ -1499,7 +1489,7 @@ fun ProfileScreen(
     isTv: Boolean,
     tvSessionCode: String?,
     onLogout: () -> Unit, onSwitchProfile: () -> Unit, onPlay: (Movie) -> Unit,
-    onBack: () -> Unit = {} // Added onBack
+    onBack: () -> Unit = {} 
 ) {
     val context = LocalContext.current
     var showAdminPanel by remember { mutableStateOf(false) }
@@ -1598,7 +1588,6 @@ fun ProfileScreen(
             } else { Box(modifier = Modifier.fillMaxSize().background(theme.background)) }
 
             Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp).systemBarsPadding(), horizontalAlignment = Alignment.CenterHorizontally) {
-                // Back Button
                 Row(modifier = Modifier.fillMaxWidth().padding(top = 16.dp), horizontalArrangement = Arrangement.Start) {
                     IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, "Back", tint = Color.White) }
                 }
@@ -2362,7 +2351,7 @@ fun HomeScreen(
     searchQuery: String,
     onSearchQueryChange: (String) -> Unit,
     onDetails: (Movie) -> Unit,
-    isMoviesTab: Boolean = false // Added to filter Movies vs TV Shows
+    isMoviesTab: Boolean = false
 ) {
     val db = FirebaseFirestore.getInstance()
     var movies by remember { mutableStateOf<List<Movie>>(emptyList()) }
@@ -2459,8 +2448,6 @@ fun HomeScreen(
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = theme.primary) } 
     } else {
         Column(modifier = Modifier.fillMaxSize()) {
-            // Removed Top Logo row because it's now in the parent HomelandApp layout
-
             OutlinedTextField(
                 value = searchQuery, 
                 onValueChange = { onSearchQueryChange(it) }, 
