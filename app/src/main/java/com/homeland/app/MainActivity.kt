@@ -451,8 +451,8 @@ fun PaymentDialog(
                         Column(modifier = Modifier.padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                             Text("Send Money To:", color = Color.Gray, fontSize = 12.sp)
                             Spacer(modifier = Modifier.height(4.dp))
-                            Text("0772 123 456", color = Color(0xFFFCDC04), fontSize = 24.sp, fontWeight = FontWeight.Black, letterSpacing = 2.sp)
-                            Text("Name: Homeland Media", color = Color.White, fontSize = 14.sp)
+                            Text("0742 199 254", color = Color(0xFFFCDC04), fontSize = 24.sp, fontWeight = FontWeight.Black, letterSpacing = 2.sp)
+                            Text("Name: NAMUDDU NOELINE", color = Color.White, fontSize = 14.sp)
                         }
                     }
 
