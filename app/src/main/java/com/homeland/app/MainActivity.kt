@@ -1605,7 +1605,14 @@ fun SettingsRowWithSwitch(icon: ImageVector, title: String, checked: Boolean, on
 @Composable
 fun NetflixHistoryCard(movie: Movie, progressPercent: Float, onClick: () -> Unit) {
     Box(modifier = Modifier.width(200.dp).aspectRatio(16f / 9f).clip(RoundedCornerShape(12.dp)).border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(12.dp)).background(Color(0xFF15171E).copy(alpha = 0.8f)).clickable { onClick() }) {
-        SubcomposeAsyncImage(model = ImageRequest.Builder(LocalContext.current).data(movie.poster).crossfade(true).build(), contentDescription = movie.title, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize(), loading = { ShimmerBox(modifier = Modifier.fillMaxSize()) }, error = { Box(modifier = Modifier.fillMaxSize().background(Color(0xFF15171E))) })
+        
+        PosterImage(
+            posterData = movie.poster,
+            contentDescription = movie.title,
+            modifier = Modifier.fillMaxSize(),
+            contentScale = ContentScale.Crop
+        )
+
         Box(modifier = Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.7f)))))
         Box(modifier = Modifier.align(Alignment.Center).size(40.dp).clip(CircleShape).background(Color.Black.copy(alpha = 0.5f)), contentAlignment = Alignment.Center) { Icon(Icons.Default.PlayArrow, contentDescription = "Play", tint = Color.White, modifier = Modifier.size(24.dp)) }
         Text(text = movie.title, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.align(Alignment.BottomStart).padding(start = 8.dp, bottom = 10.dp, end = 8.dp))
@@ -2373,7 +2380,14 @@ fun MovieDetailsScreen(movie: Movie, userVipExpiry: Long, onShowVipModal: () -> 
     }
 
     Box(modifier = Modifier.fillMaxSize().background(Color(0xFF0B0C10))) {
-        SubcomposeAsyncImage(model = ImageRequest.Builder(LocalContext.current).data(movie.poster).crossfade(true).build(), contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize().blur(40.dp), loading = { Box(modifier = Modifier.fillMaxSize().background(Color.Black)) }, error = { Box(modifier = Modifier.fillMaxSize().background(Color.Black)) })
+        // 1. Replaced blurred background SubcomposeAsyncImage with PosterImage
+        PosterImage(
+            posterData = movie.poster,
+            contentDescription = null,
+            modifier = Modifier.fillMaxSize().blur(40.dp),
+            contentScale = ContentScale.Crop
+        )
+        
         Box(modifier = Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.6f), Color.Black.copy(alpha = 0.95f)))))
 
         LazyColumn(
@@ -2390,18 +2404,17 @@ fun MovieDetailsScreen(movie: Movie, userVipExpiry: Long, onShowVipModal: () -> 
 
             item {
                 Spacer(modifier = Modifier.height(16.dp))
-                SubcomposeAsyncImage(
-                    model = ImageRequest.Builder(LocalContext.current).data(movie.poster).crossfade(true).build(), 
-                    contentDescription = movie.title, 
-                    contentScale = ContentScale.Crop, 
+                // 2. Replaced main poster SubcomposeAsyncImage with PosterImage
+                PosterImage(
+                    posterData = movie.poster,
+                    contentDescription = movie.title,
                     modifier = Modifier
                         .width(220.dp)
                         .aspectRatio(2f / 3f)
                         .clip(RoundedCornerShape(24.dp))
                         .border(1.dp, Color.White.copy(alpha = 0.2f), RoundedCornerShape(24.dp))
-                        .shadow(16.dp, RoundedCornerShape(24.dp), spotColor = Color.Black), 
-                    loading = { ShimmerBox(modifier = Modifier.fillMaxSize()) }, 
-                    error = { Box(modifier = Modifier.fillMaxSize().background(Color(0xFF15171E)), contentAlignment = Alignment.Center) { Icon(Icons.Default.Movie, null, tint = Color.Gray) } }
+                        .shadow(16.dp, RoundedCornerShape(24.dp), spotColor = Color.Black),
+                    contentScale = ContentScale.Crop
                 )
                 Spacer(modifier = Modifier.height(24.dp))
             }
@@ -2794,7 +2807,14 @@ fun MovieCard(movie: Movie, theme: ThemeConfig, profileName: String, userVipExpi
             .border(1.dp, if (isFocused) Color.White else Color.White.copy(alpha = 0.05f), RoundedCornerShape(16.dp))
             .clickable { vibrate(context); onDetails(movie) }
     ) {
-        SubcomposeAsyncImage(model = ImageRequest.Builder(LocalContext.current).data(movie.poster).crossfade(true).build(), contentDescription = movie.title, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize(), loading = { ShimmerBox(modifier = Modifier.fillMaxSize()) }, error = { Box(modifier = Modifier.fillMaxSize().background(Color(0xFF15171E)), contentAlignment = Alignment.Center) { Icon(Icons.Default.Movie, null, tint = Color.Gray) } })
+        // REPLACED SubcomposeAsyncImage WITH THIS:
+        PosterImage(
+            posterData = movie.poster,
+            contentDescription = movie.title,
+            modifier = Modifier.fillMaxSize(),
+            contentScale = ContentScale.Crop
+        )
+
         Box(modifier = Modifier.fillMaxSize().background(Brush.verticalGradient(colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.3f), Color.Black.copy(alpha = 0.8f), Color.Black))))
         Column(modifier = Modifier.align(Alignment.BottomStart).padding(10.dp)) {
             Text(text = movie.title, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis, lineHeight = 15.sp)
