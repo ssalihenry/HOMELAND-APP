@@ -1380,9 +1380,14 @@ fun HomeScreen(
     }
 
     LaunchedEffect(Unit) {
-        // SPEED FIX: addSnapshotListener loads instantly from cache. limit(10) stops memory overload.
-        db.collection("homeland_movies").orderBy("timestamp", Query.Direction.DESCENDING).limit(10).addSnapshotListener { snap, _ ->
-            if (snap != null && snap.documents.isNotEmpty()) {
+    db.collection("homeland_movies").orderBy("timestamp", Query.Direction.DESCENDING).limit(10).addSnapshotListener { snap, error ->
+        if (error != null) {
+            android.widget.Toast.makeText(context, "Firebase Error: ${error.message}", android.widget.Toast.LENGTH_LONG).show()
+            isLoading = false
+            return@addSnapshotListener
+        }
+
+        if (snap != null && snap.documents.isNotEmpty()) {
                 val fetchedMovies = snap.documents.map { doc -> 
                     val episodes = (doc.get("episodes") as? List<Map<String, Any>>)?.map { ep ->
                         Episode(
