@@ -116,6 +116,10 @@ fun AdminScreen(onBack: () -> Unit) {
     var isImportingJson by remember { mutableStateOf(false) }
     var jsonImportProgress by remember { mutableStateOf("") }
 
+    // 🔥 Cached JSON URI + pending count so we can continue without re-picking file
+    var lastJsonUri by remember { mutableStateOf<String?>(prefs.getString("last_json_uri", null)) }
+    var pendingCount by remember { mutableIntStateOf(prefs.getInt("pending_count", 0)) }
+
     var editingMovieId by remember { mutableStateOf<String?>(null) }
     var editingTvId by remember { mutableStateOf<String?>(null) }
 
@@ -185,160 +189,235 @@ fun AdminScreen(onBack: () -> Unit) {
     var existingMovies by remember { mutableStateOf<List<Movie>>(emptyList()) }
     var existingTv by remember { mutableStateOf<List<TvChannel>>(emptyList()) }
 
-    // 🔥 JSON FILE PICKER LAUNCHER (ROBUST VERSION)
+    // 🔥 Batch importer — called by both the picker AND the Continue button
+    val runBatchImport: (android.net.Uri) -> Unit = { uri ->
+        isImportingJson = true
+        jsonImportProgress = "Reading file..."
+        statusMessage = null
+
+        AppSyncScope.launch {
+            try {
+                // ── Read file ──
+                val jsonString = withContext(Dispatchers.IO) {
+                    context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
+                }
+                if (jsonString.isNullOrBlank()) throw Exception("File is empty.")
+
+                // ── Parse (handles array OR {movies:[...]} OR {data:{movies:[...]}}) ──
+                val trimmed = jsonString.trim().removePrefix("\uFEFF").trim()
+                var jsonArray: JSONArray? = null
+                if (trimmed.startsWith("[")) {
+                    jsonArray = JSONArray(trimmed)
+                } else {
+                    val root = JSONObject(trimmed)
+                    for (key in listOf("movies", "data", "items", "results", "list", "content")) {
+                        val arr = root.optJSONArray(key)
+                        if (arr != null) { jsonArray = arr; break }
+                    }
+                    if (jsonArray == null) {
+                        val dataObj = root.optJSONObject("data")
+                        if (dataObj != null) {
+                            for (key in listOf("movies", "items", "results")) {
+                                val arr = dataObj.optJSONArray(key)
+                                if (arr != null) { jsonArray = arr; break }
+                            }
+                        }
+                    }
+                    if (jsonArray == null) jsonArray = JSONArray().apply { put(root) }
+                }
+
+                val totalInFile = jsonArray.length()
+                Log.d("JSON_IMPORT", "File has $totalInFile items")
+
+                // ── Fetch existing slugs to detect what's already imported ──
+                mainHandler.post { jsonImportProgress = "Checking database ($totalInFile in file)..." }
+                val existingSlugs: Set<String> = try {
+                    val snap = Tasks.await(db.collection("homeland_movies").get(), 20, TimeUnit.SECONDS)
+                    snap.documents.mapNotNull { it.getString("slug") }.filter { it.isNotBlank() }.toSet()
+                } catch (e: Exception) {
+                    Log.w("JSON_IMPORT", "Could not fetch existing slugs", e)
+                    emptySet()
+                }
+
+                // ── Filter to only items not yet in DB ──
+                val pending: List<JSONObject> = (0 until totalInFile).mapNotNull { i ->
+                    val o = jsonArray.getJSONObject(i)
+                    val titleVal = o.optString("title", "").trim()
+                    if (titleVal.isBlank()) return@mapNotNull null
+                    val slug = o.optString("slug", "").trim()
+                    if (slug.isNotBlank() && existingSlugs.contains(slug)) return@mapNotNull null
+                    o
+                }
+
+                Log.d("JSON_IMPORT", "${pending.size} pending (${existingSlugs.size} already in DB)")
+                mainHandler.post { pendingCount = pending.size }
+
+                if (pending.isEmpty()) {
+                    mainHandler.post {
+                        isImportingJson = false
+                        jsonImportProgress = ""
+                        statusMessage = "✅ All $totalInFile movies already imported. Nothing new to add."
+                        pendingCount = 0
+                        lastJsonUri = null
+                        prefs.edit().remove("last_json_uri").putInt("pending_count", 0).apply()
+                    }
+                    return@launch
+                }
+
+                // ── Take next 100 (or fewer if less remain) ──
+                val batchToAdd = pending.take(100)
+                mainHandler.post { jsonImportProgress = "Building batch of ${batchToAdd.size} movies (${pending.size} pending)..." }
+
+                // ── Helpers ──
+                fun mapGenre(raw: String): String {
+                    if (raw.isBlank()) return "Action"
+                    val g = raw.lowercase()
+                    return when {
+                        g.contains("sci") || g.contains("fiction") -> "Sci-Fi"
+                        g.contains("roman") -> "Romantic"
+                        g.contains("comedy") -> "Comedy"
+                        g.contains("horror") -> "Horror"
+                        g.contains("animat") -> "Animation"
+                        g.contains("adventure") -> "Adventure"
+                        else -> "Action"
+                    }
+                }
+                fun mapVj(raw: String): String {
+                    if (raw.isBlank()) return "VJ HD"
+                    val v = raw.trim()
+                    return when (v.lowercase()) {
+                        "vj ice p", "ice p" -> "VJ Omutaka Ice P"
+                        "vj mk kisuule", "mk kisuule" -> "VJ MK"
+                        else -> vjList.firstOrNull { it.equals(v, true) } ?: v
+                    }
+                }
+                fun parseUploadDate(s: String): Long {
+                    if (s.isBlank()) return System.currentTimeMillis()
+                    for (f in listOf(
+                        "yyyy-MM-dd'T'HH:mm:ss.SSSXXX",
+                        "yyyy-MM-dd'T'HH:mm:ssXXX",
+                        "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'",
+                        "yyyy-MM-dd'T'HH:mm:ss'Z'"
+                    )) {
+                        try { return SimpleDateFormat(f, Locale.US).parse(s)?.time ?: 0L } catch (_: Exception) {}
+                    }
+                    return System.currentTimeMillis()
+                }
+
+                // ── Build docs ──
+                val docs = mutableListOf<Map<String, Any>>()
+                for (o in batchToAdd) {
+                    try {
+                        val titleVal = o.optString("title", "").trim()
+
+                        var poster = o.optString("image", "").trim()
+                        if (poster.isBlank()) poster = o.optString("thumbnail", "").trim()
+                        if (poster.isBlank()) poster = o.optString("poster", "").trim()
+                        if (poster.isBlank()) poster = "https://images.unsplash.com/photo-1536440136628-849c177e76a1?auto=format&fit=crop&w=400&q=80"
+
+                        var videoUrlVal = o.optString("videoUrl", "").trim()
+                        if (videoUrlVal.isBlank()) videoUrlVal = o.optString("video_url", "").trim()
+                        if (videoUrlVal.isBlank()) videoUrlVal = o.optString("streamUrl", "").trim()
+
+                        val rawType = o.optString("type", "movie").lowercase()
+                        val normalizedType = if (rawType == "series" || rawType == "tv" || rawType == "tv show") "TV Show" else "Movie"
+
+                        val genreArr = o.optJSONArray("genres") ?: o.optJSONArray("genre")
+                        val firstGenre = if (genreArr != null && genreArr.length() > 0) genreArr.optString(0) else o.optString("genre", "")
+                        val category = mapGenre(firstGenre)
+
+                        val rawVj = o.optString("vj", "").ifBlank { o.optString("videoTag", "") }
+                        val vj = mapVj(rawVj)
+
+                        val yearVal = o.optString("year", "2024")
+                        val yearStr = if (yearVal.length >= 4) yearVal.take(4) else "2024"
+
+                        val movieMap = hashMapOf<String, Any>(
+                            "title" to titleVal,
+                            "poster" to poster,
+                            "videoUrl" to videoUrlVal,
+                            "category" to category,
+                            "videoTag" to vj,
+                            "year" to yearStr,
+                            "type" to normalizedType,
+                            "isVip" to o.optBoolean("isVip", false),
+                            "isFeatured" to o.optBoolean("isFeatured", false),
+                            "isAdult" to false,
+                            "subtitleUrl" to "",
+                            "timestamp" to parseUploadDate(o.optString("uploadDate", ""))
+                        )
+                        val slug = o.optString("slug", "").trim()
+                        if (slug.isNotBlank()) movieMap["slug"] = slug
+                        val desc = o.optString("description", "").trim()
+                        if (desc.isNotBlank()) movieMap["description"] = desc
+                        if (o.has("id") && !o.isNull("id")) movieMap["externalId"] = o.optInt("id", 0)
+
+                        docs.add(movieMap)
+                    } catch (e: Exception) {
+                        Log.e("JSON_IMPORT", "Bad item", e)
+                    }
+                }
+
+                // ── ONE WriteBatch = ONE network call for all 100 ──
+                mainHandler.post { jsonImportProgress = "Writing ${docs.size} movies..." }
+                var written = 0
+                var firstErr = ""
+                try {
+                    val batch = db.batch()
+                    for (doc in docs) {
+                        batch.set(db.collection("homeland_movies").document(), doc)
+                    }
+                    Tasks.await(batch.commit(), 30, TimeUnit.SECONDS)
+                    written = docs.size
+                } catch (e: Exception) {
+                    Log.e("JSON_IMPORT", "Batch commit failed", e)
+                    firstErr = e.message?.take(100) ?: "Batch error"
+                }
+
+                val remaining = pending.size - written
+                mainHandler.post {
+                    isImportingJson = false
+                    jsonImportProgress = "Done. Added: $written | Remaining: $remaining"
+                    pendingCount = remaining
+                    prefs.edit().putInt("pending_count", remaining).apply()
+
+                    statusMessage = when {
+                        written > 0 && remaining > 0 ->
+                            "✅ Added $written movies. $remaining still pending — tap Continue."
+                        written > 0 && remaining == 0 -> {
+                            lastJsonUri = null
+                            prefs.edit().remove("last_json_uri").putInt("pending_count", 0).apply()
+                            "🎉 All done! Last $written movies added. Library complete."
+                        }
+                        else -> "Nothing added. $firstErr"
+                    }
+                }
+
+            } catch (e: Exception) {
+                Log.e("JSON_IMPORT", "Import failed", e)
+                mainHandler.post {
+                    isImportingJson = false
+                    jsonImportProgress = ""
+                    statusMessage = "JSON Error: ${e.message}"
+                }
+            }
+        }
+    }
+
+    // 🔥 File picker — persists URI so Continue works after app restart
     val jsonPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri ->
         if (uri != null) {
-            isImportingJson = true
-            jsonImportProgress = "Reading file..."
-            statusMessage = null
-
-            AppSyncScope.launch {
-                try {
-                    val jsonString = withContext(Dispatchers.IO) {
-                        context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
-                    }
-
-                    if (jsonString.isNullOrBlank()) throw Exception("File is empty or unreadable.")
-                    Log.d("JSON_IMPORT", "Read ${jsonString.length} chars")
-                    Log.d("JSON_IMPORT", "First 200 chars: ${jsonString.take(200)}")
-
-                    // Parse — handle array OR object with wrapper
-                    val trimmed = jsonString.trim().removePrefix("\uFEFF").trim()
-                    var jsonArray: JSONArray? = null
-
-                    if (trimmed.startsWith("[")) {
-                        jsonArray = JSONArray(trimmed)
-                    } else if (trimmed.startsWith("{")) {
-                        val root = JSONObject(trimmed)
-                        for (key in listOf("movies", "data", "items", "results", "list", "content")) {
-                            if (root.has(key) && root.get(key) is JSONArray) {
-                                jsonArray = root.getJSONArray(key); break
-                            }
-                        }
-                        if (jsonArray == null) {
-                            // Treat as single movie object
-                            jsonArray = JSONArray().apply { put(root) }
-                        }
-                    } else {
-                        throw Exception("Invalid JSON. File must start with [ or {.")
-                    }
-
-                    if (jsonArray.length() == 0) throw Exception("No items found in JSON.")
-
-                    // Show detected fields so you know what to expect
-                    val sampleKeys = jsonArray.getJSONObject(0).keys().asSequence().toList()
-                    Log.d("JSON_IMPORT", "Detected fields: $sampleKeys")
-                    mainHandler.post {
-                        jsonImportProgress = "Detected fields: ${sampleKeys.joinToString(", ")}"
-                    }
-
-                    // Helper: first non-empty value from any of these keys
-                    fun getStr(o: JSONObject, vararg keys: String): String {
-                        for (k in keys) {
-                            if (o.has(k) && !o.isNull(k)) {
-                                val v = o.optString(k, "").trim()
-                                if (v.isNotEmpty()) return v
-                            }
-                        }
-                        return ""
-                    }
-
-                    var ok = 0
-                    var fail = 0
-                    var firstErr = ""
-
-                    for (i in 0 until jsonArray.length()) {
-                        mainHandler.post { jsonImportProgress = "Uploading ${i + 1}/${jsonArray.length()}..." }
-                        try {
-                            val o = jsonArray.getJSONObject(i)
-                            val movie = hashMapOf<String, Any>()
-
-                            val titleVal = getStr(o, "title", "name", "movieTitle", "movie_title", "movieName")
-                            if (titleVal.isBlank()) {
-                                fail++; if (firstErr.isEmpty()) firstErr = "Item $i has no title"; continue
-                            }
-                            movie["title"] = titleVal
-
-                            // 🔥 Try MANY poster field names
-                            var posterVal = getStr(
-                                o,
-                                "poster", "posterUrl", "poster_url", "posterImage", "poster_image",
-                                "image", "imageUrl", "image_url",
-                                "thumbnail", "thumb", "cover", "coverUrl", "cover_url",
-                                "img", "picture", "photo"
-                            )
-                            // ✅ Fallback: never leave poster blank (this is why it showed as text!)
-                            if (posterVal.isBlank()) {
-                                posterVal = "https://images.unsplash.com/photo-1536440136628-849c177e76a1?auto=format&fit=crop&w=400&q=80"
-                            }
-                            movie["poster"] = posterVal
-
-                            // Video URL — many fallbacks
-                            movie["videoUrl"] = getStr(
-                                o,
-                                "videoUrl", "video_url", "url", "link", "streamUrl", "stream_url",
-                                "video", "stream", "movieUrl", "movie_url", "playUrl", "play_url"
-                            )
-
-                            movie["category"] = getStr(o, "category", "genre", "cat").ifBlank { "Action" }
-                            movie["videoTag"] = getStr(o, "videoTag", "video_tag", "vj", "vjName", "vj_name", "tag").ifBlank { "VJ HD" }
-
-                            val yr = getStr(o, "year", "releaseYear", "release_year", "releaseDate", "release_date")
-                            movie["year"] = if (yr.length >= 4) yr.take(4) else "2024"
-
-                            movie["type"] = getStr(o, "type", "contentType").ifBlank { "Movie" }
-                            movie["isVip"] = o.optBoolean("isVip", o.optBoolean("is_vip", o.optBoolean("vip", false)))
-                            movie["isFeatured"] = o.optBoolean("isFeatured", o.optBoolean("is_featured", o.optBoolean("featured", false)))
-                            movie["isAdult"] = o.optBoolean("isAdult", o.optBoolean("is_adult", o.optBoolean("adult", false)))
-                            movie["subtitleUrl"] = getStr(o, "subtitleUrl", "subtitle_url", "subtitle", "subs")
-                            movie["timestamp"] = System.currentTimeMillis()
-
-                            // Episodes
-                            if (o.has("episodes") && o.get("episodes") is JSONArray) {
-                                val arr = o.getJSONArray("episodes")
-                                val eps = mutableListOf<HashMap<String, String>>()
-                                for (j in 0 until arr.length()) {
-                                    val ep = arr.getJSONObject(j)
-                                    eps.add(hashMapOf(
-                                        "season" to getStr(ep, "season", "s"),
-                                        "episode" to getStr(ep, "episode", "ep", "number"),
-                                        "url" to getStr(ep, "url", "videoUrl", "video_url", "link", "streamUrl", "stream_url"),
-                                        "subtitleUrl" to getStr(ep, "subtitleUrl", "subtitle_url", "subtitle")
-                                    ))
-                                }
-                                movie["episodes"] = eps
-                            }
-
-                            Log.d("JSON_IMPORT", "Saving item $i: title=$titleVal, poster=${posterVal.take(60)}")
-                            Tasks.await(db.collection("homeland_movies").add(movie), 15, TimeUnit.SECONDS)
-                            ok++
-                        } catch (e: Exception) {
-                            Log.e("JSON_IMPORT", "Item $i failed", e)
-                            fail++
-                            if (firstErr.isEmpty()) firstErr = e.message?.take(80) ?: "Unknown"
-                        }
-                    }
-
-                    mainHandler.post {
-                        isImportingJson = false
-                        jsonImportProgress = "Done. Added: $ok | Failed: $fail"
-                        statusMessage = if (ok > 0) {
-                            "Success! $ok movies published." + if (fail > 0) " ($fail skipped)" else ""
-                        } else {
-                            "Nothing imported. $firstErr"
-                        }
-                    }
-                } catch (e: Exception) {
-                    Log.e("JSON_IMPORT", "Import failed", e)
-                    mainHandler.post {
-                        isImportingJson = false
-                        jsonImportProgress = ""
-                        statusMessage = "JSON Error: ${e.message}"
-                    }
-                }
-            }
+            try {
+                context.contentResolver.takePersistableUriPermission(
+                    uri, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
+                )
+            } catch (_: Exception) {}
+            prefs.edit().putString("last_json_uri", uri.toString()).putInt("pending_count", 0).apply()
+            lastJsonUri = uri.toString()
+            pendingCount = 0
+            runBatchImport(uri)
         }
     }
 
@@ -457,13 +536,13 @@ fun AdminScreen(onBack: () -> Unit) {
         ) {
             if (statusMessage != null) {
                 item {
-                    Text(text = statusMessage!!, color = if (statusMessage!!.contains("Success") || statusMessage!!.contains("Approved") || statusMessage!!.contains("Complete")) Color.Green else Color.Red, fontWeight = FontWeight.Bold)
+                    Text(text = statusMessage!!, color = if (statusMessage!!.contains("Success") || statusMessage!!.contains("Approved") || statusMessage!!.contains("Complete") || statusMessage!!.contains("✅") || statusMessage!!.contains("🎉") || statusMessage!!.contains("Added")) Color.Green else Color.Red, fontWeight = FontWeight.Bold)
                 }
             }
 
             if (selectedTab == 0) {
 
-                // 🔥 NEW JSON IMPORT CARD
+                // 🔥 JSON IMPORT CARD (100 per tap, cached continue)
                 item {
                     Card(
                         colors = CardDefaults.cardColors(containerColor = Color(0xFF15171E).copy(alpha = 0.7f)),
@@ -476,8 +555,13 @@ fun AdminScreen(onBack: () -> Unit) {
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text("Bulk Import from JSON", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
                             }
-                            Text("Select a .json file to add multiple movies at once.", color = Color.Gray, fontSize = 12.sp, modifier = Modifier.padding(bottom = 12.dp, top = 4.dp))
+                            Text(
+                                "Adds 100 movies per tap. Re-tapping is safe — no duplicates, always continues where you left off.",
+                                color = Color.Gray, fontSize = 12.sp,
+                                modifier = Modifier.padding(bottom = 12.dp, top = 4.dp)
+                            )
 
+                            // Primary button: pick a new file
                             Button(
                                 onClick = { jsonPickerLauncher.launch(arrayOf("application/json", "text/plain", "*/*")) },
                                 modifier = Modifier.fillMaxWidth().height(50.dp),
@@ -489,6 +573,24 @@ fun AdminScreen(onBack: () -> Unit) {
                                     CircularProgressIndicator(color = Color.White, modifier = Modifier.size(24.dp))
                                 } else {
                                     Text("Select JSON File", color = Color.White, fontWeight = FontWeight.Bold)
+                                }
+                            }
+
+                            // Continue button: appears when a batch is already in progress
+                            if (lastJsonUri != null && pendingCount > 0 && !isImportingJson) {
+                                Spacer(modifier = Modifier.height(10.dp))
+                                Button(
+                                    onClick = {
+                                        runBatchImport(android.net.Uri.parse(lastJsonUri!!))
+                                    },
+                                    modifier = Modifier.fillMaxWidth().height(50.dp),
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFCDC04)),
+                                    shape = RoundedCornerShape(12.dp)
+                                ) {
+                                    Text(
+                                        "▶ Continue Import ($pendingCount remaining)",
+                                        color = Color.Black, fontWeight = FontWeight.Bold
+                                    )
                                 }
                             }
 
@@ -773,7 +875,6 @@ fun AdminScreen(onBack: () -> Unit) {
                             Text("Manage Content", color = Color.White, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 12.dp))
                             existingMovies.forEach { movie ->
                                 Row(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                                    // 🔥 Poster thumbnail so you can see it worked
                                     PosterImage(
                                         posterData = movie.poster,
                                         contentDescription = movie.title,
