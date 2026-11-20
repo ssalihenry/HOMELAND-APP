@@ -187,7 +187,7 @@ fun AdminScreen(onBack: () -> Unit) {
 
     // 🔥 JSON FILE PICKER LAUNCHER
     val jsonPickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent()
+        contract = ActivityResultContracts.OpenDocument()
     ) { uri ->
         if (uri != null) {
             isImportingJson = true
@@ -410,7 +410,7 @@ fun AdminScreen(onBack: () -> Unit) {
                             Text("Select a .json file to add multiple movies at once.", color = Color.Gray, fontSize = 12.sp, modifier = Modifier.padding(bottom = 12.dp, top = 4.dp))
 
                             Button(
-                                onClick = { jsonPickerLauncher.launch("application/json") },
+                                onClick = { jsonPickerLauncher.launch(arrayOf("application/json", "text/plain", "*/*")) },
                                 modifier = Modifier.fillMaxWidth().height(50.dp),
                                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981)),
                                 shape = RoundedCornerShape(12.dp),
