@@ -18,6 +18,7 @@ import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Cancel
 import androidx.compose.material.icons.filled.CloudDownload
+import androidx.compose.material.icons.filled.UploadFile
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -35,7 +36,7 @@ import java.util.Date
 import java.util.Locale
 import kotlin.random.Random
 
-// 🔥 ADDED IMPORTS FOR YOCINEMA SYNC & BACKGROUND SCOPE
+// 🔥 ADDED IMPORTS FOR YOCINEMA SYNC & BACKGROUND SCOPE & JSON IMPORT
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
@@ -43,6 +44,8 @@ import android.os.Handler
 import android.os.Looper
 import android.util.Base64
 import android.util.Log
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.ui.platform.LocalContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -108,6 +111,10 @@ fun AdminScreen(onBack: () -> Unit) {
     // 🔥 YOCINEMA SYNC STATE (Using Global variables)
     var yocApiKey by remember { mutableStateOf(prefs.getString("yoc_api_key", "") ?: "") }
     var lastSyncTime by remember { mutableLongStateOf(prefs.getLong("yoc_last_sync", 0L)) }
+
+    // 🔥 JSON IMPORT STATE
+    var isImportingJson by remember { mutableStateOf(false) }
+    var jsonImportProgress by remember { mutableStateOf("") }
 
     var editingMovieId by remember { mutableStateOf<String?>(null) }
     var editingTvId by remember { mutableStateOf<String?>(null) }
@@ -177,6 +184,94 @@ fun AdminScreen(onBack: () -> Unit) {
 
     var existingMovies by remember { mutableStateOf<List<Movie>>(emptyList()) }
     var existingTv by remember { mutableStateOf<List<TvChannel>>(emptyList()) }
+
+    // 🔥 JSON FILE PICKER LAUNCHER
+    val jsonPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri ->
+        if (uri != null) {
+            isImportingJson = true
+            jsonImportProgress = "Reading file..."
+            
+            AppSyncScope.launch {
+                try {
+                    // 1. Read the file
+                    val jsonString = withContext(Dispatchers.IO) {
+                        context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
+                    }
+                    
+                    if (jsonString.isNullOrBlank()) throw Exception("File is empty or unreadable.")
+
+                    // 2. Parse JSON
+                    val jsonArray = JSONArray(jsonString)
+                    var successCount = 0
+                    var failCount = 0
+
+                    // 3. Upload to Firestore loop
+                    for (i in 0 until jsonArray.length()) {
+                        mainHandler.post { jsonImportProgress = "Uploading ${i + 1}/${jsonArray.length()}..." }
+                        try {
+                            val obj = jsonArray.getJSONObject(i)
+                            val movieMap = hashMapOf<String, Any>()
+                            
+                            // Basic mappings (fallback to default if missing)
+                            movieMap["title"] = obj.optString("title", "Unknown Title")
+                            movieMap["poster"] = obj.optString("poster", obj.optString("posterUrl", ""))
+                            movieMap["videoUrl"] = obj.optString("videoUrl", "")
+                            movieMap["category"] = obj.optString("category", "Action")
+                            movieMap["videoTag"] = obj.optString("videoTag", "VJ HD")
+                            movieMap["year"] = obj.optString("year", "2024")
+                            movieMap["type"] = obj.optString("type", "Movie")
+                            movieMap["isVip"] = obj.optBoolean("isVip", false)
+                            movieMap["isFeatured"] = obj.optBoolean("isFeatured", false)
+                            movieMap["isAdult"] = obj.optBoolean("isAdult", false)
+                            movieMap["subtitleUrl"] = obj.optString("subtitleUrl", "")
+                            
+                            // 🔥 CRITICAL: ALWAYS ADD TIMESTAMP SO THE APP DOESN'T CRASH
+                            movieMap["timestamp"] = System.currentTimeMillis()
+
+                            // Episodes parsing (if it's a TV Show)
+                            if (obj.has("episodes")) {
+                                val epsArr = obj.getJSONArray("episodes")
+                                val epsList = mutableListOf<HashMap<String, String>>()
+                                for (j in 0 until epsArr.length()) {
+                                    val ep = epsArr.getJSONObject(j)
+                                    epsList.add(hashMapOf(
+                                        "season" to ep.optString("season", ""),
+                                        "episode" to ep.optString("episode", ""),
+                                        "url" to ep.optString("url", ""),
+                                        "subtitleUrl" to ep.optString("subtitleUrl", "")
+                                    ))
+                                }
+                                movieMap["episodes"] = epsList
+                            }
+
+                            // Save to Database
+                            Tasks.await(db.collection("homeland_movies").add(movieMap), 15, TimeUnit.SECONDS)
+                            successCount++
+                        } catch (e: Exception) {
+                            Log.e("JSON_IMPORT", "Failed to import item $i", e)
+                            failCount++
+                        }
+                    }
+
+                    // 4. Finished
+                    mainHandler.post {
+                        isImportingJson = false
+                        jsonImportProgress = "Done! Added: $successCount. Failed: $failCount."
+                        statusMessage = "JSON Import Complete: $successCount added."
+                    }
+
+                } catch (e: Exception) {
+                    mainHandler.post {
+                        isImportingJson = false
+                        jsonImportProgress = ""
+                        statusMessage = "JSON Error: ${e.message}"
+                    }
+                }
+            }
+        }
+    }
 
     LaunchedEffect(selectedTab) {
         if (selectedTab == 0 || selectedTab == 4) {
@@ -293,12 +388,49 @@ fun AdminScreen(onBack: () -> Unit) {
         ) {
             if (statusMessage != null) {
                 item {
-                    Text(text = statusMessage!!, color = if (statusMessage!!.contains("Success") || statusMessage!!.contains("Approved")) Color.Green else Color.Red, fontWeight = FontWeight.Bold)
+                    Text(text = statusMessage!!, color = if (statusMessage!!.contains("Success") || statusMessage!!.contains("Approved") || statusMessage!!.contains("Complete")) Color.Green else Color.Red, fontWeight = FontWeight.Bold)
                 }
             }
 
             if (selectedTab == 0) {
                 
+                // 🔥 NEW JSON IMPORT CARD
+                item {
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFF15171E).copy(alpha = 0.7f)), 
+                        shape = RoundedCornerShape(24.dp),
+                        border = BorderStroke(1.dp, Color(0xFF10B981).copy(alpha = 0.5f))
+                    ) {
+                        Column(modifier = Modifier.padding(20.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.UploadFile, contentDescription = "Upload", tint = Color(0xFF10B981))
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("Bulk Import from JSON", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                            }
+                            Text("Select a .json file to add multiple movies at once.", color = Color.Gray, fontSize = 12.sp, modifier = Modifier.padding(bottom = 12.dp, top = 4.dp))
+
+                            Button(
+                                onClick = { jsonPickerLauncher.launch("application/json") },
+                                modifier = Modifier.fillMaxWidth().height(50.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981)),
+                                shape = RoundedCornerShape(12.dp),
+                                enabled = !isImportingJson
+                            ) {
+                                if (isImportingJson) {
+                                    CircularProgressIndicator(color = Color.White, modifier = Modifier.size(24.dp))
+                                } else {
+                                    Text("Select JSON File", color = Color.White, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                            
+                            if (isImportingJson || jsonImportProgress.isNotEmpty()) {
+                                Spacer(modifier = Modifier.height(12.dp))
+                                Text(jsonImportProgress, color = Color(0xFFFCDC04), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                }
+
                 item {
                     Card(
                         colors = CardDefaults.cardColors(containerColor = Color(0xFF15171E).copy(alpha = 0.7f)), 
@@ -425,38 +557,37 @@ fun AdminScreen(onBack: () -> Unit) {
                             
                             OutlinedTextField(value = title, onValueChange = { title = it }, label = { Text("Title") }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White, focusedBorderColor = Color(0xFFE50914), unfocusedBorderColor = Color.DarkGray, focusedContainerColor = Color.Black.copy(alpha = 0.2f), unfocusedContainerColor = Color.Black.copy(alpha = 0.2f)))
                             Spacer(modifier = Modifier.height(12.dp))
-                            // 1. Image Preview (So you can see the poster works)
-if (posterUrl.isNotBlank()) {
-    PosterImage(
-        posterData = posterUrl,
-        contentDescription = "Preview",
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(200.dp)
-            .padding(bottom = 8.dp)
-            .clip(RoundedCornerShape(12.dp))
-            .border(1.dp, Color.White.copy(alpha = 0.2f), RoundedCornerShape(12.dp)),
-        contentScale = ContentScale.Crop
-    )
-}
+                            
+                            if (posterUrl.isNotBlank()) {
+                                PosterImage(
+                                    posterData = posterUrl,
+                                    contentDescription = "Preview",
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(200.dp)
+                                        .padding(bottom = 8.dp)
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .border(1.dp, Color.White.copy(alpha = 0.2f), RoundedCornerShape(12.dp)),
+                                    contentScale = ContentScale.Crop
+                                )
+                            }
 
-// 2. The Text Field (Set to maxLines = 3 so it doesn't expand infinitely)
-OutlinedTextField(
-    value = posterUrl, 
-    onValueChange = { posterUrl = it }, 
-    label = { Text("Poster URL or Base64") }, 
-    modifier = Modifier.fillMaxWidth(), 
-    shape = RoundedCornerShape(12.dp), 
-    maxLines = 3, 
-    colors = OutlinedTextFieldDefaults.colors(
-        focusedTextColor = Color.White, 
-        unfocusedTextColor = Color.White, 
-        focusedBorderColor = Color(0xFFE50914), 
-        unfocusedBorderColor = Color.DarkGray, 
-        focusedContainerColor = Color.Black.copy(alpha = 0.2f), 
-        unfocusedContainerColor = Color.Black.copy(alpha = 0.2f)
-    )
-)
+                            OutlinedTextField(
+                                value = posterUrl, 
+                                onValueChange = { posterUrl = it }, 
+                                label = { Text("Poster URL or Base64") }, 
+                                modifier = Modifier.fillMaxWidth(), 
+                                shape = RoundedCornerShape(12.dp), 
+                                maxLines = 3, 
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedTextColor = Color.White, 
+                                    unfocusedTextColor = Color.White, 
+                                    focusedBorderColor = Color(0xFFE50914), 
+                                    unfocusedBorderColor = Color.DarkGray, 
+                                    focusedContainerColor = Color.Black.copy(alpha = 0.2f), 
+                                    unfocusedContainerColor = Color.Black.copy(alpha = 0.2f)
+                                )
+                            )
                             Spacer(modifier = Modifier.height(12.dp))
                             OutlinedTextField(value = year, onValueChange = { year = it }, label = { Text("Year") }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White, focusedBorderColor = Color(0xFFE50914), unfocusedBorderColor = Color.DarkGray, focusedContainerColor = Color.Black.copy(alpha = 0.2f), unfocusedContainerColor = Color.Black.copy(alpha = 0.2f)))
                             Spacer(modifier = Modifier.height(12.dp))
