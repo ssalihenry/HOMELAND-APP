@@ -61,7 +61,7 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
 import java.util.concurrent.TimeUnit
-import com.google.android.gms.tasks.Tasks 
+import com.google.android.gms.tasks.Tasks
 
 // 🔥 GLOBAL BACKGROUND SYNC SCOPE & STATE
 val AppSyncScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
@@ -72,8 +72,8 @@ val vjList = listOf("VJ Akaana", "VJ Arafa", "VJ Aron", "VJ Ashim", "VJ Ashim J"
 val categories = listOf("Action", "Sci-Fi", "Comedy", "Animation", "Romantic", "Horror", "Adventure")
 
 data class AdminUser(
-    val uid: String = "", 
-    val email: String = "", 
+    val uid: String = "",
+    val email: String = "",
     val homelandVipExpiry: Long = 0L,
     val isBanned: Boolean = false
 )
@@ -102,9 +102,9 @@ fun AdminScreen(onBack: () -> Unit) {
     val context = LocalContext.current
     val prefs = context.getSharedPreferences("homeland_prefs", Context.MODE_PRIVATE)
     val mainHandler = remember { Handler(Looper.getMainLooper()) }
-    
-    var selectedTab by remember { mutableIntStateOf(0) } 
-    
+
+    var selectedTab by remember { mutableIntStateOf(0) }
+
     var isLoading by remember { mutableStateOf(false) }
     var statusMessage by remember { mutableStateOf<String?>(null) }
 
@@ -132,7 +132,7 @@ fun AdminScreen(onBack: () -> Unit) {
     var isFeaturedMovie by remember { mutableStateOf(false) }
     var isAdultMovie by remember { mutableStateOf(false) }
     var episodesList by remember { mutableStateOf<List<Episode>>(emptyList()) }
-    
+
     var catExpanded by remember { mutableStateOf(false) }
     var vjExpanded by remember { mutableStateOf(false) }
 
@@ -149,7 +149,7 @@ fun AdminScreen(onBack: () -> Unit) {
     var allUsers by remember { mutableStateOf<List<AdminUser>>(emptyList()) }
     var themeFontUrl by remember { mutableStateOf("") }
     var themeBgImageUrl by remember { mutableStateOf("") }
-    
+
     // Custom VIP Days State
     var customVipDays by remember { mutableStateOf("30") }
 
@@ -179,90 +179,159 @@ fun AdminScreen(onBack: () -> Unit) {
     var newPlanName by remember { mutableStateOf("") }
     var newPlanPrice by remember { mutableStateOf("") }
     var newPlanDays by remember { mutableStateOf("") }
-    
+
     var paymentRequests by remember { mutableStateOf<List<PaymentRequest>>(emptyList()) }
 
     var existingMovies by remember { mutableStateOf<List<Movie>>(emptyList()) }
     var existingTv by remember { mutableStateOf<List<TvChannel>>(emptyList()) }
 
-    // 🔥 JSON FILE PICKER LAUNCHER
+    // 🔥 JSON FILE PICKER LAUNCHER (ROBUST VERSION)
     val jsonPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri ->
         if (uri != null) {
             isImportingJson = true
             jsonImportProgress = "Reading file..."
-            
+            statusMessage = null
+
             AppSyncScope.launch {
                 try {
-                    // 1. Read the file
                     val jsonString = withContext(Dispatchers.IO) {
                         context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
                     }
-                    
+
                     if (jsonString.isNullOrBlank()) throw Exception("File is empty or unreadable.")
+                    Log.d("JSON_IMPORT", "Read ${jsonString.length} chars")
+                    Log.d("JSON_IMPORT", "First 200 chars: ${jsonString.take(200)}")
 
-                    // 2. Parse JSON
-                    val jsonArray = JSONArray(jsonString)
-                    var successCount = 0
-                    var failCount = 0
+                    // Parse — handle array OR object with wrapper
+                    val trimmed = jsonString.trim().removePrefix("\uFEFF").trim()
+                    var jsonArray: JSONArray? = null
 
-                    // 3. Upload to Firestore loop
+                    if (trimmed.startsWith("[")) {
+                        jsonArray = JSONArray(trimmed)
+                    } else if (trimmed.startsWith("{")) {
+                        val root = JSONObject(trimmed)
+                        for (key in listOf("movies", "data", "items", "results", "list", "content")) {
+                            if (root.has(key) && root.get(key) is JSONArray) {
+                                jsonArray = root.getJSONArray(key); break
+                            }
+                        }
+                        if (jsonArray == null) {
+                            // Treat as single movie object
+                            jsonArray = JSONArray().apply { put(root) }
+                        }
+                    } else {
+                        throw Exception("Invalid JSON. File must start with [ or {.")
+                    }
+
+                    if (jsonArray.length() == 0) throw Exception("No items found in JSON.")
+
+                    // Show detected fields so you know what to expect
+                    val sampleKeys = jsonArray.getJSONObject(0).keys().asSequence().toList()
+                    Log.d("JSON_IMPORT", "Detected fields: $sampleKeys")
+                    mainHandler.post {
+                        jsonImportProgress = "Detected fields: ${sampleKeys.joinToString(", ")}"
+                    }
+
+                    // Helper: first non-empty value from any of these keys
+                    fun getStr(o: JSONObject, vararg keys: String): String {
+                        for (k in keys) {
+                            if (o.has(k) && !o.isNull(k)) {
+                                val v = o.optString(k, "").trim()
+                                if (v.isNotEmpty()) return v
+                            }
+                        }
+                        return ""
+                    }
+
+                    var ok = 0
+                    var fail = 0
+                    var firstErr = ""
+
                     for (i in 0 until jsonArray.length()) {
                         mainHandler.post { jsonImportProgress = "Uploading ${i + 1}/${jsonArray.length()}..." }
                         try {
-                            val obj = jsonArray.getJSONObject(i)
-                            val movieMap = hashMapOf<String, Any>()
-                            
-                            // Basic mappings (fallback to default if missing)
-                            movieMap["title"] = obj.optString("title", "Unknown Title")
-                            movieMap["poster"] = obj.optString("poster", obj.optString("posterUrl", ""))
-                            movieMap["videoUrl"] = obj.optString("videoUrl", "")
-                            movieMap["category"] = obj.optString("category", "Action")
-                            movieMap["videoTag"] = obj.optString("videoTag", "VJ HD")
-                            movieMap["year"] = obj.optString("year", "2024")
-                            movieMap["type"] = obj.optString("type", "Movie")
-                            movieMap["isVip"] = obj.optBoolean("isVip", false)
-                            movieMap["isFeatured"] = obj.optBoolean("isFeatured", false)
-                            movieMap["isAdult"] = obj.optBoolean("isAdult", false)
-                            movieMap["subtitleUrl"] = obj.optString("subtitleUrl", "")
-                            
-                            // 🔥 CRITICAL: ALWAYS ADD TIMESTAMP SO THE APP DOESN'T CRASH
-                            movieMap["timestamp"] = System.currentTimeMillis()
+                            val o = jsonArray.getJSONObject(i)
+                            val movie = hashMapOf<String, Any>()
 
-                            // Episodes parsing (if it's a TV Show)
-                            if (obj.has("episodes")) {
-                                val epsArr = obj.getJSONArray("episodes")
-                                val epsList = mutableListOf<HashMap<String, String>>()
-                                for (j in 0 until epsArr.length()) {
-                                    val ep = epsArr.getJSONObject(j)
-                                    epsList.add(hashMapOf(
-                                        "season" to ep.optString("season", ""),
-                                        "episode" to ep.optString("episode", ""),
-                                        "url" to ep.optString("url", ""),
-                                        "subtitleUrl" to ep.optString("subtitleUrl", "")
+                            val titleVal = getStr(o, "title", "name", "movieTitle", "movie_title", "movieName")
+                            if (titleVal.isBlank()) {
+                                fail++; if (firstErr.isEmpty()) firstErr = "Item $i has no title"; continue
+                            }
+                            movie["title"] = titleVal
+
+                            // 🔥 Try MANY poster field names
+                            var posterVal = getStr(
+                                o,
+                                "poster", "posterUrl", "poster_url", "posterImage", "poster_image",
+                                "image", "imageUrl", "image_url",
+                                "thumbnail", "thumb", "cover", "coverUrl", "cover_url",
+                                "img", "picture", "photo"
+                            )
+                            // ✅ Fallback: never leave poster blank (this is why it showed as text!)
+                            if (posterVal.isBlank()) {
+                                posterVal = "https://images.unsplash.com/photo-1536440136628-849c177e76a1?auto=format&fit=crop&w=400&q=80"
+                            }
+                            movie["poster"] = posterVal
+
+                            // Video URL — many fallbacks
+                            movie["videoUrl"] = getStr(
+                                o,
+                                "videoUrl", "video_url", "url", "link", "streamUrl", "stream_url",
+                                "video", "stream", "movieUrl", "movie_url", "playUrl", "play_url"
+                            )
+
+                            movie["category"] = getStr(o, "category", "genre", "cat").ifBlank { "Action" }
+                            movie["videoTag"] = getStr(o, "videoTag", "video_tag", "vj", "vjName", "vj_name", "tag").ifBlank { "VJ HD" }
+
+                            val yr = getStr(o, "year", "releaseYear", "release_year", "releaseDate", "release_date")
+                            movie["year"] = if (yr.length >= 4) yr.take(4) else "2024"
+
+                            movie["type"] = getStr(o, "type", "contentType").ifBlank { "Movie" }
+                            movie["isVip"] = o.optBoolean("isVip", o.optBoolean("is_vip", o.optBoolean("vip", false)))
+                            movie["isFeatured"] = o.optBoolean("isFeatured", o.optBoolean("is_featured", o.optBoolean("featured", false)))
+                            movie["isAdult"] = o.optBoolean("isAdult", o.optBoolean("is_adult", o.optBoolean("adult", false)))
+                            movie["subtitleUrl"] = getStr(o, "subtitleUrl", "subtitle_url", "subtitle", "subs")
+                            movie["timestamp"] = System.currentTimeMillis()
+
+                            // Episodes
+                            if (o.has("episodes") && o.get("episodes") is JSONArray) {
+                                val arr = o.getJSONArray("episodes")
+                                val eps = mutableListOf<HashMap<String, String>>()
+                                for (j in 0 until arr.length()) {
+                                    val ep = arr.getJSONObject(j)
+                                    eps.add(hashMapOf(
+                                        "season" to getStr(ep, "season", "s"),
+                                        "episode" to getStr(ep, "episode", "ep", "number"),
+                                        "url" to getStr(ep, "url", "videoUrl", "video_url", "link", "streamUrl", "stream_url"),
+                                        "subtitleUrl" to getStr(ep, "subtitleUrl", "subtitle_url", "subtitle")
                                     ))
                                 }
-                                movieMap["episodes"] = epsList
+                                movie["episodes"] = eps
                             }
 
-                            // Save to Database
-                            Tasks.await(db.collection("homeland_movies").add(movieMap), 15, TimeUnit.SECONDS)
-                            successCount++
+                            Log.d("JSON_IMPORT", "Saving item $i: title=$titleVal, poster=${posterVal.take(60)}")
+                            Tasks.await(db.collection("homeland_movies").add(movie), 15, TimeUnit.SECONDS)
+                            ok++
                         } catch (e: Exception) {
-                            Log.e("JSON_IMPORT", "Failed to import item $i", e)
-                            failCount++
+                            Log.e("JSON_IMPORT", "Item $i failed", e)
+                            fail++
+                            if (firstErr.isEmpty()) firstErr = e.message?.take(80) ?: "Unknown"
                         }
                     }
 
-                    // 4. Finished
                     mainHandler.post {
                         isImportingJson = false
-                        jsonImportProgress = "Done! Added: $successCount. Failed: $failCount."
-                        statusMessage = "JSON Import Complete: $successCount added."
+                        jsonImportProgress = "Done. Added: $ok | Failed: $fail"
+                        statusMessage = if (ok > 0) {
+                            "Success! $ok movies published." + if (fail > 0) " ($fail skipped)" else ""
+                        } else {
+                            "Nothing imported. $firstErr"
+                        }
                     }
-
                 } catch (e: Exception) {
+                    Log.e("JSON_IMPORT", "Import failed", e)
                     mainHandler.post {
                         isImportingJson = false
                         jsonImportProgress = ""
@@ -295,8 +364,8 @@ fun AdminScreen(onBack: () -> Unit) {
                 if (snap != null) {
                     allUsers = snap.documents.map { doc ->
                         AdminUser(
-                            uid = doc.id, 
-                            email = doc.getString("email") ?: "Unknown", 
+                            uid = doc.id,
+                            email = doc.getString("email") ?: "Unknown",
                             homelandVipExpiry = doc.getLong("homelandVipExpiry") ?: 0L,
                             isBanned = doc.getBoolean("isBanned") ?: false
                         )
@@ -374,10 +443,10 @@ fun AdminScreen(onBack: () -> Unit) {
                     Tab(selected = selectedTab == 0, onClick = { selectedTab = 0 }, text = { Text("Movies") })
                     Tab(selected = selectedTab == 1, onClick = { selectedTab = 1 }, text = { Text("TV Live") })
                     Tab(selected = selectedTab == 2, onClick = { selectedTab = 2 }, text = { Text("VIP") })
-                    Tab(selected = selectedTab == 6, onClick = { selectedTab = 6 }, text = { Text("Payments") }) 
+                    Tab(selected = selectedTab == 6, onClick = { selectedTab = 6 }, text = { Text("Payments") })
                     Tab(selected = selectedTab == 3, onClick = { selectedTab = 3 }, text = { Text("Theme") })
                     Tab(selected = selectedTab == 4, onClick = { selectedTab = 4 }, text = { Text("Push") })
-                    Tab(selected = selectedTab == 5, onClick = { selectedTab == 5 }, text = { Text("Socials") }) 
+                    Tab(selected = selectedTab == 5, onClick = { selectedTab = 5 }, text = { Text("Socials") })
                 }
             }
         }
@@ -393,11 +462,11 @@ fun AdminScreen(onBack: () -> Unit) {
             }
 
             if (selectedTab == 0) {
-                
+
                 // 🔥 NEW JSON IMPORT CARD
                 item {
                     Card(
-                        colors = CardDefaults.cardColors(containerColor = Color(0xFF15171E).copy(alpha = 0.7f)), 
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFF15171E).copy(alpha = 0.7f)),
                         shape = RoundedCornerShape(24.dp),
                         border = BorderStroke(1.dp, Color(0xFF10B981).copy(alpha = 0.5f))
                     ) {
@@ -422,7 +491,7 @@ fun AdminScreen(onBack: () -> Unit) {
                                     Text("Select JSON File", color = Color.White, fontWeight = FontWeight.Bold)
                                 }
                             }
-                            
+
                             if (isImportingJson || jsonImportProgress.isNotEmpty()) {
                                 Spacer(modifier = Modifier.height(12.dp))
                                 Text(jsonImportProgress, color = Color(0xFFFCDC04), fontSize = 12.sp, fontWeight = FontWeight.Bold)
@@ -433,7 +502,7 @@ fun AdminScreen(onBack: () -> Unit) {
 
                 item {
                     Card(
-                        colors = CardDefaults.cardColors(containerColor = Color(0xFF15171E).copy(alpha = 0.7f)), 
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFF15171E).copy(alpha = 0.7f)),
                         shape = RoundedCornerShape(24.dp),
                         border = BorderStroke(1.dp, Color(0xFFE50914).copy(alpha = 0.5f))
                     ) {
@@ -446,16 +515,16 @@ fun AdminScreen(onBack: () -> Unit) {
                             Text("Import latest movies automatically using the API.", color = Color.Gray, fontSize = 12.sp, modifier = Modifier.padding(bottom = 12.dp, top = 4.dp))
 
                             OutlinedTextField(
-                                value = yocApiKey, 
-                                onValueChange = { yocApiKey = it }, 
-                                label = { Text("YOCINEMA API Key (YOCD_...)") }, 
-                                modifier = Modifier.fillMaxWidth(), 
-                                shape = RoundedCornerShape(12.dp), 
+                                value = yocApiKey,
+                                onValueChange = { yocApiKey = it },
+                                label = { Text("YOCINEMA API Key (YOCD_...)") },
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(12.dp),
                                 colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White, focusedBorderColor = Color(0xFFE50914), unfocusedBorderColor = Color.DarkGray, focusedContainerColor = Color.Black.copy(alpha = 0.2f), unfocusedContainerColor = Color.Black.copy(alpha = 0.2f))
                             )
-                            
+
                             Spacer(modifier = Modifier.height(12.dp))
-                            
+
                             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 Button(
                                     onClick = {
@@ -466,12 +535,12 @@ fun AdminScreen(onBack: () -> Unit) {
                                         }
                                         prefs.edit().putString("yoc_api_key", key).apply()
                                         statusMessage = "Success! API Key saved on device."
-                                    }, 
+                                    },
                                     modifier = Modifier.weight(1f),
                                     colors = ButtonDefaults.buttonColors(containerColor = Color.White.copy(alpha = 0.1f)),
                                     shape = RoundedCornerShape(12.dp)
                                 ) { Text("Save Key", color = Color.White) }
-                                
+
                                 Button(
                                     onClick = {
                                         if (yocApiKey.isBlank() || !yocApiKey.startsWith("YOCD_")) {
@@ -480,16 +549,16 @@ fun AdminScreen(onBack: () -> Unit) {
                                         }
                                         globalIsSyncing = true
                                         globalSyncProgressMsg = "Starting sync..."
-                                        
+
                                         AppSyncScope.launch {
                                             try {
                                                 val result = executeYocSync(context, yocApiKey, db) { msg ->
                                                     mainHandler.post { globalSyncProgressMsg = msg }
                                                 }
                                                 mainHandler.post {
-                                                    globalSyncProgressMsg = if (result.first > 0) 
+                                                    globalSyncProgressMsg = if (result.first > 0)
                                                         "Success! Added ${result.first} movies. Failed: ${result.second}."
-                                                    else 
+                                                    else
                                                         "No new movies found. Already up to date!"
                                                     globalIsSyncing = false
                                                     lastSyncTime = System.currentTimeMillis()
@@ -508,12 +577,12 @@ fun AdminScreen(onBack: () -> Unit) {
                                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE50914)),
                                     shape = RoundedCornerShape(12.dp),
                                     enabled = !globalIsSyncing
-                                ) { 
+                                ) {
                                     if (globalIsSyncing) CircularProgressIndicator(color = Color.White, modifier = Modifier.size(20.dp))
-                                    else Text("Sync Now", fontWeight = FontWeight.Bold) 
+                                    else Text("Sync Now", fontWeight = FontWeight.Bold)
                                 }
                             }
-                            
+
                             if (globalIsSyncing) {
                                 Spacer(modifier = Modifier.height(8.dp))
                                 Text(globalSyncProgressMsg, color = Color(0xFFFCDC04), fontSize = 12.sp, fontWeight = FontWeight.Bold)
@@ -531,33 +600,33 @@ fun AdminScreen(onBack: () -> Unit) {
 
                 item {
                     Card(
-                        colors = CardDefaults.cardColors(containerColor = Color(0xFF15171E).copy(alpha = 0.7f)), 
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFF15171E).copy(alpha = 0.7f)),
                         shape = RoundedCornerShape(24.dp),
                         border = BorderStroke(1.dp, Color.White.copy(alpha = 0.1f))
                     ) {
                         Column(modifier = Modifier.padding(20.dp)) {
                             Text(if (editingMovieId != null) "EDITING MOVIE" else "ADD NEW MOVIE", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
                             Spacer(modifier = Modifier.height(12.dp))
-                            
+
                             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 Button(
-                                    onClick = { selectedType = "Movie" }, 
-                                    modifier = Modifier.weight(1f), 
+                                    onClick = { selectedType = "Movie" },
+                                    modifier = Modifier.weight(1f),
                                     colors = ButtonDefaults.buttonColors(containerColor = if(selectedType == "Movie") Color(0xFFE50914) else Color.White.copy(alpha = 0.1f)),
                                     shape = RoundedCornerShape(12.dp)
                                 ) { Text("Movie") }
                                 Button(
-                                    onClick = { selectedType = "TV Show" }, 
-                                    modifier = Modifier.weight(1f), 
+                                    onClick = { selectedType = "TV Show" },
+                                    modifier = Modifier.weight(1f),
                                     colors = ButtonDefaults.buttonColors(containerColor = if(selectedType == "TV Show") Color(0xFFE50914) else Color.White.copy(alpha = 0.1f)),
                                     shape = RoundedCornerShape(12.dp)
                                 ) { Text("TV Show") }
                             }
                             Spacer(modifier = Modifier.height(16.dp))
-                            
+
                             OutlinedTextField(value = title, onValueChange = { title = it }, label = { Text("Title") }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White, focusedBorderColor = Color(0xFFE50914), unfocusedBorderColor = Color.DarkGray, focusedContainerColor = Color.Black.copy(alpha = 0.2f), unfocusedContainerColor = Color.Black.copy(alpha = 0.2f)))
                             Spacer(modifier = Modifier.height(12.dp))
-                            
+
                             if (posterUrl.isNotBlank()) {
                                 PosterImage(
                                     posterData = posterUrl,
@@ -573,18 +642,18 @@ fun AdminScreen(onBack: () -> Unit) {
                             }
 
                             OutlinedTextField(
-                                value = posterUrl, 
-                                onValueChange = { posterUrl = it }, 
-                                label = { Text("Poster URL or Base64") }, 
-                                modifier = Modifier.fillMaxWidth(), 
-                                shape = RoundedCornerShape(12.dp), 
-                                maxLines = 3, 
+                                value = posterUrl,
+                                onValueChange = { posterUrl = it },
+                                label = { Text("Poster URL or Base64") },
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(12.dp),
+                                maxLines = 3,
                                 colors = OutlinedTextFieldDefaults.colors(
-                                    focusedTextColor = Color.White, 
-                                    unfocusedTextColor = Color.White, 
-                                    focusedBorderColor = Color(0xFFE50914), 
-                                    unfocusedBorderColor = Color.DarkGray, 
-                                    focusedContainerColor = Color.Black.copy(alpha = 0.2f), 
+                                    focusedTextColor = Color.White,
+                                    unfocusedTextColor = Color.White,
+                                    focusedBorderColor = Color(0xFFE50914),
+                                    unfocusedBorderColor = Color.DarkGray,
+                                    focusedContainerColor = Color.Black.copy(alpha = 0.2f),
                                     unfocusedContainerColor = Color.Black.copy(alpha = 0.2f)
                                 )
                             )
@@ -593,7 +662,7 @@ fun AdminScreen(onBack: () -> Unit) {
                             Spacer(modifier = Modifier.height(12.dp))
                             OutlinedTextField(value = subtitleUrl, onValueChange = { subtitleUrl = it }, label = { Text("Subtitle URL (.vtt) - Optional") }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White, focusedBorderColor = Color(0xFFE50914), unfocusedBorderColor = Color.DarkGray, focusedContainerColor = Color.Black.copy(alpha = 0.2f), unfocusedContainerColor = Color.Black.copy(alpha = 0.2f)))
                             Spacer(modifier = Modifier.height(12.dp))
-                            
+
                             ExposedDropdownMenuBox(expanded = catExpanded, onExpandedChange = { catExpanded = !catExpanded }) {
                                 OutlinedTextField(value = selectedCategory, onValueChange = {}, readOnly = true, label = { Text("Category") }, trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = catExpanded) }, modifier = Modifier.fillMaxWidth().menuAnchor(), shape = RoundedCornerShape(12.dp), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White, focusedBorderColor = Color(0xFFE50914), unfocusedBorderColor = Color.DarkGray, focusedContainerColor = Color.Black.copy(alpha = 0.2f), unfocusedContainerColor = Color.Black.copy(alpha = 0.2f)))
                                 ExposedDropdownMenu(expanded = catExpanded, onDismissRequest = { catExpanded = false }, modifier = Modifier.background(Color(0xFF15171E))) {
@@ -601,7 +670,7 @@ fun AdminScreen(onBack: () -> Unit) {
                                 }
                             }
                             Spacer(modifier = Modifier.height(12.dp))
-                            
+
                             ExposedDropdownMenuBox(expanded = vjExpanded, onExpandedChange = { vjExpanded = !vjExpanded }) {
                                 OutlinedTextField(value = selectedVj, onValueChange = {}, readOnly = true, label = { Text("VJ Tag") }, trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = vjExpanded) }, modifier = Modifier.fillMaxWidth().menuAnchor(), shape = RoundedCornerShape(12.dp), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White, focusedBorderColor = Color(0xFFE50914), unfocusedBorderColor = Color.DarkGray, focusedContainerColor = Color.Black.copy(alpha = 0.2f), unfocusedContainerColor = Color.Black.copy(alpha = 0.2f)))
                                 ExposedDropdownMenu(expanded = vjExpanded, onDismissRequest = { vjExpanded = false }, modifier = Modifier.heightIn(max = 200.dp).background(Color(0xFF15171E))) {
@@ -622,7 +691,7 @@ fun AdminScreen(onBack: () -> Unit) {
                                     Spacer(modifier = Modifier.width(4.dp))
                                     OutlinedTextField(value = epUrl, onValueChange = { epUrl = it }, label = { Text("Video URL") }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(12.dp), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White, focusedBorderColor = Color(0xFFE50914), unfocusedBorderColor = Color.DarkGray, focusedContainerColor = Color.Black.copy(alpha = 0.2f), unfocusedContainerColor = Color.Black.copy(alpha = 0.2f)))
                                     Spacer(modifier = Modifier.width(8.dp))
-                                    Button(onClick = { 
+                                    Button(onClick = {
                                         if (epUrl.isNotBlank()) {
                                             episodesList = episodesList + Episode("S$epSeason", "Ep $epNumber", epUrl)
                                             epUrl = ""
@@ -646,7 +715,7 @@ fun AdminScreen(onBack: () -> Unit) {
                             }
 
                             Spacer(modifier = Modifier.height(20.dp))
-                            
+
                             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
                                 Text("VIP Only", color = Color.White, modifier = Modifier.weight(1f))
                                 Switch(checked = isVipMovie, onCheckedChange = { isVipMovie = it }, colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = Color(0xFFE50914)))
@@ -661,18 +730,18 @@ fun AdminScreen(onBack: () -> Unit) {
                             }
 
                             Spacer(modifier = Modifier.height(20.dp))
-                            
+
                             Button(
                                 onClick = {
                                     if (title.isBlank() || posterUrl.isBlank() || (videoUrl.isBlank() && episodesList.isEmpty())) { statusMessage = "Fill required fields."; return@Button }
                                     isLoading = true
                                     val newMovie = hashMapOf(
-                                        "title" to title, "poster" to posterUrl, "videoUrl" to videoUrl, "category" to selectedCategory, 
-                                        "videoTag" to selectedVj, "year" to year, "type" to selectedType, "isVip" to isVipMovie, 
+                                        "title" to title, "poster" to posterUrl, "videoUrl" to videoUrl, "category" to selectedCategory,
+                                        "videoTag" to selectedVj, "year" to year, "type" to selectedType, "isVip" to isVipMovie,
                                         "isFeatured" to isFeaturedMovie, "isAdult" to isAdultMovie, "subtitleUrl" to subtitleUrl, "timestamp" to System.currentTimeMillis(),
                                         "episodes" to episodesList
                                     )
-                                    
+
                                     if (editingMovieId != null) {
                                         db.collection("homeland_movies").document(editingMovieId!!).set(newMovie).addOnSuccessListener {
                                             isLoading = false; statusMessage = "Success! Updated."; editingMovieId = null; title = ""; posterUrl = ""; videoUrl = ""; episodesList = emptyList(); isAdultMovie = false
@@ -696,7 +765,7 @@ fun AdminScreen(onBack: () -> Unit) {
                 }
                 item {
                     Card(
-                        colors = CardDefaults.cardColors(containerColor = Color(0xFF15171E).copy(alpha = 0.7f)), 
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFF15171E).copy(alpha = 0.7f)),
                         shape = RoundedCornerShape(24.dp),
                         border = BorderStroke(1.dp, Color.White.copy(alpha = 0.1f))
                     ) {
@@ -704,11 +773,34 @@ fun AdminScreen(onBack: () -> Unit) {
                             Text("Manage Content", color = Color.White, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 12.dp))
                             existingMovies.forEach { movie ->
                                 Row(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                                    Text(movie.title, color = Color.White, modifier = Modifier.weight(1f))
+                                    // 🔥 Poster thumbnail so you can see it worked
+                                    PosterImage(
+                                        posterData = movie.poster,
+                                        contentDescription = movie.title,
+                                        modifier = Modifier
+                                            .size(48.dp)
+                                            .clip(RoundedCornerShape(6.dp)),
+                                        contentScale = ContentScale.Crop
+                                    )
+                                    Spacer(modifier = Modifier.width(10.dp))
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(movie.title, color = Color.White, fontSize = 14.sp)
+                                        Text(
+                                            if (movie.poster.startsWith("data:")) "Poster: Base64 ✓"
+                                            else if (movie.poster.startsWith("http")) "Poster: URL ✓"
+                                            else "⚠ No poster",
+                                            color = if (movie.poster.isNotBlank()) Color(0xFF10B981) else Color.Red,
+                                            fontSize = 10.sp
+                                        )
+                                    }
                                     IconButton(onClick = {
-                                        editingMovieId = movie.id; title = movie.title; posterUrl = movie.poster; videoUrl = movie.videoUrl; selectedCategory = movie.category; selectedVj = movie.videoTag; year = movie.year; isVipMovie = movie.isVip; episodesList = movie.episodes; isAdultMovie = movie.isAdult
+                                        editingMovieId = movie.id; title = movie.title; posterUrl = movie.poster
+                                        videoUrl = movie.videoUrl; selectedCategory = movie.category; selectedVj = movie.videoTag
+                                        year = movie.year; isVipMovie = movie.isVip; episodesList = movie.episodes; isAdultMovie = movie.isAdult
                                     }) { Icon(Icons.Default.Edit, "Edit", tint = Color.Yellow) }
-                                    IconButton(onClick = { db.collection("homeland_movies").document(movie.id).delete() }) { Icon(Icons.Default.Delete, "Delete", tint = Color.Red) }
+                                    IconButton(onClick = { db.collection("homeland_movies").document(movie.id).delete() }) {
+                                        Icon(Icons.Default.Delete, "Delete", tint = Color.Red)
+                                    }
                                 }
                                 HorizontalDivider(color = Color.White.copy(alpha = 0.05f))
                             }
@@ -718,7 +810,7 @@ fun AdminScreen(onBack: () -> Unit) {
             } else if (selectedTab == 1) {
                 item {
                     Card(
-                        colors = CardDefaults.cardColors(containerColor = Color(0xFF15171E).copy(alpha = 0.7f)), 
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFF15171E).copy(alpha = 0.7f)),
                         shape = RoundedCornerShape(24.dp),
                         border = BorderStroke(1.dp, Color.White.copy(alpha = 0.1f))
                     ) {
@@ -732,9 +824,9 @@ fun AdminScreen(onBack: () -> Unit) {
                             OutlinedTextField(value = tvUrl, onValueChange = { tvUrl = it }, label = { Text("Stream URL") }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White, focusedBorderColor = Color(0xFFE50914), unfocusedBorderColor = Color.DarkGray, focusedContainerColor = Color.Black.copy(alpha = 0.2f), unfocusedContainerColor = Color.Black.copy(alpha = 0.2f)))
                             Spacer(modifier = Modifier.height(12.dp))
                             OutlinedTextField(value = tvCategory, onValueChange = { tvCategory = it }, label = { Text("Category") }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White, focusedBorderColor = Color(0xFFE50914), unfocusedBorderColor = Color.DarkGray, focusedContainerColor = Color.Black.copy(alpha = 0.2f), unfocusedContainerColor = Color.Black.copy(alpha = 0.2f)))
-                            
+
                             Spacer(modifier = Modifier.height(20.dp))
-                            
+
                             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
                                 Text("Require VIP", color = Color.White, modifier = Modifier.weight(1f))
                                 Switch(checked = isVipTv, onCheckedChange = { isVipTv = it }, colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = Color(0xFFE50914)))
@@ -745,13 +837,13 @@ fun AdminScreen(onBack: () -> Unit) {
                             }
 
                             Spacer(modifier = Modifier.height(20.dp))
-                            
+
                             Button(
                                 onClick = {
                                     if (tvName.isBlank() || tvUrl.isBlank()) { statusMessage = "Fill required fields."; return@Button }
                                     isLoading = true
                                     val newTv = hashMapOf("name" to tvName, "logo" to tvLogo, "streamUrl" to tvUrl, "category" to tvCategory, "isVip" to isVipTv, "isFeatured" to isFeaturedTv)
-                                    
+
                                     if (editingTvId != null) {
                                         db.collection("homeland_tv").document(editingTvId!!).set(newTv).addOnSuccessListener {
                                             isLoading = false; statusMessage = "Success! TV updated."; editingTvId = null; tvName = ""; tvLogo = ""; tvUrl = ""; isVipTv = false; isFeaturedTv = false
@@ -775,7 +867,7 @@ fun AdminScreen(onBack: () -> Unit) {
                 }
                 item {
                     Card(
-                        colors = CardDefaults.cardColors(containerColor = Color(0xFF15171E).copy(alpha = 0.7f)), 
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFF15171E).copy(alpha = 0.7f)),
                         shape = RoundedCornerShape(24.dp),
                         border = BorderStroke(1.dp, Color.White.copy(alpha = 0.1f))
                     ) {
@@ -784,7 +876,7 @@ fun AdminScreen(onBack: () -> Unit) {
                             existingTv.forEach { tv ->
                                 Row(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                                     Text(tv.name, color = Color.White, modifier = Modifier.weight(1f))
-                                    IconButton(onClick = { 
+                                    IconButton(onClick = {
                                         editingTvId = tv.id; tvName = tv.name; tvLogo = tv.logo; tvUrl = tv.streamUrl; tvCategory = tv.category; isVipTv = tv.isVip; isFeaturedTv = tv.isFeatured
                                     }) { Icon(Icons.Default.Edit, "Edit", tint = Color.Yellow) }
                                     IconButton(onClick = { db.collection("homeland_tv").document(tv.id).delete() }) { Icon(Icons.Default.Delete, "Delete", tint = Color.Red) }
@@ -797,7 +889,7 @@ fun AdminScreen(onBack: () -> Unit) {
             } else if (selectedTab == 2) {
                 item {
                     Card(
-                        colors = CardDefaults.cardColors(containerColor = Color(0xFF15171E).copy(alpha = 0.7f)), 
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFF15171E).copy(alpha = 0.7f)),
                         shape = RoundedCornerShape(24.dp),
                         border = BorderStroke(1.dp, Color.White.copy(alpha = 0.1f))
                     ) {
@@ -807,7 +899,7 @@ fun AdminScreen(onBack: () -> Unit) {
                             Spacer(modifier = Modifier.height(12.dp))
 
                             OutlinedTextField(value = newPlanName, onValueChange = { newPlanName = it }, label = { Text("Plan Name (e.g. 1 Month)") }, modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp), shape = RoundedCornerShape(12.dp), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White, focusedBorderColor = Color(0xFFE50914), unfocusedBorderColor = Color.DarkGray, focusedContainerColor = Color.Black.copy(alpha = 0.2f), unfocusedContainerColor = Color.Black.copy(alpha = 0.2f)))
-                            
+
                             Row(modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 OutlinedTextField(value = newPlanPrice, onValueChange = { newPlanPrice = it }, label = { Text("Price (e.g. 10,000 UGX)") }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(12.dp), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White, focusedBorderColor = Color(0xFFE50914), unfocusedBorderColor = Color.DarkGray, focusedContainerColor = Color.Black.copy(alpha = 0.2f), unfocusedContainerColor = Color.Black.copy(alpha = 0.2f)))
                                 OutlinedTextField(value = newPlanDays, onValueChange = { newPlanDays = it }, label = { Text("Days (e.g. 30)") }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(12.dp), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White, focusedBorderColor = Color(0xFFE50914), unfocusedBorderColor = Color.DarkGray, focusedContainerColor = Color.Black.copy(alpha = 0.2f), unfocusedContainerColor = Color.Black.copy(alpha = 0.2f)))
@@ -855,13 +947,13 @@ fun AdminScreen(onBack: () -> Unit) {
                 item {
                     val now = System.currentTimeMillis()
                     val threeDaysFromNow = now + (3 * 24 * 60 * 60 * 1000L)
-                    
+
                     val expiringSoonUsers = allUsers.filter { it.homelandVipExpiry > now && it.homelandVipExpiry <= threeDaysFromNow }.sortedBy { it.homelandVipExpiry }
 
                     if (expiringSoonUsers.isNotEmpty()) {
                         Card(
-                            colors = CardDefaults.cardColors(containerColor = Color(0xFF2D1B1B).copy(alpha = 0.8f)), 
-                            border = BorderStroke(1.dp, Color.Red), 
+                            colors = CardDefaults.cardColors(containerColor = Color(0xFF2D1B1B).copy(alpha = 0.8f)),
+                            border = BorderStroke(1.dp, Color.Red),
                             shape = RoundedCornerShape(24.dp)
                         ) {
                             Column(modifier = Modifier.padding(20.dp)) {
@@ -871,13 +963,13 @@ fun AdminScreen(onBack: () -> Unit) {
                                     Text("VIP Expiring Soon", color = Color.Red, fontWeight = FontWeight.Bold, fontSize = 16.sp)
                                 }
                                 Text("These users expire in the next 3 days. Message them to renew!", color = Color.LightGray, fontSize = 12.sp, modifier = Modifier.padding(bottom = 12.dp, top = 4.dp))
-                                
+
                                 expiringSoonUsers.forEach { user ->
                                     val timeLeft = user.homelandVipExpiry - now
                                     val daysLeft = timeLeft / (1000 * 60 * 60 * 24)
                                     val hoursLeft = (timeLeft % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60)
                                     val timeText = if (daysLeft > 0) "${daysLeft}d ${hoursLeft}h left" else "${hoursLeft}h left"
-                                    
+
                                     Row(modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                                         Text(user.email, color = Color.White, fontSize = 13.sp, modifier = Modifier.weight(1f))
                                         Text(timeText, color = Color.Red, fontWeight = FontWeight.Bold, fontSize = 12.sp)
@@ -889,7 +981,7 @@ fun AdminScreen(onBack: () -> Unit) {
                 }
                 item {
                     Card(
-                        colors = CardDefaults.cardColors(containerColor = Color(0xFF15171E).copy(alpha = 0.7f)), 
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFF15171E).copy(alpha = 0.7f)),
                         shape = RoundedCornerShape(24.dp),
                         border = BorderStroke(1.dp, Color.White.copy(alpha = 0.1f))
                     ) {
@@ -905,8 +997,8 @@ fun AdminScreen(onBack: () -> Unit) {
                                         val code = "HOMELAND-${days}D-${Random.nextInt(1000, 9999)}"
                                         db.collection("homeland_coupons").add(hashMapOf("code" to code, "days" to days, "isUsed" to false))
                                             .addOnSuccessListener { statusMessage = "Success! Code: $code" }
-                                    }, 
-                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE50914)), 
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE50914)),
                                     modifier = Modifier.height(56.dp).shadow(8.dp, RoundedCornerShape(12.dp), spotColor = Color(0xFFE50914), ambientColor = Color(0xFFE50914)),
                                     shape = RoundedCornerShape(12.dp)
                                 ) { Text("Generate", fontWeight = FontWeight.Bold) }
@@ -914,28 +1006,28 @@ fun AdminScreen(onBack: () -> Unit) {
                         }
                     }
                 }
-                
+
                 item {
                     Card(
-                        colors = CardDefaults.cardColors(containerColor = Color(0xFF15171E).copy(alpha = 0.7f)), 
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFF15171E).copy(alpha = 0.7f)),
                         shape = RoundedCornerShape(24.dp),
                         border = BorderStroke(1.dp, Color.White.copy(alpha = 0.1f))
                     ) {
                         Column(modifier = Modifier.padding(20.dp)) {
                             Text("Manage Users", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp, modifier = Modifier.padding(bottom = 12.dp))
-                            
+
                             OutlinedTextField(
-                                value = customVipDays, 
-                                onValueChange = { customVipDays = it }, 
-                                label = { Text("Custom Days (e.g. 30, 90)") }, 
-                                modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp), 
+                                value = customVipDays,
+                                onValueChange = { customVipDays = it },
+                                label = { Text("Custom Days (e.g. 30, 90)") },
+                                modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp),
                                 shape = RoundedCornerShape(12.dp),
                                 colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White, focusedBorderColor = Color(0xFFE50914), unfocusedBorderColor = Color.DarkGray, focusedContainerColor = Color.Black.copy(alpha = 0.2f), unfocusedContainerColor = Color.Black.copy(alpha = 0.2f))
                             )
 
                             allUsers.forEach { user ->
                                 val isVip = user.homelandVipExpiry > System.currentTimeMillis()
-                                
+
                                 Column(modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp)) {
                                     Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                                         Column(modifier = Modifier.weight(1f)) {
@@ -955,10 +1047,10 @@ fun AdminScreen(onBack: () -> Unit) {
                                                 fontWeight = FontWeight.Bold
                                             )
                                         }
-                                        
+
                                         IconButton(onClick = {
                                             db.collection("users").document(user.uid).update("isBanned", !user.isBanned)
-                                                .addOnSuccessListener { 
+                                                .addOnSuccessListener {
                                                     statusMessage = if (!user.isBanned) "User Banned" else "User Unbanned"
                                                 }
                                         }) {
@@ -969,15 +1061,15 @@ fun AdminScreen(onBack: () -> Unit) {
                                             )
                                         }
                                     }
-                                    
+
                                     Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth().padding(top = 6.dp)) {
                                         Button(onClick = {
                                             val base = if (isVip) user.homelandVipExpiry else System.currentTimeMillis()
                                             db.collection("users").document(user.uid).update("homelandVipExpiry", base + (7 * 24 * 60 * 60 * 1000L))
-                                        }, colors = ButtonDefaults.buttonColors(containerColor = Color.White.copy(alpha = 0.1f)), modifier = Modifier.padding(end = 8.dp), shape = RoundedCornerShape(8.dp), contentPadding = PaddingValues(horizontal = 12.dp)) { 
-                                            Text("+7d", fontSize = 11.sp, color = Color.White) 
+                                        }, colors = ButtonDefaults.buttonColors(containerColor = Color.White.copy(alpha = 0.1f)), modifier = Modifier.padding(end = 8.dp), shape = RoundedCornerShape(8.dp), contentPadding = PaddingValues(horizontal = 12.dp)) {
+                                            Text("+7d", fontSize = 11.sp, color = Color.White)
                                         }
-                                        
+
                                         Button(onClick = {
                                             val daysToAdd = customVipDays.toIntOrNull() ?: 0
                                             if (daysToAdd > 0) {
@@ -985,8 +1077,8 @@ fun AdminScreen(onBack: () -> Unit) {
                                                 db.collection("users").document(user.uid).update("homelandVipExpiry", base + (daysToAdd.toLong() * 24 * 60 * 60 * 1000L))
                                                     .addOnSuccessListener { statusMessage = "Added $daysToAdd days for ${user.email}" }
                                             }
-                                        }, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE50914)), shape = RoundedCornerShape(8.dp), contentPadding = PaddingValues(horizontal = 12.dp)) { 
-                                            Text("+${customVipDays}d", fontSize = 11.sp, fontWeight = FontWeight.Bold) 
+                                        }, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE50914)), shape = RoundedCornerShape(8.dp), contentPadding = PaddingValues(horizontal = 12.dp)) {
+                                            Text("+${customVipDays}d", fontSize = 11.sp, fontWeight = FontWeight.Bold)
                                         }
                                     }
                                 }
@@ -998,7 +1090,7 @@ fun AdminScreen(onBack: () -> Unit) {
             } else if (selectedTab == 6) {
                 item {
                     Card(
-                        colors = CardDefaults.cardColors(containerColor = Color(0xFF15171E).copy(alpha = 0.7f)), 
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFF15171E).copy(alpha = 0.7f)),
                         shape = RoundedCornerShape(24.dp),
                         border = BorderStroke(1.dp, Color.White.copy(alpha = 0.1f))
                     ) {
@@ -1012,15 +1104,15 @@ fun AdminScreen(onBack: () -> Unit) {
                             } else {
                                 paymentRequests.forEach { req ->
                                     val dateStr = SimpleDateFormat("MMM dd, HH:mm", Locale.getDefault()).format(Date(req.timestamp))
-                                    
+
                                     Column(modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp)) {
                                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                                             Text(req.email, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Medium)
                                             Text(dateStr, color = Color.Gray, fontSize = 11.sp)
                                         }
-                                        
+
                                         Spacer(modifier = Modifier.height(4.dp))
-                                        
+
                                         Row(verticalAlignment = Alignment.CenterVertically) {
                                             Text("TID: ", color = Color.Gray, fontSize = 12.sp)
                                             Text(req.tid, color = Color(0xFFFCDC04), fontSize = 14.sp, fontWeight = FontWeight.Bold)
@@ -1032,52 +1124,52 @@ fun AdminScreen(onBack: () -> Unit) {
                                             Text("Plan: ", color = Color.Gray, fontSize = 12.sp)
                                             Text("${req.planName} (${req.price}) - ${req.days} Days", color = Color(0xFF10B981), fontSize = 13.sp, fontWeight = FontWeight.Bold)
                                         }
-                                        
+
                                         Spacer(modifier = Modifier.height(12.dp))
-                                        
+
                                         Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth()) {
                                             Button(
                                                 onClick = {
                                                     db.collection("payment_requests").document(req.id).update("status", "rejected")
                                                         .addOnSuccessListener { statusMessage = "Payment rejected." }
-                                                }, 
-                                                colors = ButtonDefaults.buttonColors(containerColor = Color.Red.copy(alpha = 0.2f)), 
-                                                shape = RoundedCornerShape(8.dp), 
+                                                },
+                                                colors = ButtonDefaults.buttonColors(containerColor = Color.Red.copy(alpha = 0.2f)),
+                                                shape = RoundedCornerShape(8.dp),
                                                 contentPadding = PaddingValues(horizontal = 16.dp)
-                                            ) { 
+                                            ) {
                                                 Icon(Icons.Default.Cancel, contentDescription = "Reject", tint = Color.Red, modifier = Modifier.size(16.dp))
                                                 Spacer(modifier = Modifier.width(4.dp))
-                                                Text("Reject", fontSize = 12.sp, color = Color.Red) 
+                                                Text("Reject", fontSize = 12.sp, color = Color.Red)
                                             }
-                                            
+
                                             Spacer(modifier = Modifier.width(8.dp))
-                                            
+
                                             Button(
                                                 onClick = {
                                                     val msToAdd = req.days.toLong() * 24 * 60 * 60 * 1000L
-                                                    
+
                                                     db.collection("users").whereEqualTo("email", req.email).get().addOnSuccessListener { userSnap ->
                                                         if (!userSnap.isEmpty) {
                                                             val userDoc = userSnap.documents[0]
                                                             val currentExpiry = userDoc.getLong("homelandVipExpiry") ?: 0L
                                                             val newExpiry = if (currentExpiry > System.currentTimeMillis()) currentExpiry + msToAdd else System.currentTimeMillis() + msToAdd
-                                                            
+
                                                             userDoc.reference.update("homelandVipExpiry", newExpiry)
-                                                            
+
                                                             db.collection("payment_requests").document(req.id).update("status", "approved")
                                                                 .addOnSuccessListener { statusMessage = "Approved! ${req.days} days granted to ${req.email}" }
                                                         } else {
                                                             statusMessage = "Error: User email not found in database."
                                                         }
                                                     }
-                                                }, 
-                                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981)), 
-                                                shape = RoundedCornerShape(8.dp), 
+                                                },
+                                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981)),
+                                                shape = RoundedCornerShape(8.dp),
                                                 contentPadding = PaddingValues(horizontal = 16.dp)
-                                            ) { 
+                                            ) {
                                                 Icon(Icons.Default.CheckCircle, contentDescription = "Approve", tint = Color.White, modifier = Modifier.size(16.dp))
                                                 Spacer(modifier = Modifier.width(4.dp))
-                                                Text("Approve", fontSize = 12.sp, fontWeight = FontWeight.Bold) 
+                                                Text("Approve", fontSize = 12.sp, fontWeight = FontWeight.Bold)
                                             }
                                         }
                                     }
@@ -1090,7 +1182,7 @@ fun AdminScreen(onBack: () -> Unit) {
             } else if (selectedTab == 3) {
                 item {
                     Card(
-                        colors = CardDefaults.cardColors(containerColor = Color(0xFF15171E).copy(alpha = 0.7f)), 
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFF15171E).copy(alpha = 0.7f)),
                         shape = RoundedCornerShape(24.dp),
                         border = BorderStroke(1.dp, Color.White.copy(alpha = 0.1f))
                     ) {
@@ -1111,7 +1203,7 @@ fun AdminScreen(onBack: () -> Unit) {
                 }
                 item {
                     Card(
-                        colors = CardDefaults.cardColors(containerColor = Color(0xFF15171E).copy(alpha = 0.7f)), 
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFF15171E).copy(alpha = 0.7f)),
                         shape = RoundedCornerShape(24.dp),
                         border = BorderStroke(1.dp, Color.White.copy(alpha = 0.1f))
                     ) {
@@ -1134,7 +1226,7 @@ fun AdminScreen(onBack: () -> Unit) {
                 }
                 item {
                     Card(
-                        colors = CardDefaults.cardColors(containerColor = Color(0xFF15171E).copy(alpha = 0.7f)), 
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFF15171E).copy(alpha = 0.7f)),
                         shape = RoundedCornerShape(24.dp),
                         border = BorderStroke(1.dp, Color.White.copy(alpha = 0.1f))
                     ) {
@@ -1143,33 +1235,33 @@ fun AdminScreen(onBack: () -> Unit) {
                             Spacer(modifier = Modifier.height(4.dp))
                             Text("Change your 6-digit PIN used to open this panel.", color = Color.Gray, fontSize = 12.sp)
                             Spacer(modifier = Modifier.height(12.dp))
-                            
+
                             OutlinedTextField(
-                                value = newAdminPin, 
-                                onValueChange = { if (it.length <= 6) newAdminPin = it }, 
-                                label = { Text("New 6-digit PIN") }, 
-                                modifier = Modifier.fillMaxWidth(), 
+                                value = newAdminPin,
+                                onValueChange = { if (it.length <= 6) newAdminPin = it },
+                                label = { Text("New 6-digit PIN") },
+                                modifier = Modifier.fillMaxWidth(),
                                 shape = RoundedCornerShape(12.dp),
                                 colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White, focusedBorderColor = Color(0xFFE50914), unfocusedBorderColor = Color.DarkGray, focusedContainerColor = Color.Black.copy(alpha = 0.2f), unfocusedContainerColor = Color.Black.copy(alpha = 0.2f))
                             )
-                            
+
                             Spacer(modifier = Modifier.height(20.dp))
-                            
+
                             Button(onClick = {
                                 if (newAdminPin.length == 6) {
                                     db.collection("config").document("admin").set(hashMapOf("adminPin" to newAdminPin), com.google.firebase.firestore.SetOptions.merge())
-                                        .addOnSuccessListener { 
+                                        .addOnSuccessListener {
                                             statusMessage = "Success! Admin PIN updated."
                                             newAdminPin = ""
                                         }
-                                        .addOnFailureListener { 
-                                            statusMessage = "Error: ${it.message}" 
+                                        .addOnFailureListener {
+                                            statusMessage = "Error: ${it.message}"
                                         }
                                 } else {
                                     statusMessage = "PIN must be exactly 6 digits."
                                 }
-                            }, modifier = Modifier.fillMaxWidth().height(52.dp).shadow(12.dp, RoundedCornerShape(12.dp), spotColor = Color(0xFFE50914), ambientColor = Color(0xFFE50914)), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE50914)), shape = RoundedCornerShape(12.dp)) { 
-                                Text("Save New Admin PIN", fontWeight = FontWeight.Bold) 
+                            }, modifier = Modifier.fillMaxWidth().height(52.dp).shadow(12.dp, RoundedCornerShape(12.dp), spotColor = Color(0xFFE50914), ambientColor = Color(0xFFE50914)), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE50914)), shape = RoundedCornerShape(12.dp)) {
+                                Text("Save New Admin PIN", fontWeight = FontWeight.Bold)
                             }
                         }
                     }
@@ -1177,7 +1269,7 @@ fun AdminScreen(onBack: () -> Unit) {
             } else if (selectedTab == 4) {
                 item {
                     Card(
-                        colors = CardDefaults.cardColors(containerColor = Color(0xFF15171E).copy(alpha = 0.7f)), 
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFF15171E).copy(alpha = 0.7f)),
                         shape = RoundedCornerShape(24.dp),
                         border = BorderStroke(1.dp, Color.White.copy(alpha = 0.1f))
                     ) {
@@ -1187,9 +1279,9 @@ fun AdminScreen(onBack: () -> Unit) {
                             OutlinedTextField(value = pushTitle, onValueChange = { pushTitle = it }, label = { Text("Notification Title") }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White, focusedBorderColor = Color(0xFFE50914), unfocusedBorderColor = Color.DarkGray, focusedContainerColor = Color.Black.copy(alpha = 0.2f), unfocusedContainerColor = Color.Black.copy(alpha = 0.2f)))
                             Spacer(modifier = Modifier.height(12.dp))
                             OutlinedTextField(value = pushMessage, onValueChange = { pushMessage = it }, label = { Text("Notification Message") }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White, focusedBorderColor = Color(0xFFE50914), unfocusedBorderColor = Color.DarkGray, focusedContainerColor = Color.Black.copy(alpha = 0.2f), unfocusedContainerColor = Color.Black.copy(alpha = 0.2f)))
-                            
+
                             Spacer(modifier = Modifier.height(16.dp))
-                            
+
                             ExposedDropdownMenuBox(
                                 expanded = pushMovieExpanded,
                                 onExpandedChange = { pushMovieExpanded = !pushMovieExpanded }
@@ -1229,16 +1321,16 @@ fun AdminScreen(onBack: () -> Unit) {
                                     }
                                 }
                             }
-                            
+
                             Spacer(modifier = Modifier.height(20.dp))
-                            
+
                             Button(onClick = {
                                 if (pushTitle.isBlank() || pushMessage.isBlank()) { statusMessage = "Fill in both fields."; return@Button }
                                 isLoading = true
                                 val notifData = hashMapOf(
                                     "title" to pushTitle,
                                     "message" to pushMessage,
-                                    "deep_link" to pushDeepLink, 
+                                    "deep_link" to pushDeepLink,
                                     "status" to "pending",
                                     "timestamp" to System.currentTimeMillis()
                                 )
@@ -1262,7 +1354,7 @@ fun AdminScreen(onBack: () -> Unit) {
             } else if (selectedTab == 5) {
                 item {
                     Card(
-                        colors = CardDefaults.cardColors(containerColor = Color(0xFF15171E).copy(alpha = 0.7f)), 
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFF15171E).copy(alpha = 0.7f)),
                         shape = RoundedCornerShape(24.dp),
                         border = BorderStroke(1.dp, Color.White.copy(alpha = 0.1f))
                     ) {
@@ -1270,15 +1362,15 @@ fun AdminScreen(onBack: () -> Unit) {
                             Text("Social Media Links", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
                             Text("These links appear on Login & Profile screens.", color = Color.Gray, fontSize = 12.sp)
                             Spacer(modifier = Modifier.height(16.dp))
-                            
+
                             OutlinedTextField(value = whatsappLink, onValueChange = { whatsappLink = it }, label = { Text("WhatsApp Link") }, modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp), shape = RoundedCornerShape(12.dp), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White, focusedBorderColor = Color(0xFFE50914), unfocusedBorderColor = Color.DarkGray, focusedContainerColor = Color.Black.copy(alpha = 0.2f), unfocusedContainerColor = Color.Black.copy(alpha = 0.2f)))
                             OutlinedTextField(value = telegramLink, onValueChange = { telegramLink = it }, label = { Text("Telegram Link") }, modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp), shape = RoundedCornerShape(12.dp), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White, focusedBorderColor = Color(0xFFE50914), unfocusedBorderColor = Color.DarkGray, focusedContainerColor = Color.Black.copy(alpha = 0.2f), unfocusedContainerColor = Color.Black.copy(alpha = 0.2f)))
                             OutlinedTextField(value = tiktokLink, onValueChange = { tiktokLink = it }, label = { Text("TikTok Link") }, modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp), shape = RoundedCornerShape(12.dp), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White, focusedBorderColor = Color(0xFFE50914), unfocusedBorderColor = Color.DarkGray, focusedContainerColor = Color.Black.copy(alpha = 0.2f), unfocusedContainerColor = Color.Black.copy(alpha = 0.2f)))
                             OutlinedTextField(value = twitterLink, onValueChange = { twitterLink = it }, label = { Text("Twitter (X) Link") }, modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp), shape = RoundedCornerShape(12.dp), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White, focusedBorderColor = Color(0xFFE50914), unfocusedBorderColor = Color.DarkGray, focusedContainerColor = Color.Black.copy(alpha = 0.2f), unfocusedContainerColor = Color.Black.copy(alpha = 0.2f)))
                             OutlinedTextField(value = instagramLink, onValueChange = { instagramLink = it }, label = { Text("Instagram Link") }, modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp), shape = RoundedCornerShape(12.dp), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White, focusedBorderColor = Color(0xFFE50914), unfocusedBorderColor = Color.DarkGray, focusedContainerColor = Color.Black.copy(alpha = 0.2f), unfocusedContainerColor = Color.Black.copy(alpha = 0.2f)))
-                            
+
                             Spacer(modifier = Modifier.height(16.dp))
-                            
+
                             Button(onClick = {
                                 val linksMap = hashMapOf(
                                     "whatsapp" to whatsappLink,
@@ -1290,8 +1382,8 @@ fun AdminScreen(onBack: () -> Unit) {
                                 db.collection("config").document("social_links").set(linksMap)
                                     .addOnSuccessListener { statusMessage = "Success! Social links updated." }
                                     .addOnFailureListener { statusMessage = "Error: ${it.message}" }
-                            }, modifier = Modifier.fillMaxWidth().height(52.dp).shadow(12.dp, RoundedCornerShape(12.dp), spotColor = Color(0xFFE50914), ambientColor = Color(0xFFE50914)), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE50914)), shape = RoundedCornerShape(12.dp)) { 
-                                Text("Save Social Links", fontWeight = FontWeight.Bold, fontSize = 16.sp) 
+                            }, modifier = Modifier.fillMaxWidth().height(52.dp).shadow(12.dp, RoundedCornerShape(12.dp), spotColor = Color(0xFFE50914), ambientColor = Color(0xFFE50914)), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE50914)), shape = RoundedCornerShape(12.dp)) {
+                                Text("Save Social Links", fontWeight = FontWeight.Bold, fontSize = 16.sp)
                             }
                         }
                     }
@@ -1304,7 +1396,7 @@ fun AdminScreen(onBack: () -> Unit) {
 // 🔥 ADDED: YOCINEMA SYNC NETWORK LOGIC (Bulletproof byte-array image download)
 
 suspend fun executeYocSync(context: Context, apiKey: String, db: FirebaseFirestore, onProgress: (String) -> Unit): Pair<Int, Int> = withContext(Dispatchers.IO) {
-    
+
     // STEP 1: Fetch existing movie IDs with timeout
     onProgress("Checking database...")
     val haveIds: Set<String> = try {
@@ -1320,7 +1412,7 @@ suspend fun executeYocSync(context: Context, apiKey: String, db: FirebaseFiresto
     val all = mutableListOf<JSONObject>()
     var page = 1
     var fetchedCount = 0
-    
+
     while (fetchedCount < 30 && page <= 15) {
         onProgress("Fetching page $page...")
         try {
@@ -1334,17 +1426,17 @@ suspend fun executeYocSync(context: Context, apiKey: String, db: FirebaseFiresto
             conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36")
             conn.setRequestProperty("Origin", "https://munowatch-2c399.web.app")
             conn.setRequestProperty("Referer", "https://munowatch-2c399.web.app/")
-            
+
             val responseCode = conn.responseCode
             if (responseCode != 200) {
                 val err = conn.errorStream?.bufferedReader()?.readText() ?: "HTTP $responseCode"
                 conn.disconnect()
                 throw Exception("Server returned $responseCode: ${err.take(100)}")
             }
-            
+
             val response = conn.inputStream.bufferedReader().readText()
             conn.disconnect()
-            
+
             val json = JSONObject(response)
             val successField = json.opt("success")
             val isSuccess = when (successField) {
@@ -1353,7 +1445,7 @@ suspend fun executeYocSync(context: Context, apiKey: String, db: FirebaseFiresto
                 else -> false
             }
             if (!isSuccess) throw Exception("API returned failure: ${json.optString("error", "Unknown")}")
-            
+
             val dataObj = json.optJSONObject("data")
             val moviesArray = dataObj?.optJSONArray("movies") ?: break
             if (moviesArray.length() == 0) break
@@ -1391,7 +1483,7 @@ suspend fun executeYocSync(context: Context, apiKey: String, db: FirebaseFiresto
         val m = all[i]
         val yocId = m.getString("_id")
         val movieTitle = m.optString("title", "Unknown")
-        
+
         onProgress("Saving ${i + 1}/${all.size}: $movieTitle")
 
         try {
@@ -1421,11 +1513,11 @@ suspend fun executeYocSync(context: Context, apiKey: String, db: FirebaseFiresto
                 coverConn.setRequestProperty("Accept", "image/avif,image/webp,image/apng,image/*,*/*;q=0.8")
                 coverConn.setRequestProperty("Origin", "https://munowatch-2c399.web.app")
                 coverConn.setRequestProperty("Referer", "https://munowatch-2c399.web.app/")
-                
+
                 val coverResponseCode = coverConn.responseCode
                 val contentType = coverConn.contentType ?: ""
                 Log.d("YOC_SYNC", "Cover response: $coverResponseCode, type: $contentType for $yocId")
-                
+
                 if (coverResponseCode == 200) {
                     // Read the whole image into a ByteArray first (like res.blob())
                     val inputStream: InputStream = coverConn.inputStream
@@ -1437,19 +1529,19 @@ suspend fun executeYocSync(context: Context, apiKey: String, db: FirebaseFiresto
                     }
                     inputStream.close()
                     coverConn.disconnect()
-                    
+
                     val imageBytes = buffer.toByteArray()
                     Log.d("YOC_SYNC", "Downloaded ${imageBytes.size} bytes for $yocId")
-                    
+
                     // Now decode the bytes
                     val bitmap = BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.size)
-                    
+
                     if (bitmap != null) {
                         val maxWidth = 400
                         val ratio = bitmap.height.toFloat() / bitmap.width.toFloat()
                         val newHeight = (maxWidth * ratio).toInt()
                         val resized = Bitmap.createScaledBitmap(bitmap, maxWidth, newHeight, true)
-                        
+
                         val outputStream = ByteArrayOutputStream()
                         resized.compress(Bitmap.CompressFormat.JPEG, 70, outputStream)
                         val finalBytes = outputStream.toByteArray()
@@ -1475,9 +1567,9 @@ suspend fun executeYocSync(context: Context, apiKey: String, db: FirebaseFiresto
 
             // Map logic
             val isSeries = detail.optString("type") == "series"
-            
+
             val yocVjMap = mapOf(
-                "Banks" to "VJ Banks", "Emmy" to "VJ Emmy", "Ice P" to "VJ Omutaka Ice P", "Junior" to "VJ Junior", 
+                "Banks" to "VJ Banks", "Emmy" to "VJ Emmy", "Ice P" to "VJ Omutaka Ice P", "Junior" to "VJ Junior",
                 "Kevin" to "VJ Kevin", "Kevo" to "VJ Kevo", "Muba" to "VJ Muba", "Ulio" to "VJ Ulio"
             )
             val rawVj = detail.optString("vjName", m.optString("vjName", "")).trim()
@@ -1485,8 +1577,8 @@ suspend fun executeYocSync(context: Context, apiKey: String, db: FirebaseFiresto
             for ((k, v) in yocVjMap) { if (k.equals(rawVj, true)) { mappedVj = v; break } }
 
             val yocGenreMap = mapOf(
-                "Action" to "Action", "Adventure" to "Adventure", "Animation" to "Animation", "Comedy" to "Comedy", 
-                "Crime" to "Action", "Drama" to "Action", "Fantasy" to "Adventure", "History" to "Action", 
+                "Action" to "Action", "Adventure" to "Adventure", "Animation" to "Animation", "Comedy" to "Comedy",
+                "Crime" to "Action", "Drama" to "Action", "Fantasy" to "Adventure", "History" to "Action",
                 "Horror" to "Horror", "Romance" to "Romantic", "Thriller" to "Action", "War" to "Action", "Sci-Fi" to "Sci-Fi"
             )
             val rawGenre = detail.optString("genre", m.optString("genre", "")).split(",")[0].trim()
@@ -1541,7 +1633,7 @@ suspend fun executeYocSync(context: Context, apiKey: String, db: FirebaseFiresto
                 tokConn.setRequestProperty("Content-Type", "application/json")
                 tokConn.doOutput = true
                 tokConn.outputStream.use { it.write("{}".toByteArray()) }
-                
+
                 val tokResponse = tokConn.inputStream.bufferedReader().readText()
                 tokConn.disconnect()
                 val tokJson = JSONObject(tokResponse)
@@ -1555,7 +1647,7 @@ suspend fun executeYocSync(context: Context, apiKey: String, db: FirebaseFiresto
                     doc["streamToken"] = tokJson.getString("streamToken")
                     doc["streamTokenExpires"] = System.currentTimeMillis() + (7200 * 1000)
                 }
-            } catch (e: Exception) { 
+            } catch (e: Exception) {
                 Log.w("YOC_SYNC", "Token mint failed for $yocId", e)
             }
 
