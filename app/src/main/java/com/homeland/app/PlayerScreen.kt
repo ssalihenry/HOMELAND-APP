@@ -249,6 +249,15 @@ fun PlayerScreen(
         val finalVideoUrl = proxyYocUrl(videoUrl, tokenState.value, isSeries)
         val finalEpisodes = episodes.map { ep -> ep.copy(url = proxyYocUrl(ep.url, tokenState.value, true)) }
         
+        // 🔥 FIX 1: Block YouTube links to prevent app crash
+        if (finalVideoUrl.contains("youtube.com") || finalVideoUrl.contains("youtu.be")) {
+            hasError = true
+            errorMessage = "YouTube links are not supported. This channel requires a direct stream (.m3u8 or .mpd)."
+            isBuffering = false
+            hasStartedPlaying = true
+            return@LaunchedEffect
+        }
+
         // 3. Set Media Items and Prepare
         if (finalEpisodes.isNotEmpty()) {
             val mediaItems = finalEpisodes.map { ep ->
@@ -259,15 +268,19 @@ fun PlayerScreen(
         } else {
             val mediaItemBuilder = MediaItem.Builder().setUri(finalVideoUrl)
             
-            if (finalVideoUrl.contains("m3u8", ignoreCase = true)) {
+            // 🔥 FIX 2: Explicitly set MIME types for M3U8, MPD, and MP4 to prevent crashes
+            if (finalVideoUrl.contains(".m3u8", ignoreCase = true)) {
                 mediaItemBuilder.setMimeType(MimeTypes.APPLICATION_M3U8)
-                
                 val liveConfig = MediaItem.LiveConfiguration.Builder()
                     .setTargetOffsetMs(5000) 
                     .setMaxPlaybackSpeed(1.1f) 
                     .setMinPlaybackSpeed(0.9f) 
                     .build()
                 mediaItemBuilder.setLiveConfiguration(liveConfig)
+            } else if (finalVideoUrl.contains(".mpd", ignoreCase = true)) {
+                mediaItemBuilder.setMimeType(MimeTypes.APPLICATION_MPD)
+            } else if (finalVideoUrl.contains(".mp4", ignoreCase = true)) {
+                mediaItemBuilder.setMimeType(MimeTypes.APPLICATION_MP4)
             }
             
             exoPlayer.setMediaItem(mediaItemBuilder.build())
@@ -280,7 +293,16 @@ fun PlayerScreen(
             exoPlayer.seekTo(0)
             exoPlayer.playWhenReady = false
         }
-        exoPlayer.prepare()
+        
+        // 🔥 FIX 3: Catch any fatal error during preparation
+        try {
+            exoPlayer.prepare()
+        } catch (e: Exception) {
+            hasError = true
+            errorMessage = "Unsupported stream format or broken link."
+            isBuffering = false
+            hasStartedPlaying = true
+        }
     }
 
     // 🔥 FEATURE: Auto-Resume on Network Switch
@@ -291,7 +313,7 @@ fun PlayerScreen(
                 coroutineScope.launch {
                     delay(1000)
                     if (!exoPlayer.isPlaying && !hasError) {
-                        exoPlayer.prepare()
+                        try { exoPlayer.prepare() } catch (_: Exception) {}
                         exoPlayer.play()
                     }
                 }
@@ -368,7 +390,7 @@ fun PlayerScreen(
                         isBuffering = false
                         if (episodes.isEmpty()) {
                             exoPlayer.seekTo(0)
-                            exoPlayer.prepare()
+                            try { exoPlayer.prepare() } catch (_: Exception) {}
                             exoPlayer.play()
                         }
                     }
@@ -418,13 +440,13 @@ fun PlayerScreen(
                     
                     coroutineScope.launch {
                         delay(2000)
-                        exoPlayer.prepare()
+                        try { exoPlayer.prepare() } catch (_: Exception) {}
                         exoPlayer.playWhenReady = true
                     }
                 } else {
                     hasError = true
                     isBuffering = false
-                    errorMessage = "Connection lost after multiple attempts."
+                    errorMessage = "Connection lost after multiple attempts, or format is not supported."
                 }
             }
         }
@@ -820,7 +842,7 @@ fun PlayerScreen(
                         hasStartedPlaying = false
                         isBuffering = true
                         retryCount = 0
-                        exoPlayer.prepare()
+                        try { exoPlayer.prepare() } catch (_: Exception) {}
                         exoPlayer.playWhenReady = true
                     }, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE50914)), shape = RoundedCornerShape(50), modifier = Modifier.height(56.dp).fillMaxWidth(0.85f).shadow(12.dp, RoundedCornerShape(50), spotColor = Color(0xFFE50914), ambientColor = Color(0xFFE50914))) { 
                         Icon(Icons.Default.Refresh, contentDescription = null, tint = Color.White); Spacer(modifier = Modifier.width(10.dp)); Text("Retry", fontSize = 17.sp, fontWeight = FontWeight.Bold) 
@@ -856,20 +878,48 @@ fun PlayerScreen(
                     items(tvChannels) { channel ->
                         Row(
                             modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp).clip(RoundedCornerShape(12.dp)).background(Color.White.copy(alpha = 0.05f)).clickable {
+                                
+                                // 🔥 FIX: Block YouTube links in channel switcher
+                                if (channel.streamUrl.contains("youtube.com") || channel.streamUrl.contains("youtu.be")) {
+                                    hasError = true
+                                    errorMessage = "YouTube links are not supported by the built-in player."
+                                    isBuffering = false
+                                    hasStartedPlaying = true
+                                    showChannelSwitcher = false
+                                    return@clickable
+                                }
+
                                 currentVideoUrl = channel.streamUrl
                                 currentTitle = channel.name
                                 showChannelSwitcher = false
                                 hasStartedPlaying = false
                                 isBuffering = true
+                                hasError = false
                                 
                                 val mediaItemBuilder = MediaItem.Builder().setUri(channel.streamUrl)
-                                if (channel.streamUrl.contains("m3u8", ignoreCase = true)) {
+                                
+                                // 🔥 FIX: Explicit MIME Types for switcher
+                                if (channel.streamUrl.contains(".m3u8", ignoreCase = true)) {
                                     mediaItemBuilder.setMimeType(MimeTypes.APPLICATION_M3U8)
                                     mediaItemBuilder.setLiveConfiguration(MediaItem.LiveConfiguration.Builder().setTargetOffsetMs(5000).setMaxPlaybackSpeed(1.1f).setMinPlaybackSpeed(0.9f).build())
+                                } else if (channel.streamUrl.contains(".mpd", ignoreCase = true)) {
+                                    mediaItemBuilder.setMimeType(MimeTypes.APPLICATION_MPD)
+                                } else if (channel.streamUrl.contains(".mp4", ignoreCase = true)) {
+                                    mediaItemBuilder.setMimeType(MimeTypes.APPLICATION_MP4)
                                 }
-                                exoPlayer.setMediaItem(mediaItemBuilder.build())
-                                exoPlayer.prepare()
-                                exoPlayer.playWhenReady = true
+                                
+                                // 🔥 FIX: Catch errors during prepare
+                                try {
+                                    exoPlayer.setMediaItem(mediaItemBuilder.build())
+                                    exoPlayer.prepare()
+                                    exoPlayer.playWhenReady = true
+                                } catch (e: Exception) {
+                                    hasError = true
+                                    errorMessage = "Unsupported stream format."
+                                    isBuffering = false
+                                    hasStartedPlaying = true
+                                }
+
                             }.padding(12.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
