@@ -1,5 +1,7 @@
 package com.homeland.app
 
+import com.google.gson.annotations.SerializedName
+
 data class Episode(
     val season: String = "",
     val episode: String = "",
@@ -30,9 +32,19 @@ data class Movie(
 data class TvChannel(
     val id: String = "",
     val name: String = "",
+    
+    // This maps the "img" from your JSON to your "logo" variable
+    @SerializedName("img")
     val logo: String = "",
+    
+    // This maps the "url" from your JSON to your "streamUrl" variable
+    @SerializedName("url")
     val streamUrl: String = "",
+    
+    // This maps the "type" from your JSON to your "category" variable
+    @SerializedName("type")
     val category: String = "",
+    
     val isVip: Boolean = false,
     val isFeatured: Boolean = false
 )
