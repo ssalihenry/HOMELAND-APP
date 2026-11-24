@@ -258,6 +258,15 @@ fun PlayerScreen(
             return@LaunchedEffect
         }
 
+// 🔥 Block DRM streams
+if (finalVideoUrl.contains("cenc.mpd") || finalVideoUrl.contains("/dash/enc/")) {
+    hasError = true
+    errorMessage = "This channel uses DRM encryption and cannot be played."
+    isBuffering = false
+    hasStartedPlaying = true
+    return@LaunchedEffect
+}
+        
         // 3. Set Media Items and Prepare
         if (finalEpisodes.isNotEmpty()) {
             val mediaItems = finalEpisodes.map { ep ->
