@@ -209,28 +209,28 @@ fun AdminScreen(onBack: () -> Unit) {
                 if (jsonString.isNullOrBlank()) throw Exception("File is empty.")
 
                 val trimmed = jsonString.trim().removePrefix("\uFEFF").trim()
-                var jsonArray: JSONArray? = null
-                if (trimmed.startsWith("[")) {
-                    jsonArray = JSONArray(trimmed)
-                } else {
-                    val root = JSONObject(trimmed)
-                    for (key in listOf("movies", "data", "items", "results", "list", "content")) {
-                        val arr = root.optJSONArray(key)
-                        if (arr != null) { jsonArray = arr; break }
-                    }
-                    if (jsonArray == null) {
-                        val dataObj = root.optJSONObject("data")
-                        if (dataObj != null) {
-                            for (key in listOf("movies", "items", "results")) {
-                                val arr = dataObj.optJSONArray(key)
-                                if (arr != null) { jsonArray = arr; break }
-                            }
-                        }
-                    }
-                    if (jsonArray == null) jsonArray = JSONArray().apply { put(root) }
-                }
+val jsonArray: JSONArray = if (trimmed.startsWith("[")) {
+    JSONArray(trimmed)
+} else {
+    val root = JSONObject(trimmed)
+    var found: JSONArray? = null
+    for (key in listOf("movies", "data", "items", "results", "list", "content")) {
+        val arr = root.optJSONArray(key)
+        if (arr != null) { found = arr; break }
+    }
+    if (found == null) {
+        val dataObj = root.optJSONObject("data")
+        if (dataObj != null) {
+            for (key in listOf("movies", "items", "results")) {
+                val arr = dataObj.optJSONArray(key)
+                if (arr != null) { found = arr; break }
+            }
+        }
+    }
+    found ?: JSONArray().apply { put(root) }
+}
 
-                val totalInFile = jsonArray.length()
+val totalInFile = jsonArray.length()
                 Log.d("JSON_IMPORT", "File has $totalInFile items")
 
                 mainHandler.post { jsonImportProgress = "Checking database ($totalInFile in file)..." }
@@ -442,28 +442,28 @@ fun AdminScreen(onBack: () -> Unit) {
                 if (jsonString.isNullOrBlank()) throw Exception("File is empty.")
 
                 val trimmed = jsonString.trim().removePrefix("\uFEFF").trim()
-                var jsonArray: JSONArray? = null
-                if (trimmed.startsWith("[")) {
-                    jsonArray = JSONArray(trimmed)
-                } else {
-                    val root = JSONObject(trimmed)
-                    for (key in listOf("channels", "tv", "streams", "movies", "data", "items", "results", "list", "content")) {
-                        val arr = root.optJSONArray(key)
-                        if (arr != null) { jsonArray = arr; break }
-                    }
-                    if (jsonArray == null) {
-                        val dataObj = root.optJSONObject("data")
-                        if (dataObj != null) {
-                            for (key in listOf("channels", "tv", "streams", "items", "results")) {
-                                val arr = dataObj.optJSONArray(key)
-                                if (arr != null) { jsonArray = arr; break }
-                            }
-                        }
-                    }
-                    if (jsonArray == null) jsonArray = JSONArray().apply { put(root) }
-                }
+val jsonArray: JSONArray = if (trimmed.startsWith("[")) {
+    JSONArray(trimmed)
+} else {
+    val root = JSONObject(trimmed)
+    var found: JSONArray? = null
+    for (key in listOf("channels", "tv", "streams", "movies", "data", "items", "results", "list", "content")) {
+        val arr = root.optJSONArray(key)
+        if (arr != null) { found = arr; break }
+    }
+    if (found == null) {
+        val dataObj = root.optJSONObject("data")
+        if (dataObj != null) {
+            for (key in listOf("channels", "tv", "streams", "items", "results")) {
+                val arr = dataObj.optJSONArray(key)
+                if (arr != null) { found = arr; break }
+            }
+        }
+    }
+    found ?: JSONArray().apply { put(root) }
+}
 
-                val total = jsonArray.length()
+val total = jsonArray.length()
                 Log.d("TV_IMPORT", "File has $total items, starting at position $currentPosition")
 
                 if (currentPosition >= total) {
