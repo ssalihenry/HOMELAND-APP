@@ -95,9 +95,10 @@ dependencies {
     implementation 'com.google.android.gms:play-services-auth:20.7.0'
 
     // Native Video Player (ExoPlayer for HLS/MP4)
-    implementation 'androidx.media3:media3-exoplayer:1.2.1'
-    implementation 'androidx.media3:media3-exoplayer-hls:1.2.1'
-    implementation 'androidx.media3:media3-ui:1.2.1'
+    implementation("androidx.media3:media3-exoplayer:1.2.1")
+implementation("androidx.media3:media3-exoplayer-hls:1.2.1")
+implementation("androidx.media3:media3-exoplayer-dash:1.2.1")
+implementation("androidx.media3:media3-ui:1.2.1")
 
     // Image Loading (Coil)
     implementation 'io.coil-kt:coil-compose:2.6.0'
