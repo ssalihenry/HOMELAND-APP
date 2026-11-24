@@ -112,13 +112,17 @@ fun AdminScreen(onBack: () -> Unit) {
     var yocApiKey by remember { mutableStateOf(prefs.getString("yoc_api_key", "") ?: "") }
     var lastSyncTime by remember { mutableLongStateOf(prefs.getLong("yoc_last_sync", 0L)) }
 
-    // 🔥 JSON IMPORT STATE
+    // 🔥 JSON IMPORT STATE (Movies)
     var isImportingJson by remember { mutableStateOf(false) }
     var jsonImportProgress by remember { mutableStateOf("") }
-
-    // 🔥 Cached JSON URI + pending count so we can continue without re-picking file
     var lastJsonUri by remember { mutableStateOf<String?>(prefs.getString("last_json_uri", null)) }
     var pendingCount by remember { mutableIntStateOf(prefs.getInt("pending_count", 0)) }
+
+    // 🔥 JSON IMPORT STATE (TV Channels)
+    var isImportingTvJson by remember { mutableStateOf(false) }
+    var tvJsonProgress by remember { mutableStateOf("") }
+    var lastTvJsonUri by remember { mutableStateOf<String?>(prefs.getString("last_tv_json_uri", null)) }
+    var pendingTvCount by remember { mutableIntStateOf(prefs.getInt("pending_tv_count", 0)) }
 
     var editingMovieId by remember { mutableStateOf<String?>(null) }
     var editingTvId by remember { mutableStateOf<String?>(null) }
@@ -189,7 +193,9 @@ fun AdminScreen(onBack: () -> Unit) {
     var existingMovies by remember { mutableStateOf<List<Movie>>(emptyList()) }
     var existingTv by remember { mutableStateOf<List<TvChannel>>(emptyList()) }
 
-    // 🔥 Batch importer — called by both the picker AND the Continue button
+    // ═══════════════════════════════════════════════════════════════════
+    // 🔥 MOVIES — Batch Importer (100 per tap)
+    // ═══════════════════════════════════════════════════════════════════
     val runBatchImport: (android.net.Uri) -> Unit = { uri ->
         isImportingJson = true
         jsonImportProgress = "Reading file..."
@@ -197,13 +203,11 @@ fun AdminScreen(onBack: () -> Unit) {
 
         AppSyncScope.launch {
             try {
-                // ── Read file ──
                 val jsonString = withContext(Dispatchers.IO) {
                     context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
                 }
                 if (jsonString.isNullOrBlank()) throw Exception("File is empty.")
 
-                // ── Parse (handles array OR {movies:[...]} OR {data:{movies:[...]}}) ──
                 val trimmed = jsonString.trim().removePrefix("\uFEFF").trim()
                 var jsonArray: JSONArray? = null
                 if (trimmed.startsWith("[")) {
@@ -229,7 +233,6 @@ fun AdminScreen(onBack: () -> Unit) {
                 val totalInFile = jsonArray.length()
                 Log.d("JSON_IMPORT", "File has $totalInFile items")
 
-                // ── Fetch existing slugs to detect what's already imported ──
                 mainHandler.post { jsonImportProgress = "Checking database ($totalInFile in file)..." }
                 val existingSlugs: Set<String> = try {
                     val snap = Tasks.await(db.collection("homeland_movies").get(), 20, TimeUnit.SECONDS)
@@ -239,7 +242,6 @@ fun AdminScreen(onBack: () -> Unit) {
                     emptySet()
                 }
 
-                // ── Filter to only items not yet in DB ──
                 val pending: List<JSONObject> = (0 until totalInFile).mapNotNull { i ->
                     val o = jsonArray.getJSONObject(i)
                     val titleVal = o.optString("title", "").trim()
@@ -264,11 +266,9 @@ fun AdminScreen(onBack: () -> Unit) {
                     return@launch
                 }
 
-                // ── Take next 100 (or fewer if less remain) ──
                 val batchToAdd = pending.take(100)
                 mainHandler.post { jsonImportProgress = "Building batch of ${batchToAdd.size} movies (${pending.size} pending)..." }
 
-                // ── Helpers ──
                 fun mapGenre(raw: String): String {
                     if (raw.isBlank()) return "Action"
                     val g = raw.lowercase()
@@ -304,7 +304,6 @@ fun AdminScreen(onBack: () -> Unit) {
                     return System.currentTimeMillis()
                 }
 
-                // ── Build docs ──
                 val docs = mutableListOf<Map<String, Any>>()
                 for (o in batchToAdd) {
                     try {
@@ -358,7 +357,6 @@ fun AdminScreen(onBack: () -> Unit) {
                     }
                 }
 
-                // ── ONE WriteBatch = ONE network call for all 100 ──
                 mainHandler.post { jsonImportProgress = "Writing ${docs.size} movies..." }
                 var written = 0
                 var firstErr = ""
@@ -404,7 +402,6 @@ fun AdminScreen(onBack: () -> Unit) {
         }
     }
 
-    // 🔥 File picker — persists URI so Continue works after app restart
     val jsonPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri ->
@@ -418,6 +415,220 @@ fun AdminScreen(onBack: () -> Unit) {
             lastJsonUri = uri.toString()
             pendingCount = 0
             runBatchImport(uri)
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // 🔥 TV CHANNELS — Batch Upsert (100 per tap)
+    // Matches by slug first, then name (case-insensitive).
+    // Existing channel → UPDATE streamUrl (no duplicate).
+    // New channel      → INSERT.
+    // ═══════════════════════════════════════════════════════════════════
+    val runBatchTvImport: (android.net.Uri, Boolean) -> Unit = { uri, resetPosition ->
+        isImportingTvJson = true
+        tvJsonProgress = if (resetPosition) "Reading file (fresh sync)..." else "Reading file (continuing)..."
+        statusMessage = null
+
+        AppSyncScope.launch {
+            try {
+                if (resetPosition) {
+                    prefs.edit().putInt("tv_json_position", 0).apply()
+                }
+                val currentPosition = prefs.getInt("tv_json_position", 0)
+
+                val jsonString = withContext(Dispatchers.IO) {
+                    context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
+                }
+                if (jsonString.isNullOrBlank()) throw Exception("File is empty.")
+
+                val trimmed = jsonString.trim().removePrefix("\uFEFF").trim()
+                var jsonArray: JSONArray? = null
+                if (trimmed.startsWith("[")) {
+                    jsonArray = JSONArray(trimmed)
+                } else {
+                    val root = JSONObject(trimmed)
+                    for (key in listOf("channels", "tv", "streams", "movies", "data", "items", "results", "list", "content")) {
+                        val arr = root.optJSONArray(key)
+                        if (arr != null) { jsonArray = arr; break }
+                    }
+                    if (jsonArray == null) {
+                        val dataObj = root.optJSONObject("data")
+                        if (dataObj != null) {
+                            for (key in listOf("channels", "tv", "streams", "items", "results")) {
+                                val arr = dataObj.optJSONArray(key)
+                                if (arr != null) { jsonArray = arr; break }
+                            }
+                        }
+                    }
+                    if (jsonArray == null) jsonArray = JSONArray().apply { put(root) }
+                }
+
+                val total = jsonArray.length()
+                Log.d("TV_IMPORT", "File has $total items, starting at position $currentPosition")
+
+                if (currentPosition >= total) {
+                    mainHandler.post {
+                        isImportingTvJson = false
+                        tvJsonProgress = "All $total channels already synced."
+                        statusMessage = "✅ All $total channels synced. Pick the file again to re-sync."
+                        pendingTvCount = 0
+                        lastTvJsonUri = null
+                        prefs.edit().remove("last_tv_json_uri")
+                            .putInt("pending_tv_count", 0)
+                            .putInt("tv_json_position", 0)
+                            .apply()
+                    }
+                    return@launch
+                }
+
+                val end = minOf(currentPosition + 100, total)
+                val sliceSize = end - currentPosition
+                mainHandler.post { tvJsonProgress = "Preparing $sliceSize channels ($currentPosition/$total)..." }
+
+                val existingSnap = Tasks.await(db.collection("homeland_tv").get(), 20, TimeUnit.SECONDS)
+                val existingByName = mutableMapOf<String, String>()
+                val existingBySlug = mutableMapOf<String, String>()
+                for (doc in existingSnap.documents) {
+                    val n = doc.getString("name")?.trim()?.lowercase() ?: ""
+                    if (n.isNotBlank()) existingByName[n] = doc.id
+                    val s = doc.getString("slug")?.trim()
+                    if (!s.isNullOrBlank()) existingBySlug[s] = doc.id
+                }
+                Log.d("TV_IMPORT", "Existing: ${existingSnap.size()} channels in DB")
+
+                val wb = db.batch()
+                var added = 0
+                var updated = 0
+                var skipped = 0
+                val touchedInBatch = mutableSetOf<String>()
+
+                for (i in currentPosition until end) {
+                    try {
+                        val o = jsonArray.getJSONObject(i)
+
+                        val nameVal = o.optString("name", "").trim()
+                            .ifBlank { o.optString("channelName", "").trim() }
+                            .ifBlank { o.optString("channel_name", "").trim() }
+                            .ifBlank { o.optString("title", "").trim() }
+                        if (nameVal.isBlank()) { skipped++; continue }
+
+                        val streamVal = o.optString("streamUrl", "").trim()
+                            .ifBlank { o.optString("stream_url", "").trim() }
+                            .ifBlank { o.optString("url", "").trim() }
+                            .ifBlank { o.optString("link", "").trim() }
+                            .ifBlank { o.optString("src", "").trim() }
+                        if (streamVal.isBlank()) { skipped++; continue }
+
+                        val logoVal = o.optString("logo", "").trim()
+                            .ifBlank { o.optString("logoUrl", "").trim() }
+                            .ifBlank { o.optString("logo_url", "").trim() }
+                            .ifBlank { o.optString("tvgLogo", "").trim() }
+                            .ifBlank { o.optString("tvg_logo", "").trim() }
+                            .ifBlank { o.optString("icon", "").trim() }
+
+                        val catVal = o.optString("category", "").trim()
+                            .ifBlank { o.optString("group", "").trim() }
+                            .ifBlank { o.optString("groupTitle", "").trim() }
+                            .ifBlank { o.optString("group_title", "").trim() }
+                            .ifBlank { "General" }
+
+                        val slugVal = o.optString("slug", "").trim()
+                            .ifBlank { o.optString("tvgId", "").trim() }
+                            .ifBlank { o.optString("tvg_id", "").trim() }
+                            .ifBlank { o.optString("channelId", "").trim() }
+                            .ifBlank { o.optString("channel_id", "").trim() }
+
+                        val doc = hashMapOf<String, Any>(
+                            "name" to nameVal,
+                            "streamUrl" to streamVal,
+                            "logo" to logoVal,
+                            "category" to catVal,
+                            "timestamp" to System.currentTimeMillis()
+                        )
+                        if (slugVal.isNotBlank()) doc["slug"] = slugVal
+                        if (o.has("isVip")) doc["isVip"] = o.optBoolean("isVip", false)
+                        if (o.has("isFeatured")) doc["isFeatured"] = o.optBoolean("isFeatured", false)
+                        if (o.has("isAdult")) doc["isAdult"] = o.optBoolean("isAdult", false)
+
+                        var existingId: String? = null
+                        if (slugVal.isNotBlank()) existingId = existingBySlug[slugVal]
+                        if (existingId == null) existingId = existingByName[nameVal.lowercase()]
+
+                        if (existingId != null) {
+                            if (!touchedInBatch.contains(existingId)) {
+                                touchedInBatch.add(existingId)
+                                wb.update(db.collection("homeland_tv").document(existingId), doc)
+                                updated++
+                            } else {
+                                skipped++
+                            }
+                        } else {
+                            wb.set(db.collection("homeland_tv").document(), doc)
+                            added++
+                        }
+                    } catch (e: Exception) {
+                        Log.e("TV_IMPORT", "Item $i failed", e)
+                        skipped++
+                    }
+                }
+
+                mainHandler.post { tvJsonProgress = "Writing $added new + $updated updates..." }
+                Tasks.await(wb.commit(), 30, TimeUnit.SECONDS)
+
+                val newPosition = end
+                val remaining = total - newPosition
+
+                mainHandler.post {
+                    isImportingTvJson = false
+                    tvJsonProgress = "Synced $newPosition/$total | +$added new, ~$updated updated"
+                    pendingTvCount = remaining
+                    prefs.edit()
+                        .putInt("tv_json_position", newPosition)
+                        .putInt("pending_tv_count", remaining)
+                        .apply()
+
+                    statusMessage = when {
+                        remaining > 0 -> "✅ Added $added, updated $updated. $remaining remaining — tap Continue."
+                        added > 0 || updated > 0 -> {
+                            lastTvJsonUri = null
+                            prefs.edit().remove("last_tv_json_uri")
+                                .putInt("pending_tv_count", 0)
+                                .putInt("tv_json_position", 0)
+                                .apply()
+                            "🎉 Sync complete! +$added new, ~$updated updated."
+                        }
+                        else -> "No changes. All $total channels already up to date."
+                    }
+                }
+
+            } catch (e: Exception) {
+                Log.e("TV_IMPORT", "Batch failed", e)
+                mainHandler.post {
+                    isImportingTvJson = false
+                    tvJsonProgress = ""
+                    statusMessage = "TV JSON Error: ${e.message}"
+                }
+            }
+        }
+    }
+
+    val tvJsonPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            try {
+                context.contentResolver.takePersistableUriPermission(
+                    uri, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
+                )
+            } catch (_: Exception) {}
+            prefs.edit()
+                .putString("last_tv_json_uri", uri.toString())
+                .putInt("tv_json_position", 0)
+                .putInt("pending_tv_count", 0)
+                .apply()
+            lastTvJsonUri = uri.toString()
+            pendingTvCount = 0
+            runBatchTvImport(uri, true)
         }
     }
 
@@ -542,7 +753,7 @@ fun AdminScreen(onBack: () -> Unit) {
 
             if (selectedTab == 0) {
 
-                // 🔥 JSON IMPORT CARD (100 per tap, cached continue)
+                // 🔥 MOVIES JSON IMPORT CARD
                 item {
                     Card(
                         colors = CardDefaults.cardColors(containerColor = Color(0xFF15171E).copy(alpha = 0.7f)),
@@ -561,7 +772,6 @@ fun AdminScreen(onBack: () -> Unit) {
                                 modifier = Modifier.padding(bottom = 12.dp, top = 4.dp)
                             )
 
-                            // Primary button: pick a new file
                             Button(
                                 onClick = { jsonPickerLauncher.launch(arrayOf("application/json", "text/plain", "*/*")) },
                                 modifier = Modifier.fillMaxWidth().height(50.dp),
@@ -576,21 +786,15 @@ fun AdminScreen(onBack: () -> Unit) {
                                 }
                             }
 
-                            // Continue button: appears when a batch is already in progress
                             if (lastJsonUri != null && pendingCount > 0 && !isImportingJson) {
                                 Spacer(modifier = Modifier.height(10.dp))
                                 Button(
-                                    onClick = {
-                                        runBatchImport(android.net.Uri.parse(lastJsonUri!!))
-                                    },
+                                    onClick = { runBatchImport(android.net.Uri.parse(lastJsonUri!!)) },
                                     modifier = Modifier.fillMaxWidth().height(50.dp),
                                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFCDC04)),
                                     shape = RoundedCornerShape(12.dp)
                                 ) {
-                                    Text(
-                                        "▶ Continue Import ($pendingCount remaining)",
-                                        color = Color.Black, fontWeight = FontWeight.Bold
-                                    )
+                                    Text("▶ Continue Import ($pendingCount remaining)", color = Color.Black, fontWeight = FontWeight.Bold)
                                 }
                             }
 
@@ -909,6 +1113,60 @@ fun AdminScreen(onBack: () -> Unit) {
                     }
                 }
             } else if (selectedTab == 1) {
+
+                // 🔥 TV BULK SYNC CARD (goes first)
+                item {
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFF15171E).copy(alpha = 0.7f)),
+                        shape = RoundedCornerShape(24.dp),
+                        border = BorderStroke(1.dp, Color(0xFF10B981).copy(alpha = 0.5f))
+                    ) {
+                        Column(modifier = Modifier.padding(20.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.UploadFile, contentDescription = "Upload", tint = Color(0xFF10B981))
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("Bulk Sync TV Channels from JSON", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                            }
+                            Text(
+                                "Adds 100 channels per tap. If a channel already exists (by name or slug), it UPDATES its stream URL instead of duplicating.",
+                                color = Color.Gray, fontSize = 12.sp,
+                                modifier = Modifier.padding(bottom = 12.dp, top = 4.dp)
+                            )
+
+                            Button(
+                                onClick = { tvJsonPickerLauncher.launch(arrayOf("application/json", "text/plain", "*/*")) },
+                                modifier = Modifier.fillMaxWidth().height(50.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981)),
+                                shape = RoundedCornerShape(12.dp),
+                                enabled = !isImportingTvJson
+                            ) {
+                                if (isImportingTvJson) {
+                                    CircularProgressIndicator(color = Color.White, modifier = Modifier.size(24.dp))
+                                } else {
+                                    Text("Select TV JSON File", color = Color.White, fontWeight = FontWeight.Bold)
+                                }
+                            }
+
+                            if (lastTvJsonUri != null && pendingTvCount > 0 && !isImportingTvJson) {
+                                Spacer(modifier = Modifier.height(10.dp))
+                                Button(
+                                    onClick = { runBatchTvImport(android.net.Uri.parse(lastTvJsonUri!!), false) },
+                                    modifier = Modifier.fillMaxWidth().height(50.dp),
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFCDC04)),
+                                    shape = RoundedCornerShape(12.dp)
+                                ) {
+                                    Text("▶ Continue TV Sync ($pendingTvCount remaining)", color = Color.Black, fontWeight = FontWeight.Bold)
+                                }
+                            }
+
+                            if (isImportingTvJson || tvJsonProgress.isNotEmpty()) {
+                                Spacer(modifier = Modifier.height(12.dp))
+                                Text(tvJsonProgress, color = Color(0xFFFCDC04), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                }
+
                 item {
                     Card(
                         colors = CardDefaults.cardColors(containerColor = Color(0xFF15171E).copy(alpha = 0.7f)),
@@ -1494,11 +1752,10 @@ fun AdminScreen(onBack: () -> Unit) {
     }
 }
 
-// 🔥 ADDED: YOCINEMA SYNC NETWORK LOGIC (Bulletproof byte-array image download)
+// 🔥 YOCINEMA SYNC NETWORK LOGIC
 
 suspend fun executeYocSync(context: Context, apiKey: String, db: FirebaseFirestore, onProgress: (String) -> Unit): Pair<Int, Int> = withContext(Dispatchers.IO) {
 
-    // STEP 1: Fetch existing movie IDs with timeout
     onProgress("Checking database...")
     val haveIds: Set<String> = try {
         val snapCheck = Tasks.await(db.collection("homeland_movies").get(), 20, TimeUnit.SECONDS)
@@ -1509,7 +1766,6 @@ suspend fun executeYocSync(context: Context, apiKey: String, db: FirebaseFiresto
     }
     onProgress("Database checked. ${haveIds.size} already synced.")
 
-    // STEP 2: Fetch new movies with full timeouts
     val all = mutableListOf<JSONObject>()
     var page = 1
     var fetchedCount = 0
@@ -1576,7 +1832,6 @@ suspend fun executeYocSync(context: Context, apiKey: String, db: FirebaseFiresto
         return@withContext Pair(0, 0)
     }
 
-    // STEP 3: Save each movie with full timeouts
     var added = 0
     var failed = 0
 
@@ -1588,7 +1843,6 @@ suspend fun executeYocSync(context: Context, apiKey: String, db: FirebaseFiresto
         onProgress("Saving ${i + 1}/${all.size}: $movieTitle")
 
         try {
-            // Detail fetch
             val detUrl = URL("https://muno-yoc-proxy.henryssali219.workers.dev/movies/$yocId")
             val detConn = detUrl.openConnection() as HttpURLConnection
             detConn.connectTimeout = 15000
@@ -1600,8 +1854,6 @@ suspend fun executeYocSync(context: Context, apiKey: String, db: FirebaseFiresto
             detConn.disconnect()
             val detail = JSONObject(detResponse).getJSONObject("data")
 
-            // 🔥 FIX: Download image as raw bytes (like browser's res.blob()), then decode.
-            // This is bulletproof - works with WebP, redirects, chunked transfers.
             var posterBase64 = ""
             try {
                 val coverUrl = URL("https://muno-yoc-proxy.henryssali219.workers.dev/movies/$yocId/cover")
@@ -1620,7 +1872,6 @@ suspend fun executeYocSync(context: Context, apiKey: String, db: FirebaseFiresto
                 Log.d("YOC_SYNC", "Cover response: $coverResponseCode, type: $contentType for $yocId")
 
                 if (coverResponseCode == 200) {
-                    // Read the whole image into a ByteArray first (like res.blob())
                     val inputStream: InputStream = coverConn.inputStream
                     val buffer = ByteArrayOutputStream()
                     val chunk = ByteArray(8192)
@@ -1634,7 +1885,6 @@ suspend fun executeYocSync(context: Context, apiKey: String, db: FirebaseFiresto
                     val imageBytes = buffer.toByteArray()
                     Log.d("YOC_SYNC", "Downloaded ${imageBytes.size} bytes for $yocId")
 
-                    // Now decode the bytes
                     val bitmap = BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.size)
 
                     if (bitmap != null) {
@@ -1660,13 +1910,11 @@ suspend fun executeYocSync(context: Context, apiKey: String, db: FirebaseFiresto
                 Log.e("YOC_SYNC", "❌ Cover exception for $yocId: ${e.message}", e)
             }
 
-            // Fallback if cover failed
             if (posterBase64.isEmpty()) {
                 Log.w("YOC_SYNC", "Using fallback poster for $yocId")
                 posterBase64 = "https://images.unsplash.com/photo-1536440136628-849c177e76a1?auto=format&fit=crop&w=400&q=80"
             }
 
-            // Map logic
             val isSeries = detail.optString("type") == "series"
 
             val yocVjMap = mapOf(
@@ -1724,7 +1972,6 @@ suspend fun executeYocSync(context: Context, apiKey: String, db: FirebaseFiresto
                 doc["episodes"] = epsList
             }
 
-            // Token mint
             try {
                 val tokUrl = URL("https://muno-yoc-proxy.henryssali219.workers.dev/movies/$yocId/stream-token")
                 val tokConn = tokUrl.openConnection() as HttpURLConnection
@@ -1752,7 +1999,6 @@ suspend fun executeYocSync(context: Context, apiKey: String, db: FirebaseFiresto
                 Log.w("YOC_SYNC", "Token mint failed for $yocId", e)
             }
 
-            // Save to Firebase with timeout
             Tasks.await(db.collection("homeland_movies").add(doc), 15, TimeUnit.SECONDS)
             added++
             delay(150)
