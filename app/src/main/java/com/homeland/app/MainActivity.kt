@@ -897,33 +897,112 @@ fun SeriesScreen(gridState: LazyGridState, theme: ThemeConfig, profileName: Stri
 
 @Composable
 fun TvLiveScreen(gridState: LazyGridState, theme: ThemeConfig, userVipExpiry: Long, kidsMode: Boolean, searchQuery: String, onPlayMedia: (Movie) -> Unit) {
-    val db = FirebaseFirestore.getInstance(); var channels by remember { mutableStateOf<List<TvChannel>>(emptyList()) }; var selectedCategory by remember { mutableStateOf("All") }; val context = LocalContext.current
-    DisposableEffect(Unit) { val listener = db.collection("homeland_tv").orderBy("name", Query.Direction.ASCENDING).addSnapshotListener { snapshot, _ -> if (snapshot != null) { channels = snapshot.documents.mapNotNull { doc -> TvChannel(id = doc.id, name = doc.getString("name") ?: "", logo = doc.getString("logo") ?: "", streamUrl = doc.getString("streamUrl") ?: "", category = doc.getString("category") ?: "", isVip = doc.getBoolean("isVip") ?: false, isFeatured = doc.getBoolean("isFeatured") ?: false) } } }; onDispose { listener.remove() } }
+    val db = FirebaseFirestore.getInstance()
+    var channels by remember { mutableStateOf<List<TvChannel>>(emptyList()) }
+    
+    // 🔥 FIX: Use rememberSaveable so the selected category doesn't reset
+    var selectedCategory by rememberSaveable { mutableStateOf("All") } 
+    val context = LocalContext.current
+    
+    DisposableEffect(Unit) { 
+        val listener = db.collection("homeland_tv").orderBy("name", Query.Direction.ASCENDING).addSnapshotListener { snapshot, _ -> 
+            if (snapshot != null) { 
+                channels = snapshot.documents.mapNotNull { doc -> 
+                    TvChannel(
+                        id = doc.id, 
+                        name = doc.getString("name") ?: "", 
+                        logo = doc.getString("logo") ?: "", 
+                        streamUrl = doc.getString("streamUrl") ?: "", 
+                        category = doc.getString("category") ?: "General", 
+                        isVip = doc.getBoolean("isVip") ?: false, 
+                        isFeatured = doc.getBoolean("isFeatured") ?: false
+                    ) 
+                } 
+            } 
+        }; 
+        onDispose { listener.remove() } 
+    }
 
-    val filteredChannels by remember(channels, kidsMode, searchQuery, selectedCategory) { derivedStateOf { channels.filter { channel -> (if (kidsMode) channel.category.trim().equals("Kids", true) || channel.category.trim().equals("Animation", true) else true) && channel.name.contains(searchQuery, true) && (selectedCategory == "All" || channel.category.trim().equals(selectedCategory.trim(), ignoreCase = true)) } } }
+    // 🔥 FIX: Dynamically generate categories from the database instead of hardcoded list
+    val availableCategories by remember(channels) {
+        derivedStateOf {
+            listOf("All") + channels.map { it.category.trim() }.filter { it.isNotBlank() }.distinct().sorted()
+        }
+    }
+
+    val filteredChannels by remember(channels, kidsMode, searchQuery, selectedCategory) { 
+        derivedStateOf { 
+            channels.filter { channel -> 
+                (if (kidsMode) channel.category.trim().equals("Kids", true) || channel.category.trim().equals("Animation", true) else true) 
+                && channel.name.contains(searchQuery, true) 
+                && (selectedCategory == "All" || channel.category.trim().equals(selectedCategory.trim(), ignoreCase = true)) 
+            } 
+        } 
+    }
 
     Column(modifier = Modifier.fillMaxSize()) {
-        val featuredChannels = filteredChannels.filter { it.isFeatured }.take(4); val displayFeatured = if (featuredChannels.isNotEmpty()) featuredChannels else filteredChannels.take(4)
+        val featuredChannels = filteredChannels.filter { it.isFeatured }.take(4)
+        val displayFeatured = if (featuredChannels.isNotEmpty()) featuredChannels else filteredChannels.take(4)
+        
         if (displayFeatured.isNotEmpty() && searchQuery.isEmpty() && selectedCategory == "All") {
             Text("Featured Channels", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(start = 16.dp, top = 16.dp, bottom = 8.dp))
             LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 items(displayFeatured) { channel ->
                     Box(modifier = Modifier.width(220.dp).height(125.dp).clip(RoundedCornerShape(20.dp)).border(1.dp, Color.White.copy(alpha = 0.15f), RoundedCornerShape(20.dp)).clickable { vibrate(context); onPlayMedia(Movie(title = channel.name, videoUrl = channel.streamUrl, isVip = channel.isVip)) }) {
-                        SubcomposeAsyncImage(model = ImageRequest.Builder(LocalContext.current).data(channel.logo).crossfade(true).build(), contentDescription = channel.name, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize(), loading = { ShimmerBox(modifier = Modifier.fillMaxSize()) }); Box(modifier = Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.8f), Color.Black))))
-                        Column(modifier = Modifier.align(Alignment.BottomStart).padding(12.dp)) { Text(channel.name, color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold); Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp).clip(RoundedCornerShape(8.dp)).background(Color.Black.copy(alpha = 0.5f)).border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(8.dp)).padding(horizontal = 6.dp, vertical = 2.dp)) { Box(modifier = Modifier.size(6.dp).clip(CircleShape).background(Color.Red)); Spacer(Modifier.width(4.dp)); Text("LIVE", color = Color.Red, fontSize = 10.sp, fontWeight = FontWeight.Bold) } }
+                        SubcomposeAsyncImage(model = ImageRequest.Builder(LocalContext.current).data(channel.logo).crossfade(true).build(), contentDescription = channel.name, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize(), loading = { ShimmerBox(modifier = Modifier.fillMaxSize()) }); 
+                        Box(modifier = Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.8f), Color.Black))))
+                        Column(modifier = Modifier.align(Alignment.BottomStart).padding(12.dp)) { 
+                            Text(channel.name, color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold); 
+                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp).clip(RoundedCornerShape(8.dp)).background(Color.Black.copy(alpha = 0.5f)).border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(8.dp)).padding(horizontal = 6.dp, vertical = 2.dp)) { 
+                                Box(modifier = Modifier.size(6.dp).clip(CircleShape).background(Color.Red)); 
+                                Spacer(Modifier.width(4.dp)); 
+                                Text("LIVE", color = Color.Red, fontSize = 10.sp, fontWeight = FontWeight.Bold) 
+                            } 
+                        }
                     }
                 }
             }
         }
-        LazyRow(contentPadding = PaddingValues(16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) { items(tvCategories) { category -> FilterChip(selected = selectedCategory == category, onClick = { vibrate(context); selectedCategory = category }, label = { Text(category) }, colors = FilterChipDefaults.filterChipColors(selectedContainerColor = theme.primary, selectedLabelColor = Color.White, containerColor = Color(0xFF15171E).copy(alpha = 0.6f), labelColor = Color.Gray), border = FilterChipDefaults.filterChipBorder(enabled = true, selected = selectedCategory == category, borderColor = Color.White.copy(alpha = 0.1f), selectedBorderColor = Color.Transparent)) } }
+        
+        // 🔥 FIX: Use the dynamic categories list here
+        LazyRow(contentPadding = PaddingValues(16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) { 
+            items(availableCategories) { category -> 
+                FilterChip(
+                    selected = selectedCategory == category, 
+                    onClick = { vibrate(context); selectedCategory = category }, 
+                    label = { Text(category) }, 
+                    colors = FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = theme.primary, 
+                        selectedLabelColor = Color.White, 
+                        containerColor = Color(0xFF15171E).copy(alpha = 0.6f), 
+                        labelColor = Color.Gray
+                    ), 
+                    border = FilterChipDefaults.filterChipBorder(
+                        enabled = true, 
+                        selected = selectedCategory == category, 
+                        borderColor = Color.White.copy(alpha = 0.1f), 
+                        selectedBorderColor = Color.Transparent
+                    )
+                ) 
+            } 
+        }
+        
         LazyVerticalGrid(state = gridState, columns = GridCells.Adaptive(160.dp), contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             items(filteredChannels) { channel ->
-                val isLocked = channel.isVip && userVipExpiry < System.currentTimeMillis(); var isFocused by remember { mutableStateOf(false) }
+                val isLocked = channel.isVip && userVipExpiry < System.currentTimeMillis()
+                var isFocused by remember { mutableStateOf(false) }
                 Box {
                     Column(modifier = Modifier.fillMaxWidth().height(170.dp).clip(RoundedCornerShape(24.dp)).onFocusChanged { isFocused = it.isFocused }.border(if (isFocused) 3.dp else 1.dp, if (isFocused) Color.White else Color.White.copy(alpha = 0.1f), RoundedCornerShape(24.dp)).background(Color(0xFF15171E).copy(alpha = 0.7f)).clickable { vibrate(context); onPlayMedia(Movie(title = channel.name, videoUrl = channel.streamUrl, isVip = channel.isVip)) }.padding(12.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
                         SubcomposeAsyncImage(model = ImageRequest.Builder(LocalContext.current).data(channel.logo).crossfade(true).build(), contentDescription = channel.name, contentScale = ContentScale.Fit, modifier = Modifier.size(80.dp).clip(RoundedCornerShape(16.dp)).shadow(4.dp, RoundedCornerShape(16.dp)), loading = { ShimmerBox(modifier = Modifier.fillMaxSize()) }, error = { Box(modifier = Modifier.fillMaxSize().background(Color(0xFF15171E)), contentAlignment = Alignment.Center) { Icon(Icons.Default.Tv, null, tint = Color.Gray) } })
-                        Spacer(Modifier.height(12.dp)); Text(channel.name, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 6.dp).clip(RoundedCornerShape(8.dp)).background(Color.Black.copy(alpha = 0.4f)).border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(8.dp)).padding(horizontal = 8.dp, vertical = 3.dp)) { val infiniteTransition = rememberInfiniteTransition(label = "blink"); val alpha by infiniteTransition.animateFloat(initialValue = 1f, targetValue = 0.2f, animationSpec = infiniteRepeatable(animation = tween(1000), repeatMode = RepeatMode.Reverse), label = "alpha"); Box(modifier = Modifier.size(6.dp).clip(CircleShape).background(Color.Red.copy(alpha = alpha))); Spacer(Modifier.width(4.dp)); Text("LIVE", color = Color.Red.copy(alpha = alpha), fontSize = 10.sp, fontWeight = FontWeight.Bold) }
+                        Spacer(Modifier.height(12.dp))
+                        Text(channel.name, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 6.dp).clip(RoundedCornerShape(8.dp)).background(Color.Black.copy(alpha = 0.4f)).border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(8.dp)).padding(horizontal = 8.dp, vertical = 3.dp)) { 
+                            val infiniteTransition = rememberInfiniteTransition(label = "blink")
+                            val alpha by infiniteTransition.animateFloat(initialValue = 1f, targetValue = 0.2f, animationSpec = infiniteRepeatable(animation = tween(1000), repeatMode = RepeatMode.Reverse), label = "alpha")
+                            Box(modifier = Modifier.size(6.dp).clip(CircleShape).background(Color.Red.copy(alpha = alpha)))
+                            Spacer(Modifier.width(4.dp))
+                            Text("LIVE", color = Color.Red.copy(alpha = alpha), fontSize = 10.sp, fontWeight = FontWeight.Bold) 
+                        }
                     }
                     if (isLocked) Box(modifier = Modifier.matchParentSize().background(Color.Black.copy(alpha = 0.6f), RoundedCornerShape(24.dp)), contentAlignment = Alignment.Center) { Icon(Icons.Default.Lock, "Locked", tint = Color(0xFFFCDC04), modifier = Modifier.size(32.dp)) }
                 }
