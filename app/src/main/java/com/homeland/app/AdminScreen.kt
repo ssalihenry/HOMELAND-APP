@@ -519,11 +519,11 @@ fun AdminScreen(onBack: () -> Unit) {
     .ifBlank { o.optString("icon", "").trim() }
 
                         val catVal = o.optString("category", "").trim()
-                            .ifBlank { o.optString("group", "").trim() }
-                            .ifBlank { o.optString("groupTitle", "").trim() }
-                            .ifBlank { o.optString("group_title", "").trim() }
-                            .ifBlank { "General" }
-
+    .ifBlank { o.optString("type", "").trim() }
+    .ifBlank { o.optString("group", "").trim() }
+    .ifBlank { o.optString("groupTitle", "").trim() }
+    .ifBlank { o.optString("group_title", "").trim() }
+    .ifBlank { "General" }
                         val slugVal = o.optString("slug", "").trim()
                             .ifBlank { o.optString("tvgId", "").trim() }
                             .ifBlank { o.optString("tvg_id", "").trim() }
