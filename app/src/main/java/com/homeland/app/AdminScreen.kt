@@ -510,12 +510,13 @@ fun AdminScreen(onBack: () -> Unit) {
                             .ifBlank { o.optString("src", "").trim() }
                         if (streamVal.isBlank()) { skipped++; continue }
 
-                        val logoVal = o.optString("logo", "").trim()
-                            .ifBlank { o.optString("logoUrl", "").trim() }
-                            .ifBlank { o.optString("logo_url", "").trim() }
-                            .ifBlank { o.optString("tvgLogo", "").trim() }
-                            .ifBlank { o.optString("tvg_logo", "").trim() }
-                            .ifBlank { o.optString("icon", "").trim() }
+                        val logoVal = o.optString("img", "").trim()
+    .ifBlank { o.optString("logo", "").trim() }
+    .ifBlank { o.optString("logoUrl", "").trim() }
+    .ifBlank { o.optString("logo_url", "").trim() }
+    .ifBlank { o.optString("tvgLogo", "").trim() }
+    .ifBlank { o.optString("tvg_logo", "").trim() }
+    .ifBlank { o.optString("icon", "").trim() }
 
                         val catVal = o.optString("category", "").trim()
                             .ifBlank { o.optString("group", "").trim() }
@@ -1297,25 +1298,43 @@ fun AdminScreen(onBack: () -> Unit) {
                     }
                 }
                 items(existingTv) { tv ->
-                    Card(
-                        colors = CardDefaults.cardColors(containerColor = Color(0xFF15171E).copy(alpha = 0.7f)),
-                        shape = RoundedCornerShape(12.dp),
-                        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.05f))
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(8.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(tv.name, color = Color.White, modifier = Modifier.weight(1f), fontSize = 13.sp)
-                            IconButton(onClick = {
-                                editingTvId = tv.id; tvName = tv.name; tvLogo = tv.logo; tvUrl = tv.streamUrl
-                                tvCategory = tv.category; isVipTv = tv.isVip; isFeaturedTv = tv.isFeatured
-                            }) { Icon(Icons.Default.Edit, "Edit", tint = Color.Yellow) }
-                            IconButton(onClick = { db.collection("homeland_tv").document(tv.id).delete() }) {
-                                Icon(Icons.Default.Delete, "Delete", tint = Color.Red)
-                            }
-                        }
-                    }
+    Card(
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF15171E).copy(alpha = 0.7f)),
+        shape = RoundedCornerShape(12.dp),
+        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.05f))
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // 🔥 NEW: Display the TV Logo
+            PosterImage(
+                posterData = tv.logo,
+                contentDescription = tv.name,
+                modifier = Modifier.size(48.dp).clip(RoundedCornerShape(6.dp)),
+                contentScale = ContentScale.Crop
+            )
+            Spacer(modifier = Modifier.width(10.dp))
+            
+            Column(modifier = Modifier.weight(1f)) {
+                Text(tv.name, color = Color.White, fontSize = 13.sp, maxLines = 1)
+                Text(
+                    if (tv.logo.startsWith("http")) "Logo: URL ✓" else "⚠ No logo",
+                    color = if (tv.logo.isNotBlank()) Color(0xFF10B981) else Color.Red,
+                    fontSize = 10.sp
+                )
+            }
+            
+            IconButton(onClick = {
+                editingTvId = tv.id; tvName = tv.name; tvLogo = tv.logo; tvUrl = tv.streamUrl
+                tvCategory = tv.category; isVipTv = tv.isVip; isFeaturedTv = tv.isFeatured
+            }) { Icon(Icons.Default.Edit, "Edit", tint = Color.Yellow) }
+            
+            IconButton(onClick = { db.collection("homeland_tv").document(tv.id).delete() }) {
+                Icon(Icons.Default.Delete, "Delete", tint = Color.Red)
+            }
+        }
+    }
                 }
             } else if (selectedTab == 2) {
                 item {
