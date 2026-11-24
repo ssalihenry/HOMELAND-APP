@@ -504,11 +504,17 @@ fun AdminScreen(onBack: () -> Unit) {
                         if (nameVal.isBlank()) { skipped++; continue }
 
                         val streamVal = o.optString("streamUrl", "").trim()
-                            .ifBlank { o.optString("stream_url", "").trim() }
-                            .ifBlank { o.optString("url", "").trim() }
-                            .ifBlank { o.optString("link", "").trim() }
-                            .ifBlank { o.optString("src", "").trim() }
-                        if (streamVal.isBlank()) { skipped++; continue }
+    .ifBlank { o.optString("stream_url", "").trim() }
+    .ifBlank { o.optString("url", "").trim() }
+    .ifBlank { o.optString("link", "").trim() }
+    .ifBlank { o.optString("src", "").trim() }
+if (streamVal.isBlank()) { skipped++; continue }
+
+// 🔥 BLOCK DRM STREAMS (They cannot be played without license keys)
+if (streamVal.contains("cenc.mpd") || streamVal.contains("/dash/enc/")) {
+    skipped++
+    continue
+}
 
                         val logoVal = o.optString("img", "").trim()
     .ifBlank { o.optString("logo", "").trim() }
