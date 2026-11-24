@@ -55,6 +55,7 @@ import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
@@ -228,10 +229,9 @@ fun PosterImage(
 
         if (posterData.startsWith("http://") || posterData.startsWith("https://")) {
             isLoading = false
-            return@LaunchedEffect // Let Coil handle normal URLs
+            return@LaunchedEffect
         }
 
-        // It's a Base64 string: Decode it manually in the background
         withContext(Dispatchers.IO) {
             try {
                 val base64String = if (posterData.contains("base64,")) {
@@ -240,17 +240,14 @@ fun PosterImage(
                     posterData
                 }
                 
-                // Remove any hidden newlines/spaces that crash the decoder
                 val cleanBase64 = base64String.replace("\\s".toRegex(), "")
                 val decodedBytes = android.util.Base64.decode(cleanBase64, android.util.Base64.DEFAULT)
 
-                // Check dimensions first to prevent OutOfMemory errors
                 val bOptions = android.graphics.BitmapFactory.Options()
                 bOptions.inJustDecodeBounds = true
                 android.graphics.BitmapFactory.decodeByteArray(decodedBytes, 0, decodedBytes.size, bOptions)
 
-                // Downsample if the image is massive
-                val reqSize = 1000 // Max 1000px width/height
+                val reqSize = 1000
                 var inSampleSize = 1
                 if (bOptions.outHeight > reqSize || bOptions.outWidth > reqSize) {
                     val halfHeight = bOptions.outHeight / 2
@@ -260,7 +257,6 @@ fun PosterImage(
                     }
                 }
 
-                // Decode the actual bitmap with the calculated sample size
                 bOptions.inJustDecodeBounds = false
                 bOptions.inSampleSize = inSampleSize
                 
@@ -1050,13 +1046,18 @@ fun HomelandApp(
     var showWifiWarning by remember { mutableStateOf(false) }
     var pendingPlayMovie by remember { mutableStateOf<Movie?>(null) }
 
-// FIX: Forces the TV to stay in Landscape when exiting the player
-LaunchedEffect(currentlyPlaying, isTv) {
-    val activity = context as? Activity
-    if (activity != null && isTv && currentlyPlaying == null) {
-        activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+    // 🚨 FIX 1: Hoist scroll states here to survive player navigation!
+    val homeGridState = rememberLazyGridState()
+    val moviesGridState = rememberLazyGridState()
+    val seriesGridState = rememberLazyGridState()
+    val tvGridState = rememberLazyGridState()
+
+    LaunchedEffect(currentlyPlaying, isTv) {
+        val activity = context as? Activity
+        if (activity != null && isTv && currentlyPlaying == null) {
+            activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+        }
     }
-}
     
     fun isOnWifi(): Boolean {
         val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
@@ -1253,12 +1254,24 @@ LaunchedEffect(currentlyPlaying, isTv) {
             Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
                 if (theme.bgImageUrl.isNotEmpty()) AsyncImage(model = theme.bgImageUrl, contentDescription = "App Background", contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
                 else Box(modifier = Modifier.fillMaxSize().background(theme.background))
-                Box(modifier = Modifier.fillMaxSize()) {
-                    when (selectedTab) {
-                        0 -> HomeScreen(theme = theme, profileName = profileName, userVipExpiry = userVipExpiry, kidsMode = kidsMode, searchQuery = globalSearchQuery, onDetails = { viewingDetails = it }, isMoviesTab = false)
-                        1 -> MoviesScreen(theme = theme, profileName = profileName, userVipExpiry = userVipExpiry, kidsMode = kidsMode, searchQuery = globalSearchQuery, onDetails = { viewingDetails = it })
-                        2 -> SeriesScreen(theme = theme, profileName = profileName, userVipExpiry = userVipExpiry, kidsMode = kidsMode, searchQuery = globalSearchQuery, onDetails = { viewingDetails = it })
-                        3 -> TvLiveScreen(theme = theme, userVipExpiry = userVipExpiry, kidsMode = kidsMode, searchQuery = globalSearchQuery, onPlayMedia = { tryPlay(it) })
+                
+                // 🚨 FIX 2: Added Search Bar to TV UI
+                Column(modifier = Modifier.fillMaxSize()) {
+                    OutlinedTextField(
+                        value = globalSearchQuery, onValueChange = { globalSearchQuery = it },
+                        placeholder = { Text("Search titles...", color = Color.Gray, fontSize = 14.sp) },
+                        leadingIcon = { Icon(Icons.Default.Search, "Search", tint = Color.Gray) },
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 32.dp, vertical = 16.dp).clip(RoundedCornerShape(50)).border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(50)),
+                        colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Color.Transparent, unfocusedBorderColor = Color.Transparent, focusedContainerColor = Color(0xFF15171E).copy(alpha = 0.6f), unfocusedContainerColor = Color(0xFF15171E).copy(alpha = 0.6f), focusedTextColor = Color.White, unfocusedTextColor = Color.White),
+                        shape = RoundedCornerShape(50)
+                    )
+                    Box(modifier = Modifier.weight(1f)) {
+                        when (selectedTab) {
+                            0 -> HomeScreen(gridState = homeGridState, theme = theme, profileName = profileName, userVipExpiry = userVipExpiry, kidsMode = kidsMode, searchQuery = globalSearchQuery, onDetails = { viewingDetails = it }, isMoviesTab = false)
+                            1 -> MoviesScreen(gridState = moviesGridState, theme = theme, profileName = profileName, userVipExpiry = userVipExpiry, kidsMode = kidsMode, searchQuery = globalSearchQuery, onDetails = { viewingDetails = it })
+                            2 -> SeriesScreen(gridState = seriesGridState, theme = theme, profileName = profileName, userVipExpiry = userVipExpiry, kidsMode = kidsMode, searchQuery = globalSearchQuery, onDetails = { viewingDetails = it })
+                            3 -> TvLiveScreen(gridState = tvGridState, theme = theme, userVipExpiry = userVipExpiry, kidsMode = kidsMode, searchQuery = globalSearchQuery, onPlayMedia = { tryPlay(it) })
+                        }
                     }
                 }
             }
@@ -1300,10 +1313,10 @@ LaunchedEffect(currentlyPlaying, isTv) {
                         shape = RoundedCornerShape(50))
                     Box(modifier = Modifier.weight(1f)) {
                         when (selectedTab) {
-                            0 -> HomeScreen(theme = theme, profileName = profileName, userVipExpiry = userVipExpiry, kidsMode = kidsMode, searchQuery = globalSearchQuery, onDetails = { viewingDetails = it }, isMoviesTab = false)
-                            1 -> MoviesScreen(theme = theme, profileName = profileName, userVipExpiry = userVipExpiry, kidsMode = kidsMode, searchQuery = globalSearchQuery, onDetails = { viewingDetails = it })
-                            2 -> SeriesScreen(theme = theme, profileName = profileName, userVipExpiry = userVipExpiry, kidsMode = kidsMode, searchQuery = globalSearchQuery, onDetails = { viewingDetails = it })
-                            3 -> TvLiveScreen(theme = theme, userVipExpiry = userVipExpiry, kidsMode = kidsMode, searchQuery = globalSearchQuery, onPlayMedia = { tryPlay(it) })
+                            0 -> HomeScreen(gridState = homeGridState, theme = theme, profileName = profileName, userVipExpiry = userVipExpiry, kidsMode = kidsMode, searchQuery = globalSearchQuery, onDetails = { viewingDetails = it }, isMoviesTab = false)
+                            1 -> MoviesScreen(gridState = moviesGridState, theme = theme, profileName = profileName, userVipExpiry = userVipExpiry, kidsMode = kidsMode, searchQuery = globalSearchQuery, onDetails = { viewingDetails = it })
+                            2 -> SeriesScreen(gridState = seriesGridState, theme = theme, profileName = profileName, userVipExpiry = userVipExpiry, kidsMode = kidsMode, searchQuery = globalSearchQuery, onDetails = { viewingDetails = it })
+                            3 -> TvLiveScreen(gridState = tvGridState, theme = theme, userVipExpiry = userVipExpiry, kidsMode = kidsMode, searchQuery = globalSearchQuery, onPlayMedia = { tryPlay(it) })
                         }
                     }
                 }
@@ -1312,9 +1325,10 @@ LaunchedEffect(currentlyPlaying, isTv) {
     }
 }
 
- @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun HomeScreen(
+    gridState: LazyGridState,
     theme: ThemeConfig, 
     profileName: String, 
     userVipExpiry: Long, 
@@ -1332,41 +1346,20 @@ fun HomeScreen(
     var lastVisibleMovie by remember { mutableStateOf<com.google.firebase.firestore.DocumentSnapshot?>(null) }
     var isFetchingMore by remember { mutableStateOf(false) }
 
-    val gridState = rememberLazyGridState()
     val context = LocalContext.current
 
     fun loadMoreMovies() {
         if (isFetchingMore || lastVisibleMovie == null) return
         isFetchingMore = true
-        // Load 10 at a time for pagination
         var query = db.collection("homeland_movies").orderBy("timestamp", Query.Direction.DESCENDING).limit(10)
         if (lastVisibleMovie != null) query = query.startAfter(lastVisibleMovie)
         query.get().addOnSuccessListener { snap ->
             if (snap != null && !snap.isEmpty) {
                 val newMovies = snap.documents.map { doc -> 
                     val episodes = (doc.get("episodes") as? List<Map<String, Any>>)?.map { ep ->
-                        Episode(
-                            season = ep["season"] as? String ?: "",
-                            episode = ep["episode"] as? String ?: "",
-                            url = ep["url"] as? String ?: "",
-                            subtitleUrl = ep["subtitleUrl"] as? String ?: ""
-                        )
+                        Episode(ep["season"] as? String ?: "", ep["episode"] as? String ?: "", ep["url"] as? String ?: "", ep["subtitleUrl"] as? String ?: "")
                     } ?: emptyList()
-
-                    Movie(
-                        id = doc.id, 
-                        title = doc.getString("title") ?: "", 
-                        poster = doc.getString("poster") ?: "", 
-                        videoUrl = doc.getString("videoUrl") ?: "", 
-                        category = doc.getString("category") ?: "", 
-                        videoTag = doc.getString("videoTag") ?: "", 
-                        year = doc.getString("year") ?: "", 
-                        isVip = doc.getBoolean("isVip") ?: false, 
-                        isFeatured = doc.getBoolean("isFeatured") ?: false, 
-                        isAdult = doc.getBoolean("isAdult") ?: false,
-                        episodes = episodes,
-                        yocId = doc.getString("yocId") ?: ""
-                    ) 
+                    Movie(id = doc.id, title = doc.getString("title") ?: "", poster = doc.getString("poster") ?: "", videoUrl = doc.getString("videoUrl") ?: "", category = doc.getString("category") ?: "", videoTag = doc.getString("videoTag") ?: "", year = doc.getString("year") ?: "", isVip = doc.getBoolean("isVip") ?: false, isFeatured = doc.getBoolean("isFeatured") ?: false, isAdult = doc.getBoolean("isAdult") ?: false, episodes = episodes, yocId = doc.getString("yocId") ?: "") 
                 }
                 movies = (movies + newMovies).distinctBy { it.id }
                 lastVisibleMovie = snap.documents.lastOrNull()
@@ -1380,41 +1373,21 @@ fun HomeScreen(
     }
 
     LaunchedEffect(Unit) {
-    db.collection("homeland_movies").orderBy("timestamp", Query.Direction.DESCENDING).limit(10).addSnapshotListener { snap, error ->
-        if (error != null) {
-            android.widget.Toast.makeText(context, "Firebase Error: ${error.message}", android.widget.Toast.LENGTH_LONG).show()
-            isLoading = false
-            return@addSnapshotListener
-        }
+        db.collection("homeland_movies").orderBy("timestamp", Query.Direction.DESCENDING).limit(10).addSnapshotListener { snap, error ->
+            if (error != null) {
+                android.widget.Toast.makeText(context, "Firebase Error: ${error.message}", android.widget.Toast.LENGTH_LONG).show()
+                isLoading = false
+                return@addSnapshotListener
+            }
 
-        if (snap != null && snap.documents.isNotEmpty()) {
+            if (snap != null && snap.documents.isNotEmpty()) {
                 val fetchedMovies = snap.documents.map { doc -> 
                     val episodes = (doc.get("episodes") as? List<Map<String, Any>>)?.map { ep ->
-                        Episode(
-                            season = ep["season"] as? String ?: "",
-                            episode = ep["episode"] as? String ?: "",
-                            url = ep["url"] as? String ?: "",
-                            subtitleUrl = ep["subtitleUrl"] as? String ?: ""
-                        )
+                        Episode(ep["season"] as? String ?: "", ep["episode"] as? String ?: "", ep["url"] as? String ?: "", ep["subtitleUrl"] as? String ?: "")
                     } ?: emptyList()
-
-                    Movie(
-                        id = doc.id, 
-                        title = doc.getString("title") ?: "", 
-                        poster = doc.getString("poster") ?: "", 
-                        videoUrl = doc.getString("videoUrl") ?: "", 
-                        category = doc.getString("category") ?: "", 
-                        videoTag = doc.getString("videoTag") ?: "", 
-                        year = doc.getString("year") ?: "", 
-                        isVip = doc.getBoolean("isVip") ?: false, 
-                        isFeatured = doc.getBoolean("isFeatured") ?: false, 
-                        isAdult = doc.getBoolean("isAdult") ?: false,
-                        episodes = episodes,
-                        yocId = doc.getString("yocId") ?: ""
-                    ) 
+                    Movie(id = doc.id, title = doc.getString("title") ?: "", poster = doc.getString("poster") ?: "", videoUrl = doc.getString("videoUrl") ?: "", category = doc.getString("category") ?: "", videoTag = doc.getString("videoTag") ?: "", year = doc.getString("year") ?: "", isVip = doc.getBoolean("isVip") ?: false, isFeatured = doc.getBoolean("isFeatured") ?: false, isAdult = doc.getBoolean("isAdult") ?: false, episodes = episodes, yocId = doc.getString("yocId") ?: "") 
                 }
                 
-                // Only update if the list is empty (initial load) so it doesn't break pagination
                 if (movies.isEmpty()) {
                     movies = fetchedMovies
                     lastVisibleMovie = snap.documents.lastOrNull()
@@ -1422,6 +1395,18 @@ fun HomeScreen(
                     if (featuredMovies.isEmpty()) featuredMovies = fetchedMovies.filter { !kidsMode || !it.isAdult }.take(3)
                 }
                 isLoading = false
+            }
+        }
+    }
+
+    // 🚨 FIX 3: derivedStateOf makes filtering INSTANT for every keypress
+    val filteredMovies by remember(movies, kidsMode, searchQuery, selectedCategory, isMoviesTab) {
+        derivedStateOf {
+            movies.filter { 
+                (!kidsMode || !it.isAdult) && 
+                it.title.contains(searchQuery, true) && 
+                (selectedCategory == "All" || it.category == selectedCategory) &&
+                (if (isMoviesTab) it.type != "TV Show" else true)
             }
         }
     }
@@ -1447,15 +1432,7 @@ fun HomeScreen(
                             
                             Column(modifier = Modifier.align(Alignment.BottomStart).padding(16.dp)) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Box(
-                                        modifier = Modifier
-                                            .clip(RoundedCornerShape(4.dp))
-                                            .background(Color(0xFFE50914).copy(alpha = 0.8f))
-                                            .border(1.dp, Color.White.copy(alpha = 0.2f), RoundedCornerShape(4.dp))
-                                            .padding(horizontal = 6.dp, vertical = 2.dp)
-                                    ) { 
-                                        Text("FEATURED", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold) 
-                                    }
+                                    Box(modifier = Modifier.clip(RoundedCornerShape(4.dp)).background(Color(0xFFE50914).copy(alpha = 0.8f)).border(1.dp, Color.White.copy(alpha = 0.2f), RoundedCornerShape(4.dp)).padding(horizontal = 6.dp, vertical = 2.dp)) { Text("FEATURED", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold) }
                                     Spacer(modifier = Modifier.width(8.dp))
                                     Text(movie.category.uppercase(), color = Color.LightGray, fontSize = 10.sp, fontWeight = FontWeight.Bold)
                                 }
@@ -1500,13 +1477,7 @@ fun HomeScreen(
             }
 
             LazyVerticalGrid(state = gridState, columns = GridCells.Fixed(2), contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                val filtered = movies.filter { 
-                    (!kidsMode || !it.isAdult) && 
-                    it.title.contains(searchQuery, true) && 
-                    (selectedCategory == "All" || it.category == selectedCategory) &&
-                    (if (isMoviesTab) it.type != "TV Show" else true)
-                }
-                items(filtered) { movie -> MovieCard(movie, theme, profileName, userVipExpiry, onDetails) }
+                items(filteredMovies) { movie -> MovieCard(movie, theme, profileName, userVipExpiry, onDetails) }
                 if (isFetchingMore) { item(span = { GridItemSpan(maxLineSpan) }) { Box(modifier = Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = theme.primary, modifier = Modifier.size(24.dp)) } } }
             }
         }
@@ -1576,9 +1547,7 @@ fun DownloadsScreen(theme: ThemeConfig, onBack: () -> Unit, onPlay: (Movie) -> U
         downloadedFiles = dir?.listFiles()?.filter { it.extension == "mp4" } ?: emptyList()
     }
 
-    Box(
-        modifier = Modifier.fillMaxSize().background(Brush.radialGradient(colors = listOf(Color(0xFF1A0002), Color(0xFF0B0C10)), radius = 1200f))
-    ) {
+    Box(modifier = Modifier.fillMaxSize().background(Brush.radialGradient(colors = listOf(Color(0xFF1A0002), Color(0xFF0B0C10)), radius = 1200f))) {
         Column(modifier = Modifier.fillMaxSize().padding(16.dp).displayCutoutPadding()) {
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 16.dp)) {
                 IconButton(onClick = onBack, modifier = Modifier.background(Color.White.copy(alpha = 0.1f), CircleShape)) { Icon(Icons.Default.ArrowBack, "Back", tint = Color.White) }
@@ -1603,16 +1572,8 @@ fun DownloadsScreen(theme: ThemeConfig, onBack: () -> Unit, onPlay: (Movie) -> U
                             shape = RoundedCornerShape(16.dp),
                             border = BorderStroke(1.dp, Color.White.copy(alpha = 0.1f))
                         ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth().padding(16.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Box(
-                                    modifier = Modifier.size(40.dp).clip(CircleShape).background(theme.primary.copy(alpha = 0.2f)),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(Icons.Default.Movie, contentDescription = "Movie", tint = theme.primary, modifier = Modifier.size(24.dp))
-                                }
+                            Row(modifier = Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Box(modifier = Modifier.size(40.dp).clip(CircleShape).background(theme.primary.copy(alpha = 0.2f)), contentAlignment = Alignment.Center) { Icon(Icons.Default.Movie, contentDescription = "Movie", tint = theme.primary, modifier = Modifier.size(24.dp)) }
                                 Spacer(modifier = Modifier.width(16.dp))
                                 Column {
                                     Text(file.name, color = Color.White, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -1632,12 +1593,7 @@ fun DownloadsScreen(theme: ThemeConfig, onBack: () -> Unit, onPlay: (Movie) -> U
 fun QuickActionButton(icon: ImageVector, label: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
     val context = LocalContext.current
     Column(
-        modifier = modifier
-            .clip(RoundedCornerShape(16.dp))
-            .background(Color(0xFF15171E).copy(alpha = 0.6f))
-            .border(1.dp, Color.White.copy(alpha = 0.05f), RoundedCornerShape(16.dp))
-            .clickable { vibrate(context); onClick() }
-            .padding(vertical = 14.dp),
+        modifier = modifier.clip(RoundedCornerShape(16.dp)).background(Color(0xFF15171E).copy(alpha = 0.6f)).border(1.dp, Color.White.copy(alpha = 0.05f), RoundedCornerShape(16.dp)).clickable { vibrate(context); onClick() }.padding(vertical = 14.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Icon(icon, contentDescription = label, tint = Color.White, modifier = Modifier.size(24.dp))
@@ -1671,14 +1627,7 @@ fun SettingsRowWithSwitch(icon: ImageVector, title: String, checked: Boolean, on
 @Composable
 fun NetflixHistoryCard(movie: Movie, progressPercent: Float, onClick: () -> Unit) {
     Box(modifier = Modifier.width(200.dp).aspectRatio(16f / 9f).clip(RoundedCornerShape(12.dp)).border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(12.dp)).background(Color(0xFF15171E).copy(alpha = 0.8f)).clickable { onClick() }) {
-        
-        PosterImage(
-            posterData = movie.poster,
-            contentDescription = movie.title,
-            modifier = Modifier.fillMaxSize(),
-            contentScale = ContentScale.Crop
-        )
-
+        PosterImage(posterData = movie.poster, contentDescription = movie.title, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
         Box(modifier = Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.7f)))))
         Box(modifier = Modifier.align(Alignment.Center).size(40.dp).clip(CircleShape).background(Color.Black.copy(alpha = 0.5f)), contentAlignment = Alignment.Center) { Icon(Icons.Default.PlayArrow, contentDescription = "Play", tint = Color.White, modifier = Modifier.size(24.dp)) }
         Text(text = movie.title, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.align(Alignment.BottomStart).padding(start = 8.dp, bottom = 10.dp, end = 8.dp))
@@ -1708,12 +1657,7 @@ fun VipCountdownCard(userVipExpiry: Long, theme: ThemeConfig) {
         }
     }
     
-    Card(
-        modifier = Modifier.fillMaxWidth().padding(top = 16.dp), 
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF15171E).copy(alpha = 0.7f)), 
-        shape = RoundedCornerShape(16.dp), 
-        border = BorderStroke(1.dp, Color(0xFFFCDC04).copy(alpha = 0.6f))
-    ) {
+    Card(modifier = Modifier.fillMaxWidth().padding(top = 16.dp), colors = CardDefaults.cardColors(containerColor = Color(0xFF15171E).copy(alpha = 0.7f)), shape = RoundedCornerShape(16.dp), border = BorderStroke(1.dp, Color(0xFFFCDC04).copy(alpha = 0.6f))) {
         Column(modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp, horizontal = 16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             Text(dateText, color = Color(0xFFFCDC04), fontSize = 14.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
             Spacer(modifier = Modifier.height(4.dp))
@@ -1791,23 +1735,9 @@ fun ProfileScreen(
             db.collection("homeland_movies").limit(20).get().addOnSuccessListener { moviesSnap ->
                 profileHistory = moviesSnap.documents.mapNotNull {
                     val episodes = (it.get("episodes") as? List<Map<String, Any>>)?.map { ep ->
-                        Episode(
-                            season = ep["season"] as? String ?: "",
-                            episode = ep["episode"] as? String ?: "",
-                            url = ep["url"] as? String ?: "",
-                            subtitleUrl = ep["subtitleUrl"] as? String ?: ""
-                        )
+                        Episode(season = ep["season"] as? String ?: "", episode = ep["episode"] as? String ?: "", url = ep["url"] as? String ?: "", subtitleUrl = ep["subtitleUrl"] as? String ?: "")
                     } ?: emptyList()
-
-                    val m = Movie(
-                        id = it.id, 
-                        title = it.getString("title") ?: "", 
-                        poster = it.getString("poster") ?: "", 
-                        videoUrl = it.getString("videoUrl") ?: "", 
-                        isVip = it.getBoolean("isVip") ?: false,
-                        episodes = episodes,
-                        yocId = it.getString("yocId") ?: ""
-                    )
+                    val m = Movie(id = it.id, title = it.getString("title") ?: "", poster = it.getString("poster") ?: "", videoUrl = it.getString("videoUrl") ?: "", isVip = it.getBoolean("isVip") ?: false, episodes = episodes, yocId = it.getString("yocId") ?: "")
                     val progress = historyMap[m.id]
                     if (progress != null) Pair(m, progress) else null
                 }
@@ -1835,17 +1765,7 @@ fun ProfileScreen(
                     IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, "Back", tint = Color.White) }
                 }
 
-                Box(
-                    modifier = Modifier
-                        .size(100.dp)
-                        .clip(CircleShape)
-                        .background(Color(0xFF15171E))
-                        .border(3.dp, theme.primary, CircleShape)
-                        .shadow(16.dp, CircleShape, spotColor = theme.primary, ambientColor = theme.primary), 
-                    contentAlignment = Alignment.Center
-                ) { 
-                    Icon(Icons.Default.Person, "Avatar", tint = theme.primary, modifier = Modifier.size(60.dp)) 
-                }
+                Box(modifier = Modifier.size(100.dp).clip(CircleShape).background(Color(0xFF15171E)).border(3.dp, theme.primary, CircleShape).shadow(16.dp, CircleShape, spotColor = theme.primary, ambientColor = theme.primary), contentAlignment = Alignment.Center) { Icon(Icons.Default.Person, "Avatar", tint = theme.primary, modifier = Modifier.size(60.dp)) }
                 Spacer(modifier = Modifier.height(16.dp))
                 
                 Text(auth.currentUser?.email?.split("@")?.getOrNull(0) ?: "User", color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Black)
@@ -1857,10 +1777,7 @@ fun ProfileScreen(
                 Spacer(modifier = Modifier.height(24.dp))
 
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-                    QuickActionButton(icon = Icons.Default.Star, label = "VIP Plans", modifier = Modifier.weight(1f), onClick = {
-                        if (!isVip) { showPaymentDialog = true }
-                        else { Toast.makeText(context, "You are already VIP!", Toast.LENGTH_SHORT).show() }
-                    })
+                    QuickActionButton(icon = Icons.Default.Star, label = "VIP Plans", modifier = Modifier.weight(1f), onClick = { if (!isVip) { showPaymentDialog = true } else { Toast.makeText(context, "You are already VIP!", Toast.LENGTH_SHORT).show() } })
                     Spacer(modifier = Modifier.width(8.dp))
                     QuickActionButton(icon = Icons.Default.Download, label = "Downloads", modifier = Modifier.weight(1f), onClick = { showDownloads = true })
                     Spacer(modifier = Modifier.width(8.dp))
@@ -1871,12 +1788,7 @@ fun ProfileScreen(
 
                 Spacer(modifier = Modifier.height(24.dp))
 
-                Card(
-                    modifier = Modifier.fillMaxWidth(), 
-                    colors = CardDefaults.cardColors(containerColor = Color(0xFF15171E).copy(alpha = 0.7f)), 
-                    shape = RoundedCornerShape(24.dp),
-                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.05f))
-                ) {
+                Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = Color(0xFF15171E).copy(alpha = 0.7f)), shape = RoundedCornerShape(24.dp), border = BorderStroke(1.dp, Color.White.copy(alpha = 0.05f))) {
                     Column {
                         SettingsRow(icon = Icons.Default.Lock, title = if (savedPin != null) "App Lock (Enabled)" else "Setup App Lock", onClick = { showPinDialog = true })
                         HorizontalDivider(color = Color.White.copy(alpha = 0.05f))
@@ -1894,13 +1806,7 @@ fun ProfileScreen(
                                     Text("Your TV Control Code", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Medium)
                                     Text("Open the app on your phone to control this TV", color = Color.Gray, fontSize = 11.sp)
                                 }
-                                Text(
-                                    tvSessionCode.replaceFirst("(\\d{3})(\\d{3})".toRegex(), "$1 $2"),
-                                    color = Color(0xFF10B981),
-                                    fontSize = 20.sp,
-                                    fontWeight = FontWeight.Black,
-                                    letterSpacing = 2.sp
-                                )
+                                Text(tvSessionCode.replaceFirst("(\\d{3})(\\d{3})".toRegex(), "$1 $2"), color = Color(0xFF10B981), fontSize = 20.sp, fontWeight = FontWeight.Black, letterSpacing = 2.sp)
                             }
                             HorizontalDivider(color = Color.White.copy(alpha = 0.05f))
                         }
@@ -1945,36 +1851,12 @@ fun ProfileScreen(
                     
                     val uriHandler = LocalUriHandler.current
                     
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.Center,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        if (!socialLinks["whatsapp"].isNullOrBlank()) {
-                            IconButton(onClick = { uriHandler.openUri(socialLinks["whatsapp"]!!) }) {
-                                Icon(Icons.Default.Chat, contentDescription = "WhatsApp", tint = Color(0xFF25D366))
-                            }
-                        }
-                        if (!socialLinks["telegram"].isNullOrBlank()) {
-                            IconButton(onClick = { uriHandler.openUri(socialLinks["telegram"]!!) }) {
-                                Icon(Icons.Default.Send, contentDescription = "Telegram", tint = Color(0xFF0088cc))
-                            }
-                        }
-                        if (!socialLinks["tiktok"].isNullOrBlank()) {
-                            IconButton(onClick = { uriHandler.openUri(socialLinks["tiktok"]!!) }) {
-                                Icon(Icons.Default.PlayArrow, contentDescription = "TikTok", tint = Color.White)
-                            }
-                        }
-                        if (!socialLinks["twitter"].isNullOrBlank()) {
-                            IconButton(onClick = { uriHandler.openUri(socialLinks["twitter"]!!) }) {
-                                Icon(Icons.Default.Share, contentDescription = "Twitter", tint = Color(0xFF1DA1F2))
-                            }
-                        }
-                        if (!socialLinks["instagram"].isNullOrBlank()) {
-                            IconButton(onClick = { uriHandler.openUri(socialLinks["instagram"]!!) }) {
-                                Icon(Icons.Default.CameraAlt, contentDescription = "Instagram", tint = Color(0xFFE1306C))
-                            }
-                        }
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
+                        if (!socialLinks["whatsapp"].isNullOrBlank()) { IconButton(onClick = { uriHandler.openUri(socialLinks["whatsapp"]!!) }) { Icon(Icons.Default.Chat, contentDescription = "WhatsApp", tint = Color(0xFF25D366)) } }
+                        if (!socialLinks["telegram"].isNullOrBlank()) { IconButton(onClick = { uriHandler.openUri(socialLinks["telegram"]!!) }) { Icon(Icons.Default.Send, contentDescription = "Telegram", tint = Color(0xFF0088cc)) } }
+                        if (!socialLinks["tiktok"].isNullOrBlank()) { IconButton(onClick = { uriHandler.openUri(socialLinks["tiktok"]!!) }) { Icon(Icons.Default.PlayArrow, contentDescription = "TikTok", tint = Color.White) } }
+                        if (!socialLinks["twitter"].isNullOrBlank()) { IconButton(onClick = { uriHandler.openUri(socialLinks["twitter"]!!) }) { Icon(Icons.Default.Share, contentDescription = "Twitter", tint = Color(0xFF1DA1F2)) } }
+                        if (!socialLinks["instagram"].isNullOrBlank()) { IconButton(onClick = { uriHandler.openUri(socialLinks["instagram"]!!) }) { Icon(Icons.Default.CameraAlt, contentDescription = "Instagram", tint = Color(0xFFE1306C)) } }
                     }
                 }
 
@@ -1984,10 +1866,7 @@ fun ProfileScreen(
     }
 
     if (showTvRemoteDialog) {
-        TVRemoteConnectDialog(
-            theme = theme,
-            onDismiss = { showTvRemoteDialog = false }
-        )
+        TVRemoteConnectDialog(theme = theme, onDismiss = { showTvRemoteDialog = false })
     }
 
     if (showLanguageDialog) {
@@ -1997,15 +1876,8 @@ fun ProfileScreen(
             text = {
                 Column {
                     listOf("English", "Luganda", "Lunyankole", "Arabic", "Chinese", "Japanese").forEach { lang ->
-                        Row(
-                            modifier = Modifier.fillMaxWidth().clickable { vibrate(context); onLanguageChanged(lang); showLanguageDialog = false }.padding(vertical = 12.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            RadioButton(
-                                selected = appLanguage == lang,
-                                onClick = { onLanguageChanged(lang); showLanguageDialog = false },
-                                colors = RadioButtonDefaults.colors(selectedColor = theme.primary)
-                            )
+                        Row(modifier = Modifier.fillMaxWidth().clickable { vibrate(context); onLanguageChanged(lang); showLanguageDialog = false }.padding(vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                            RadioButton(selected = appLanguage == lang, onClick = { onLanguageChanged(lang); showLanguageDialog = false }, colors = RadioButtonDefaults.colors(selectedColor = theme.primary))
                             Text(lang, color = Color.White, fontSize = 16.sp)
                         }
                     }
@@ -2173,26 +2045,14 @@ fun TVRemoteConnectDialog(theme: ThemeConfig, onDismiss: () -> Unit) {
     }
 
     Dialog(onDismissRequest = onDismiss) {
-        Surface(
-            shape = RoundedCornerShape(32.dp),
-            color = Color(0xFF0B0C10),
-            modifier = Modifier.fillMaxWidth().fillMaxHeight(0.92f)
-        ) {
+        Surface(shape = RoundedCornerShape(32.dp), color = Color(0xFF0B0C10), modifier = Modifier.fillMaxWidth().fillMaxHeight(0.92f)) {
             if (connectedCode == null) {
-                Column(
-                    modifier = Modifier.fillMaxSize().padding(24.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
+                Column(modifier = Modifier.fillMaxSize().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                     Icon(Icons.Default.SettingsRemote, contentDescription = "Remote", tint = theme.primary, modifier = Modifier.size(64.dp))
                     Spacer(modifier = Modifier.height(16.dp))
                     Text("Connect to TV", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Black)
                     Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        "Open Homeland on your TV, go to Profile, and enter the 6-digit code shown there.",
-                        color = Color.Gray,
-                        fontSize = 13.sp,
-                        textAlign = TextAlign.Center
-                    )
+                    Text("Open Homeland on your TV, go to Profile, and enter the 6-digit code shown there.", color = Color.Gray, fontSize = 13.sp, textAlign = TextAlign.Center)
                     Spacer(modifier = Modifier.height(24.dp))
                     
                     OutlinedTextField(
@@ -2202,18 +2062,10 @@ fun TVRemoteConnectDialog(theme: ThemeConfig, onDismiss: () -> Unit) {
                         modifier = Modifier.fillMaxWidth(),
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         shape = RoundedCornerShape(50),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedTextColor = Color.White,
-                            unfocusedTextColor = Color.White,
-                            focusedBorderColor = theme.primary,
-                            unfocusedBorderColor = Color.DarkGray
-                        )
+                        colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White, focusedBorderColor = theme.primary, unfocusedBorderColor = Color.DarkGray)
                     )
                     
-                    if (errorMsg != null) {
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text(errorMsg!!, color = Color.Red, fontSize = 13.sp)
-                    }
+                    if (errorMsg != null) { Spacer(modifier = Modifier.height(8.dp)); Text(errorMsg!!, color = Color.Red, fontSize = 13.sp) }
                     
                     Spacer(modifier = Modifier.height(20.dp))
                     
@@ -2222,58 +2074,32 @@ fun TVRemoteConnectDialog(theme: ThemeConfig, onDismiss: () -> Unit) {
                             if (codeInput.length == 6) {
                                 isConnecting = true
                                 errorMsg = null
-                                db.collection("tv_sessions").document(codeInput).get()
-                                    .addOnSuccessListener { doc ->
-                                        isConnecting = false
-                                        if (doc.exists()) {
-                                            connectedCode = codeInput
-                                            vibrate(context, isStrong = true)
-                                        } else {
-                                            errorMsg = "Invalid code. Check the TV screen."
-                                        }
-                                    }
-                                    .addOnFailureListener {
-                                        isConnecting = false
-                                        errorMsg = "Network error. Try again."
-                                    }
-                            } else {
-                                errorMsg = "Please enter 6 digits"
-                            }
+                                db.collection("tv_sessions").document(codeInput).get().addOnSuccessListener { doc ->
+                                    isConnecting = false
+                                    if (doc.exists()) { connectedCode = codeInput; vibrate(context, isStrong = true) } 
+                                    else { errorMsg = "Invalid code. Check the TV screen." }
+                                }.addOnFailureListener { isConnecting = false; errorMsg = "Network error. Try again." }
+                            } else { errorMsg = "Please enter 6 digits" }
                         },
                         enabled = !isConnecting,
                         modifier = Modifier.fillMaxWidth().height(56.dp).shadow(12.dp, RoundedCornerShape(50), spotColor = theme.primary, ambientColor = theme.primary),
                         colors = ButtonDefaults.buttonColors(containerColor = theme.primary),
                         shape = RoundedCornerShape(50)
-                    ) {
-                        if (isConnecting) CircularProgressIndicator(color = Color.White, modifier = Modifier.size(22.dp))
-                        else Text("Connect", fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                    }
+                    ) { if (isConnecting) CircularProgressIndicator(color = Color.White, modifier = Modifier.size(22.dp)) else Text("Connect", fontSize = 16.sp, fontWeight = FontWeight.Bold) }
                     
                     Spacer(modifier = Modifier.height(12.dp))
                     TextButton(onClick = onDismiss) { Text("Cancel", color = Color.Gray) }
                 }
             } else {
-                Column(
-                    modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
+                Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                     Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Box(modifier = Modifier.size(10.dp).clip(CircleShape).background(if (tvStatus == "playing") Color(0xFF10B981) else Color.Yellow))
                         Spacer(modifier = Modifier.width(8.dp))
                         Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                if (tvStatus == "playing") "Playing on TV" else "Connected to TV",
-                                color = Color.White,
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                            if (tvTitle.isNotEmpty()) {
-                                Text(tvTitle, color = Color.Gray, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            }
+                            Text(if (tvStatus == "playing") "Playing on TV" else "Connected to TV", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                            if (tvTitle.isNotEmpty()) { Text(tvTitle, color = Color.Gray, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) }
                         }
-                        IconButton(onClick = { connectedCode = null; codeInput = ""; tvStatus = "idle"; tvTitle = "" }) {
-                            Icon(Icons.Default.Close, "Disconnect", tint = Color.White)
-                        }
+                        IconButton(onClick = { connectedCode = null; codeInput = ""; tvStatus = "idle"; tvTitle = "" }) { Icon(Icons.Default.Close, "Disconnect", tint = Color.White) }
                     }
                     
                     Spacer(modifier = Modifier.height(16.dp))
@@ -2293,40 +2119,15 @@ fun TVRemoteConnectDialog(theme: ThemeConfig, onDismiss: () -> Unit) {
                     Spacer(modifier = Modifier.height(8.dp))
                     
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Box(
-                            modifier = Modifier.size(60.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.1f)).clickable { sendCommand("dpad_up") },
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(Icons.Default.KeyboardArrowUp, "Up", tint = Color.White, modifier = Modifier.size(36.dp))
-                        }
+                        Box(modifier = Modifier.size(60.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.1f)).clickable { sendCommand("dpad_up") }, contentAlignment = Alignment.Center) { Icon(Icons.Default.KeyboardArrowUp, "Up", tint = Color.White, modifier = Modifier.size(36.dp)) }
                         Spacer(modifier = Modifier.height(4.dp))
                         Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Box(
-                                modifier = Modifier.size(60.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.1f)).clickable { sendCommand("dpad_left") },
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(Icons.Default.KeyboardArrowLeft, "Left", tint = Color.White, modifier = Modifier.size(36.dp))
-                            }
-                            Box(
-                                modifier = Modifier.size(70.dp).clip(CircleShape).background(theme.primary).clickable { sendCommand("dpad_center") },
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text("OK", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Black)
-                            }
-                            Box(
-                                modifier = Modifier.size(60.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.1f)).clickable { sendCommand("dpad_right") },
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(Icons.Default.KeyboardArrowRight, "Right", tint = Color.White, modifier = Modifier.size(36.dp))
-                            }
+                            Box(modifier = Modifier.size(60.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.1f)).clickable { sendCommand("dpad_left") }, contentAlignment = Alignment.Center) { Icon(Icons.Default.KeyboardArrowLeft, "Left", tint = Color.White, modifier = Modifier.size(36.dp)) }
+                            Box(modifier = Modifier.size(70.dp).clip(CircleShape).background(theme.primary).clickable { sendCommand("dpad_center") }, contentAlignment = Alignment.Center) { Text("OK", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Black) }
+                            Box(modifier = Modifier.size(60.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.1f)).clickable { sendCommand("dpad_right") }, contentAlignment = Alignment.Center) { Icon(Icons.Default.KeyboardArrowRight, "Right", tint = Color.White, modifier = Modifier.size(36.dp)) }
                         }
                         Spacer(modifier = Modifier.height(4.dp))
-                        Box(
-                            modifier = Modifier.size(60.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.1f)).clickable { sendCommand("dpad_down") },
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(Icons.Default.KeyboardArrowDown, "Down", tint = Color.White, modifier = Modifier.size(36.dp))
-                        }
+                        Box(modifier = Modifier.size(60.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.1f)).clickable { sendCommand("dpad_down") }, contentAlignment = Alignment.Center) { Icon(Icons.Default.KeyboardArrowDown, "Down", tint = Color.White, modifier = Modifier.size(36.dp)) }
                     }
                     
                     Spacer(modifier = Modifier.height(20.dp))
@@ -2335,33 +2136,10 @@ fun TVRemoteConnectDialog(theme: ThemeConfig, onDismiss: () -> Unit) {
                     Spacer(modifier = Modifier.height(8.dp))
                     
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
-                        Box(
-                            modifier = Modifier.size(60.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.1f)).clickable { sendCommand("back") },
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(Icons.Default.ArrowBack, "Back", tint = Color.White, modifier = Modifier.size(28.dp))
-                        }
-                        
-                        Box(
-                            modifier = Modifier.size(72.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.1f)).clickable { sendCommand("toggle_play") },
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(Icons.Default.PlayArrow, "Play/Pause", tint = Color.White, modifier = Modifier.size(36.dp))
-                        }
-                        
-                        Box(
-                            modifier = Modifier.size(60.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.1f)).clickable { sendCommand("volume_up") },
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(Icons.Default.VolumeUp, "Volume Up", tint = Color.White, modifier = Modifier.size(28.dp))
-                        }
-                        
-                        Box(
-                            modifier = Modifier.size(60.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.1f)).clickable { sendCommand("volume_down") },
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(Icons.Default.VolumeDown, "Volume Down", tint = Color.White, modifier = Modifier.size(28.dp))
-                        }
+                        Box(modifier = Modifier.size(60.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.1f)).clickable { sendCommand("back") }, contentAlignment = Alignment.Center) { Icon(Icons.Default.ArrowBack, "Back", tint = Color.White, modifier = Modifier.size(28.dp)) }
+                        Box(modifier = Modifier.size(72.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.1f)).clickable { sendCommand("toggle_play") }, contentAlignment = Alignment.Center) { Icon(Icons.Default.PlayArrow, "Play/Pause", tint = Color.White, modifier = Modifier.size(36.dp)) }
+                        Box(modifier = Modifier.size(60.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.1f)).clickable { sendCommand("volume_up") }, contentAlignment = Alignment.Center) { Icon(Icons.Default.VolumeUp, "Volume Up", tint = Color.White, modifier = Modifier.size(28.dp)) }
+                        Box(modifier = Modifier.size(60.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.1f)).clickable { sendCommand("volume_down") }, contentAlignment = Alignment.Center) { Icon(Icons.Default.VolumeDown, "Volume Down", tint = Color.White, modifier = Modifier.size(28.dp)) }
                     }
                     
                     Spacer(modifier = Modifier.height(20.dp))
@@ -2375,22 +2153,10 @@ fun TVRemoteConnectDialog(theme: ThemeConfig, onDismiss: () -> Unit) {
                             placeholder = { Text("Type movie name...", color = Color.Gray, fontSize = 13.sp) },
                             modifier = Modifier.weight(1f),
                             shape = RoundedCornerShape(50),
-                            colors = OutlinedTextFieldDefaults.colors(
-                                focusedTextColor = Color.White,
-                                unfocusedTextColor = Color.White,
-                                focusedBorderColor = theme.primary,
-                                unfocusedBorderColor = Color.DarkGray
-                            )
+                            colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White, focusedBorderColor = theme.primary, unfocusedBorderColor = Color.DarkGray)
                         )
                         Spacer(modifier = Modifier.width(8.dp))
-                        Button(
-                            onClick = { sendCommand("search", searchInput); searchInput = "" },
-                            colors = ButtonDefaults.buttonColors(containerColor = theme.primary),
-                            shape = RoundedCornerShape(50),
-                            modifier = Modifier.height(56.dp).shadow(8.dp, RoundedCornerShape(50), spotColor = theme.primary)
-                        ) {
-                            Icon(Icons.Default.Search, "Search", tint = Color.White)
-                        }
+                        Button(onClick = { sendCommand("search", searchInput); searchInput = "" }, colors = ButtonDefaults.buttonColors(containerColor = theme.primary), shape = RoundedCornerShape(50), modifier = Modifier.height(56.dp).shadow(8.dp, RoundedCornerShape(50), spotColor = theme.primary)) { Icon(Icons.Default.Search, "Search", tint = Color.White) }
                     }
                     
                     Spacer(modifier = Modifier.height(16.dp))
@@ -2402,15 +2168,7 @@ fun TVRemoteConnectDialog(theme: ThemeConfig, onDismiss: () -> Unit) {
 
 @Composable
 fun RemoteTabButton(icon: ImageVector, label: String, onClick: () -> Unit, theme: ThemeConfig, modifier: Modifier = Modifier) {
-    Column(
-        modifier = modifier
-            .clip(RoundedCornerShape(16.dp))
-            .background(Color.White.copy(alpha = 0.05f))
-            .border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(16.dp))
-            .clickable { onClick() }
-            .padding(vertical = 12.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
+    Column(modifier = modifier.clip(RoundedCornerShape(16.dp)).background(Color.White.copy(alpha = 0.05f)).border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(16.dp)).clickable { onClick() }.padding(vertical = 12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         Icon(icon, contentDescription = label, tint = theme.primary, modifier = Modifier.size(22.dp))
         Spacer(modifier = Modifier.height(4.dp))
         Text(label, color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Medium)
@@ -2435,31 +2193,17 @@ fun MovieDetailsScreen(movie: Movie, userVipExpiry: Long, onShowVipModal: () -> 
             onDismissRequest = { showDownloadDialog = false },
             title = { Text("Download Options", color = Color.White) },
             text = { Text("Where would you like to save this video?", color = Color.Gray) },
-            confirmButton = {
-                Button(onClick = { downloadFile(context, downloadUrlToUse, "$downloadTitleToUse.mp4", saveToPublic = true); showDownloadDialog = false }, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE50914)), shape = RoundedCornerShape(50)) { Text("Direct to Phone") }
-            },
-            dismissButton = {
-                Button(onClick = { downloadFile(context, downloadUrlToUse, "$downloadTitleToUse.mp4", saveToPublic = false); showDownloadDialog = false }, colors = ButtonDefaults.buttonColors(containerColor = Color.DarkGray), shape = RoundedCornerShape(50)) { Text("In-App Download") }
-            },
+            confirmButton = { Button(onClick = { downloadFile(context, downloadUrlToUse, "$downloadTitleToUse.mp4", saveToPublic = true); showDownloadDialog = false }, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE50914)), shape = RoundedCornerShape(50)) { Text("Direct to Phone") } },
+            dismissButton = { Button(onClick = { downloadFile(context, downloadUrlToUse, "$downloadTitleToUse.mp4", saveToPublic = false); showDownloadDialog = false }, colors = ButtonDefaults.buttonColors(containerColor = Color.DarkGray), shape = RoundedCornerShape(50)) { Text("In-App Download") } },
             containerColor = Color(0xFF15171E)
         )
     }
 
     Box(modifier = Modifier.fillMaxSize().background(Color(0xFF0B0C10))) {
-        // 1. Replaced blurred background SubcomposeAsyncImage with PosterImage
-        PosterImage(
-            posterData = movie.poster,
-            contentDescription = null,
-            modifier = Modifier.fillMaxSize().blur(40.dp),
-            contentScale = ContentScale.Crop
-        )
-        
+        PosterImage(posterData = movie.poster, contentDescription = null, modifier = Modifier.fillMaxSize().blur(40.dp), contentScale = ContentScale.Crop)
         Box(modifier = Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.6f), Color.Black.copy(alpha = 0.95f)))))
 
-        LazyColumn(
-            modifier = Modifier.fillMaxSize().displayCutoutPadding(),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
+        LazyColumn(modifier = Modifier.fillMaxSize().displayCutoutPadding(), horizontalAlignment = Alignment.CenterHorizontally) {
             item {
                 Row(modifier = Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                     IconButton(onClick = onBack, modifier = Modifier.background(Color.White.copy(alpha = 0.1f), CircleShape).border(1.dp, Color.White.copy(alpha = 0.1f), CircleShape)) { Icon(Icons.Default.ArrowBack, "Back", tint = Color.White) }
@@ -2470,18 +2214,7 @@ fun MovieDetailsScreen(movie: Movie, userVipExpiry: Long, onShowVipModal: () -> 
 
             item {
                 Spacer(modifier = Modifier.height(16.dp))
-                // 2. Replaced main poster SubcomposeAsyncImage with PosterImage
-                PosterImage(
-                    posterData = movie.poster,
-                    contentDescription = movie.title,
-                    modifier = Modifier
-                        .width(220.dp)
-                        .aspectRatio(2f / 3f)
-                        .clip(RoundedCornerShape(24.dp))
-                        .border(1.dp, Color.White.copy(alpha = 0.2f), RoundedCornerShape(24.dp))
-                        .shadow(16.dp, RoundedCornerShape(24.dp), spotColor = Color.Black),
-                    contentScale = ContentScale.Crop
-                )
+                PosterImage(posterData = movie.poster, contentDescription = movie.title, modifier = Modifier.width(220.dp).aspectRatio(2f / 3f).clip(RoundedCornerShape(24.dp)).border(1.dp, Color.White.copy(alpha = 0.2f), RoundedCornerShape(24.dp)).shadow(16.dp, RoundedCornerShape(24.dp), spotColor = Color.Black), contentScale = ContentScale.Crop)
                 Spacer(modifier = Modifier.height(24.dp))
             }
 
@@ -2492,9 +2225,7 @@ fun MovieDetailsScreen(movie: Movie, userVipExpiry: Long, onShowVipModal: () -> 
                     Text("${movie.videoTag} • ${movie.year} • ${movie.category}", color = Color.LightGray, fontSize = 14.sp, textAlign = TextAlign.Center)
                     if (movie.isAdult) { 
                         Spacer(modifier = Modifier.height(8.dp))
-                        Box(modifier = Modifier.background(Color.Red.copy(alpha = 0.2f), RoundedCornerShape(8.dp)).border(1.dp, Color.Red, RoundedCornerShape(8.dp)).padding(horizontal = 12.dp, vertical = 4.dp)) {
-                            Text("🔞 18+ Restricted", color = Color.Red, fontSize = 14.sp, fontWeight = FontWeight.Bold) 
-                        }
+                        Box(modifier = Modifier.background(Color.Red.copy(alpha = 0.2f), RoundedCornerShape(8.dp)).border(1.dp, Color.Red, RoundedCornerShape(8.dp)).padding(horizontal = 12.dp, vertical = 4.dp)) { Text("🔞 18+ Restricted", color = Color.Red, fontSize = 14.sp, fontWeight = FontWeight.Bold) }
                     }
                     Spacer(modifier = Modifier.height(24.dp))
                 }
@@ -2513,15 +2244,7 @@ fun MovieDetailsScreen(movie: Movie, userVipExpiry: Long, onShowVipModal: () -> 
                         }
                         
                         Button(
-                            onClick = { 
-                                if (isVipUser) {
-                                    downloadUrlToUse = movie.videoUrl
-                                    downloadTitleToUse = movie.title
-                                    showDownloadDialog = true 
-                                } else {
-                                    onShowVipModal()
-                                }
-                            }, 
+                            onClick = { if (isVipUser) { downloadUrlToUse = movie.videoUrl; downloadTitleToUse = movie.title; showDownloadDialog = true } else { onShowVipModal() } }, 
                             modifier = Modifier.height(56.dp).width(64.dp).border(1.dp, Color.White.copy(alpha = 0.2f), RoundedCornerShape(50)), 
                             colors = ButtonDefaults.buttonColors(containerColor = Color.White.copy(alpha = 0.1f)), 
                             shape = RoundedCornerShape(50), 
@@ -2529,9 +2252,7 @@ fun MovieDetailsScreen(movie: Movie, userVipExpiry: Long, onShowVipModal: () -> 
                         ) {
                             Box(contentAlignment = Alignment.TopEnd) {
                                 Icon(Icons.Default.Download, null, tint = Color.White, modifier = Modifier.padding(top = 8.dp))
-                                Box(modifier = Modifier.padding(4.dp).background(Color(0xFFE50914), RoundedCornerShape(4.dp)).padding(horizontal = 3.dp, vertical = 1.dp)) {
-                                    Text("PRO", color = Color.White, fontSize = 7.sp, fontWeight = FontWeight.Black)
-                                }
+                                Box(modifier = Modifier.padding(4.dp).background(Color(0xFFE50914), RoundedCornerShape(4.dp)).padding(horizontal = 3.dp, vertical = 1.dp)) { Text("PRO", color = Color.White, fontSize = 7.sp, fontWeight = FontWeight.Black) }
                             }
                         }
                     }
@@ -2540,47 +2261,25 @@ fun MovieDetailsScreen(movie: Movie, userVipExpiry: Long, onShowVipModal: () -> 
             }
 
             if (isSeries) {
-                item {
-                    Text("Episodes", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold, modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 8.dp))
-                }
+                item { Text("Episodes", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold, modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 8.dp)) }
                 items(movie.episodes) { ep ->
                     val epLabel = "${ep.season} • ${ep.episode}"
                     Card(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 24.dp, vertical = 6.dp)
-                            .clickable { 
-                                vibrate(context)
-                                if (isLocked) onPlay(movie) 
-                                else { 
-                                    selectedEpisode = ep
-                                    onPlay(Movie(title = "$epLabel - ${movie.title}", videoUrl = ep.url, subtitleUrl = ep.subtitleUrl, isAdult = movie.isAdult, yocId = movie.yocId)) 
-                                } 
-                            },
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 6.dp).clickable { 
+                            vibrate(context)
+                            if (isLocked) onPlay(movie) 
+                            else { selectedEpisode = ep; onPlay(Movie(title = "$epLabel - ${movie.title}", videoUrl = ep.url, subtitleUrl = ep.subtitleUrl, isAdult = movie.isAdult, yocId = movie.yocId)) } 
+                        },
                         colors = CardDefaults.cardColors(containerColor = if (selectedEpisode == ep) Color.White else Color(0xFF15171E).copy(alpha = 0.7f)),
                         border = BorderStroke(1.dp, if (selectedEpisode == ep) Color.White else Color.White.copy(alpha = 0.1f)),
                         shape = RoundedCornerShape(16.dp)
                     ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 16.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
+                        Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 16.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                             Text(epLabel, color = if (selectedEpisode == ep) Color.Black else Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Icon(Icons.Default.PlayArrow, "Play", tint = if (selectedEpisode == ep) Color.Black else Color.White)
                                 Spacer(modifier = Modifier.width(16.dp))
-                                IconButton(onClick = { 
-                                    if (isVipUser) {
-                                        downloadUrlToUse = ep.url
-                                        downloadTitleToUse = "${movie.title} $epLabel"
-                                        showDownloadDialog = true
-                                    } else {
-                                        onShowVipModal()
-                                    }
-                                }) {
-                                    Icon(Icons.Default.Download, "Download", tint = if (selectedEpisode == ep) Color.Black else Color.White)
-                                }
+                                IconButton(onClick = { if (isVipUser) { downloadUrlToUse = ep.url; downloadTitleToUse = "${movie.title} $epLabel"; showDownloadDialog = true } else { onShowVipModal() } }) { Icon(Icons.Default.Download, "Download", tint = if (selectedEpisode == ep) Color.Black else Color.White) }
                             }
                         }
                     }
@@ -2591,7 +2290,7 @@ fun MovieDetailsScreen(movie: Movie, userVipExpiry: Long, onShowVipModal: () -> 
 }
 
 @Composable
-fun MoviesScreen(theme: ThemeConfig, profileName: String, userVipExpiry: Long, kidsMode: Boolean, searchQuery: String, onDetails: (Movie) -> Unit) {
+fun MoviesScreen(gridState: LazyGridState, theme: ThemeConfig, profileName: String, userVipExpiry: Long, kidsMode: Boolean, searchQuery: String, onDetails: (Movie) -> Unit) {
     val db = FirebaseFirestore.getInstance()
     var movies by remember { mutableStateOf<List<Movie>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
@@ -2601,31 +2300,29 @@ fun MoviesScreen(theme: ThemeConfig, profileName: String, userVipExpiry: Long, k
             if (snap != null) {
                 movies = snap.documents.mapNotNull { doc -> 
                     val type = doc.getString("type") ?: ""
-                    if (type == "TV Show") return@mapNotNull null // Only get movies
+                    if (type == "TV Show") return@mapNotNull null
                     
                     val episodes = (doc.get("episodes") as? List<Map<String, Any>>)?.map { ep ->
-                        Episode(
-                            season = ep["season"] as? String ?: "",
-                            episode = ep["episode"] as? String ?: "",
-                            url = ep["url"] as? String ?: "",
-                            subtitleUrl = ep["subtitleUrl"] as? String ?: ""
-                        )
+                        Episode(ep["season"] as? String ?: "", ep["episode"] as? String ?: "", ep["url"] as? String ?: "", ep["subtitleUrl"] as? String ?: "")
                     } ?: emptyList()
 
                     Movie(
-                        id = doc.id, 
-                        title = doc.getString("title") ?: "", 
-                        poster = doc.getString("poster") ?: "", 
-                        videoUrl = doc.getString("videoUrl") ?: "", 
-                        videoTag = doc.getString("videoTag") ?: "", 
-                        year = doc.getString("year") ?: "", 
-                        isVip = doc.getBoolean("isVip") ?: false, 
-                        isAdult = doc.getBoolean("isAdult") ?: false,
-                        episodes = episodes,
-                        yocId = doc.getString("yocId") ?: ""
+                        id = doc.id, title = doc.getString("title") ?: "", poster = doc.getString("poster") ?: "", videoUrl = doc.getString("videoUrl") ?: "", 
+                        videoTag = doc.getString("videoTag") ?: "", year = doc.getString("year") ?: "", isVip = doc.getBoolean("isVip") ?: false, 
+                        isAdult = doc.getBoolean("isAdult") ?: false, episodes = episodes, yocId = doc.getString("yocId") ?: ""
                     ) 
-                }.filter { (!kidsMode || !it.isAdult) && it.title.contains(searchQuery, true) }
+                }
                 isLoading = false
+            }
+        }
+    }
+
+    // 🚨 FIX: derivedStateOf makes filtering instant for every keypress!
+    val filteredMovies by remember(movies, kidsMode, searchQuery) {
+        derivedStateOf {
+            movies.filter { 
+                (!kidsMode || !it.isAdult) && 
+                it.title.contains(searchQuery, ignoreCase = true) 
             }
         }
     }
@@ -2639,7 +2336,7 @@ fun MoviesScreen(theme: ThemeConfig, profileName: String, userVipExpiry: Long, k
         
         if (isLoading && movies.isEmpty()) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = theme.primary) }
-        } else if (movies.isEmpty()) {
+        } else if (filteredMovies.isEmpty()) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Icon(Icons.Default.Movie, null, tint = Color.DarkGray, modifier = Modifier.size(64.dp))
@@ -2648,8 +2345,8 @@ fun MoviesScreen(theme: ThemeConfig, profileName: String, userVipExpiry: Long, k
                 }
             }
         } else {
-            LazyVerticalGrid(columns = GridCells.Adaptive(110.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                items(movies) { movie -> MovieCard(movie, theme, profileName, userVipExpiry, onDetails) }
+            LazyVerticalGrid(state = gridState, columns = GridCells.Adaptive(110.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                items(filteredMovies) { movie -> MovieCard(movie, theme, profileName, userVipExpiry, onDetails) }
             }
         }
     }
@@ -2675,23 +2372,10 @@ fun MovieCard(movie: Movie, theme: ThemeConfig, profileName: String, userVipExpi
     }
 
     Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .aspectRatio(2f / 3f)
-            .clip(RoundedCornerShape(16.dp))
-            .background(Color(0xFF15171E).copy(alpha = 0.8f))
-            .onFocusChanged { isFocused = it.isFocused }
-            .border(1.dp, if (isFocused) Color.White else Color.White.copy(alpha = 0.05f), RoundedCornerShape(16.dp))
-            .clickable { vibrate(context); onDetails(movie) }
+        modifier = Modifier.fillMaxWidth().aspectRatio(2f / 3f).clip(RoundedCornerShape(16.dp)).background(Color(0xFF15171E).copy(alpha = 0.8f)).onFocusChanged { isFocused = it.isFocused }
+            .border(1.dp, if (isFocused) Color.White else Color.White.copy(alpha = 0.05f), RoundedCornerShape(16.dp)).clickable { vibrate(context); onDetails(movie) }
     ) {
-        // REPLACED SubcomposeAsyncImage WITH THIS:
-        PosterImage(
-            posterData = movie.poster,
-            contentDescription = movie.title,
-            modifier = Modifier.fillMaxSize(),
-            contentScale = ContentScale.Crop
-        )
-
+        PosterImage(posterData = movie.poster, contentDescription = movie.title, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
         Box(modifier = Modifier.fillMaxSize().background(Brush.verticalGradient(colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.3f), Color.Black.copy(alpha = 0.8f), Color.Black))))
         Column(modifier = Modifier.align(Alignment.BottomStart).padding(10.dp)) {
             Text(text = movie.title, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis, lineHeight = 15.sp)
@@ -2707,7 +2391,7 @@ fun MovieCard(movie: Movie, theme: ThemeConfig, profileName: String, userVipExpi
 }
 
 @Composable
-fun SeriesScreen(theme: ThemeConfig, profileName: String, userVipExpiry: Long, kidsMode: Boolean, searchQuery: String, onDetails: (Movie) -> Unit) {
+fun SeriesScreen(gridState: LazyGridState, theme: ThemeConfig, profileName: String, userVipExpiry: Long, kidsMode: Boolean, searchQuery: String, onDetails: (Movie) -> Unit) {
     val db = FirebaseFirestore.getInstance()
     var series by remember { mutableStateOf<List<Movie>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
@@ -2717,28 +2401,26 @@ fun SeriesScreen(theme: ThemeConfig, profileName: String, userVipExpiry: Long, k
             if (snap != null) {
                 series = snap.documents.map { doc -> 
                     val episodes = (doc.get("episodes") as? List<Map<String, Any>>)?.map { ep ->
-                        Episode(
-                            season = ep["season"] as? String ?: "",
-                            episode = ep["episode"] as? String ?: "",
-                            url = ep["url"] as? String ?: "",
-                            subtitleUrl = ep["subtitleUrl"] as? String ?: ""
-                        )
+                        Episode(ep["season"] as? String ?: "", ep["episode"] as? String ?: "", ep["url"] as? String ?: "", ep["subtitleUrl"] as? String ?: "")
                     } ?: emptyList()
 
                     Movie(
-                        id = doc.id, 
-                        title = doc.getString("title") ?: "", 
-                        poster = doc.getString("poster") ?: "", 
-                        videoUrl = doc.getString("videoUrl") ?: "", 
-                        videoTag = doc.getString("videoTag") ?: "", 
-                        year = doc.getString("year") ?: "", 
-                        isVip = doc.getBoolean("isVip") ?: false, 
-                        isAdult = doc.getBoolean("isAdult") ?: false,
-                        episodes = episodes,
-                        yocId = doc.getString("yocId") ?: ""
+                        id = doc.id, title = doc.getString("title") ?: "", poster = doc.getString("poster") ?: "", videoUrl = doc.getString("videoUrl") ?: "", 
+                        videoTag = doc.getString("videoTag") ?: "", year = doc.getString("year") ?: "", isVip = doc.getBoolean("isVip") ?: false, 
+                        isAdult = doc.getBoolean("isAdult") ?: false, episodes = episodes, yocId = doc.getString("yocId") ?: ""
                     ) 
-                }.filter { (!kidsMode || !it.isAdult) && it.title.contains(searchQuery, true) }
+                }
                 isLoading = false
+            }
+        }
+    }
+
+    // 🚨 FIX: derivedStateOf makes filtering instant!
+    val filteredSeries by remember(series, kidsMode, searchQuery) {
+        derivedStateOf {
+            series.filter { 
+                (!kidsMode || !it.isAdult) && 
+                it.title.contains(searchQuery, ignoreCase = true) 
             }
         }
     }
@@ -2752,7 +2434,7 @@ fun SeriesScreen(theme: ThemeConfig, profileName: String, userVipExpiry: Long, k
         
         if (isLoading && series.isEmpty()) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = theme.primary) }
-        } else if (series.isEmpty()) {
+        } else if (filteredSeries.isEmpty()) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Icon(Icons.Default.VideoLibrary, null, tint = Color.DarkGray, modifier = Modifier.size(64.dp))
@@ -2761,15 +2443,15 @@ fun SeriesScreen(theme: ThemeConfig, profileName: String, userVipExpiry: Long, k
                 }
             }
         } else {
-            LazyVerticalGrid(columns = GridCells.Adaptive(110.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                items(series) { movie -> MovieCard(movie, theme, profileName, userVipExpiry, onDetails) }
+            LazyVerticalGrid(state = gridState, columns = GridCells.Adaptive(110.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                items(filteredSeries) { movie -> MovieCard(movie, theme, profileName, userVipExpiry, onDetails) }
             }
         }
     }
 }
 
 @Composable
-fun TvLiveScreen(theme: ThemeConfig, userVipExpiry: Long, kidsMode: Boolean, searchQuery: String, onPlayMedia: (Movie) -> Unit) {
+fun TvLiveScreen(gridState: LazyGridState, theme: ThemeConfig, userVipExpiry: Long, kidsMode: Boolean, searchQuery: String, onPlayMedia: (Movie) -> Unit) {
     val db = FirebaseFirestore.getInstance()
     var channels by remember { mutableStateOf<List<TvChannel>>(emptyList()) }
     var selectedCategory by remember { mutableStateOf("All") }
@@ -2786,48 +2468,34 @@ fun TvLiveScreen(theme: ThemeConfig, userVipExpiry: Long, kidsMode: Boolean, sea
         onDispose { listener.remove() }
     }
 
+    // 🚨 FIX: derivedStateOf makes filtering instant!
+    val filteredChannels by remember(channels, kidsMode, searchQuery, selectedCategory) {
+        derivedStateOf {
+            channels.filter { channel ->
+                (if (kidsMode) channel.category == "Kids" || channel.category == "Animation" else true) &&
+                channel.name.contains(searchQuery, ignoreCase = true) &&
+                (selectedCategory == "All" || channel.category == selectedCategory)
+            }
+        }
+    }
+
     Column(modifier = Modifier.fillMaxSize()) {
-        val filteredChannels = if (kidsMode) channels.filter { it.category == "Kids" || it.category == "Animation" } else channels
-        
-        // Apply search filter
-        val searchedChannels = filteredChannels.filter { it.name.contains(searchQuery, true) }
-        
-        val featuredChannels = searchedChannels.filter { it.isFeatured }.take(4)
-        val displayFeatured = if (featuredChannels.isNotEmpty()) featuredChannels else searchedChannels.take(4)
+        val featuredChannels = filteredChannels.filter { it.isFeatured }.take(4)
+        val displayFeatured = if (featuredChannels.isNotEmpty()) featuredChannels else filteredChannels.take(4)
 
         if (displayFeatured.isNotEmpty() && searchQuery.isEmpty()) {
             Text("Featured Channels", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(start = 16.dp, top = 16.dp, bottom = 8.dp))
             LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 items(displayFeatured) { channel ->
                     Box(
-                        modifier = Modifier
-                            .width(220.dp)
-                            .height(125.dp)
-                            .clip(RoundedCornerShape(20.dp))
-                            .border(1.dp, Color.White.copy(alpha = 0.15f), RoundedCornerShape(20.dp))
-                            .clickable { vibrate(context); onPlayMedia(Movie(title = channel.name, videoUrl = channel.streamUrl, isVip = channel.isVip)) }
+                        modifier = Modifier.width(220.dp).height(125.dp).clip(RoundedCornerShape(20.dp)).border(1.dp, Color.White.copy(alpha = 0.15f), RoundedCornerShape(20.dp)).clickable { vibrate(context); onPlayMedia(Movie(title = channel.name, videoUrl = channel.streamUrl, isVip = channel.isVip)) }
                     ) {
-                        SubcomposeAsyncImage(
-                            model = ImageRequest.Builder(LocalContext.current).data(channel.logo).crossfade(true).build(),
-                            contentDescription = channel.name,
-                            contentScale = ContentScale.Crop,
-                            modifier = Modifier.fillMaxSize(),
-                            loading = { ShimmerBox(modifier = Modifier.fillMaxSize()) }
-                        )
+                        SubcomposeAsyncImage(model = ImageRequest.Builder(LocalContext.current).data(channel.logo).crossfade(true).build(), contentDescription = channel.name, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize(), loading = { ShimmerBox(modifier = Modifier.fillMaxSize()) })
                         Box(modifier = Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.8f), Color.Black))))
                         
                         Column(modifier = Modifier.align(Alignment.BottomStart).padding(12.dp)) {
                             Text(channel.name, color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold)
-                            
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier
-                                    .padding(top = 4.dp)
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(Color.Black.copy(alpha = 0.5f))
-                                    .border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(8.dp))
-                                    .padding(horizontal = 6.dp, vertical = 2.dp)
-                            ) { 
+                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp).clip(RoundedCornerShape(8.dp)).background(Color.Black.copy(alpha = 0.5f)).border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(8.dp)).padding(horizontal = 6.dp, vertical = 2.dp)) { 
                                 Box(modifier = Modifier.size(6.dp).clip(CircleShape).background(Color.Red))
                                 Spacer(modifier = Modifier.width(4.dp))
                                 Text("LIVE", color = Color.Red, fontSize = 10.sp, fontWeight = FontWeight.Bold) 
@@ -2860,55 +2528,25 @@ fun TvLiveScreen(theme: ThemeConfig, userVipExpiry: Long, kidsMode: Boolean, sea
             }
         }
         
-        val filtered = searchedChannels.filter { selectedCategory == "All" || it.category == selectedCategory }
-        LazyVerticalGrid(columns = GridCells.Adaptive(160.dp), contentPadding = PaddingValues(16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            items(filtered) { channel ->
+        LazyVerticalGrid(state = gridState, columns = GridCells.Adaptive(160.dp), contentPadding = PaddingValues(16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            items(filteredChannels) { channel ->
                 val isLocked = channel.isVip && userVipExpiry < System.currentTimeMillis()
                 var isFocused by remember { mutableStateOf(false) }
                 Box {
                     Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(170.dp)
-                            .clip(RoundedCornerShape(24.dp))
-                            .onFocusChanged { isFocused = it.isFocused }
+                        modifier = Modifier.fillMaxWidth().height(170.dp).clip(RoundedCornerShape(24.dp)).onFocusChanged { isFocused = it.isFocused }
                             .border(if (isFocused) 3.dp else 1.dp, if (isFocused) Color.White else Color.White.copy(alpha = 0.1f), RoundedCornerShape(24.dp))
-                            .background(Color(0xFF15171E).copy(alpha = 0.7f))
-                            .clickable { vibrate(context); onPlayMedia(Movie(title = channel.name, videoUrl = channel.streamUrl, isVip = channel.isVip)) }
-                            .padding(12.dp), 
+                            .background(Color(0xFF15171E).copy(alpha = 0.7f)).clickable { vibrate(context); onPlayMedia(Movie(title = channel.name, videoUrl = channel.streamUrl, isVip = channel.isVip)) }.padding(12.dp), 
                         horizontalAlignment = Alignment.CenterHorizontally, 
                         verticalArrangement = Arrangement.Center
                     ) {
-                        SubcomposeAsyncImage(
-                            model = ImageRequest.Builder(LocalContext.current).data(channel.logo).crossfade(true).build(), 
-                            contentDescription = channel.name, 
-                            contentScale = ContentScale.Fit, 
-                            modifier = Modifier
-                                .size(80.dp)
-                                .clip(RoundedCornerShape(16.dp))
-                                .shadow(4.dp, RoundedCornerShape(16.dp)),
-                            loading = { ShimmerBox(modifier = Modifier.fillMaxSize()) }, 
-                            error = { Box(modifier = Modifier.fillMaxSize().background(Color(0xFF15171E)), contentAlignment = Alignment.Center) { Icon(Icons.Default.Tv, null, tint = Color.Gray) } }
-                        )
+                        SubcomposeAsyncImage(model = ImageRequest.Builder(LocalContext.current).data(channel.logo).crossfade(true).build(), contentDescription = channel.name, contentScale = ContentScale.Fit, modifier = Modifier.size(80.dp).clip(RoundedCornerShape(16.dp)).shadow(4.dp, RoundedCornerShape(16.dp)), loading = { ShimmerBox(modifier = Modifier.fillMaxSize()) }, error = { Box(modifier = Modifier.fillMaxSize().background(Color(0xFF15171E)), contentAlignment = Alignment.Center) { Icon(Icons.Default.Tv, null, tint = Color.Gray) } })
                         Spacer(modifier = Modifier.height(12.dp))
                         Text(channel.name, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically, 
-                            modifier = Modifier
-                                .padding(top = 6.dp)
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(Color.Black.copy(alpha = 0.4f))
-                                .border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(8.dp))
-                                .padding(horizontal = 8.dp, vertical = 3.dp)
-                        ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 6.dp).clip(RoundedCornerShape(8.dp)).background(Color.Black.copy(alpha = 0.4f)).border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(8.dp)).padding(horizontal = 8.dp, vertical = 3.dp)) {
                             val infiniteTransition = rememberInfiniteTransition(label = "blink")
-                            val alpha by infiniteTransition.animateFloat(
-                                initialValue = 1f, 
-                                targetValue = 0.2f, 
-                                animationSpec = infiniteRepeatable(animation = tween(1000), repeatMode = RepeatMode.Reverse), 
-                                label = "alpha"
-                            )
+                            val alpha by infiniteTransition.animateFloat(initialValue = 1f, targetValue = 0.2f, animationSpec = infiniteRepeatable(animation = tween(1000), repeatMode = RepeatMode.Reverse), label = "alpha")
                             Box(modifier = Modifier.size(6.dp).clip(CircleShape).background(Color.Red.copy(alpha = alpha)))
                             Spacer(modifier = Modifier.width(4.dp))
                             Text("LIVE", color = Color.Red.copy(alpha = alpha), fontSize = 10.sp, fontWeight = FontWeight.Bold)
